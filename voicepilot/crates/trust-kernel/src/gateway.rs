@@ -1,14 +1,17 @@
 //! Action Gateway facade — V1.1 §4.2, §4.4, §6.2.
 //!
 //! Orchestrates the full policy pipeline per §4.4:
-//!   1. Normalize resource (path canonicalization, provenance).
-//!   2. Hard-deny rules (D3, shell, taint elevation).
-//!   3. Cedar authorization (binary allow/deny).
-//!   4. Rust Constraint Engine (args normalization + constraints).
-//!   5. E×D risk classification (ternary allow/confirm/deny).
-//!   6. Egress check (if data flows to remote destination).
-//!   7. Return Decision with effect + reasons + matched_policies +
+//!   1. Hard-deny rules (D3, shell, taint elevation).
+//!   2. Cedar authorization (binary allow/deny).
+//!   3. Rust Constraint Engine (args normalization + constraints).
+//!   4. E×D risk classification (ternary allow/confirm/deny).
+//!   5. Egress check (if data flows to remote destination).
+//!   6. Return Decision with effect + reasons + matched_policies +
 //!      normalized_args + constraints_applied + approval_scope + policy_bundle_hash.
+//!
+//! W2 skips §4.4 step 1 (resource path canonicalization) — args normalization
+//! in step 3 covers the W2 tool surface. W3 will add resource.path canonicalization
+//! when real filesystem tools land.
 
 use crate::error::Result;
 use crate::policy::cedar_engine::CedarEngine;
@@ -60,7 +63,7 @@ impl ActionGateway {
         let action = Action { name: tool.to_string(), e_level };
         let mut reasons: Vec<String> = Vec::new();
 
-        // Step 2: hard-deny rules (D3, shell_exec, taint elevation).
+        // Step 1: hard-deny rules (D3, shell_exec, taint elevation).
         if resource.data_class == crate::policy::types::DLevel::D3 {
             return Ok(Decision::deny(
                 self.bundle_hash.clone(),
@@ -81,7 +84,7 @@ impl ActionGateway {
             ));
         }
 
-        // Step 3: Cedar authorization.
+        // Step 2: Cedar authorization.
         let cedar_allows = self.cedar.is_allowed(&action, resource)?;
         if !cedar_allows {
             return Ok(Decision::deny(
@@ -90,7 +93,7 @@ impl ActionGateway {
             ));
         }
 
-        // Step 4: normalize args + apply constraints.
+        // Step 3: normalize args + apply constraints.
         let (normalized_args, constraints_applied) = if let Some(args) = args {
             let normalized = self.constraints.normalize_args(tool, &args)?;
             let (constrained, applied) = self.constraints.apply_constraints(tool, normalized)?;
@@ -99,7 +102,7 @@ impl ActionGateway {
             (serde_json::Value::Null, vec![])
         };
 
-        // Step 5: E×D risk classification.
+        // Step 4: E×D risk classification.
         let mut effect = self.constraints.upgrade_effect(cedar_allows, e_level, resource.data_class);
         if matches!(effect, Effect::Deny) {
             reasons.push(format!("E{:?}×D{:?} = deny", e_level, resource.data_class));
@@ -107,7 +110,7 @@ impl ActionGateway {
             reasons.push(format!("E{:?}×D{:?} = confirm", e_level, resource.data_class));
         }
 
-        // Step 6: egress check.
+        // Step 5: egress check.
         // For remote destinations (RemoteLlm/RemoteMcp/ToolArgument), egress
         // overrides E×D — §4.3 is the specific rule for egress flows.
         // For LocalFile, egress returns Allow as a placeholder ("E×D covers it"
@@ -126,9 +129,10 @@ impl ActionGateway {
             }
         }
 
-        // Step 7: assemble Decision.
+        // Step 6: assemble Decision.
+        // W2: approval_scope is always "single"; batch scope lands in W3 (§8.1).
         let matched_policies = self.cedar.matched_policy_ids(&action, resource)?;
-        let approval_scope = if matches!(effect, Effect::Confirm) { "single" } else { "single" };
+        let approval_scope = "single";
 
         Ok(Decision {
             effect,

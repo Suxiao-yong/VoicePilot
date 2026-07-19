@@ -1,8 +1,8 @@
 //! VoicePilot Trust Kernel — the single trust boundary.
 //!
 //! W1: SQLite persistence, audit logging, task state machine.
-//! W2: Policy engine skeleton (types, E×D risk matrix, stubs for Cedar/Constraint/Egress/Transaction/Gateway).
-//! Voice / MCP / full Action Gateway land in W3+.
+//! W2: Policy engine — types, E×D risk matrix, Cedar, Constraint, Egress, Transaction, Action Gateway.
+//! Voice / MCP / full ToolResult V2 land in W3+.
 
 pub mod error;
 pub mod state;

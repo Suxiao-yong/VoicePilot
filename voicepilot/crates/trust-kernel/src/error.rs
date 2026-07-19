@@ -24,6 +24,7 @@ pub enum KernelError {
     PreconditionMismatch { expected: String, actual: String },
     #[error("prepare token not found or expired: {0}")]
     InvalidPrepareToken(String),
+    /// Reserved for W4 approval flow (UI-driven confirmation).
     #[error("approval required but not granted")]
     ApprovalRequired,
 }
