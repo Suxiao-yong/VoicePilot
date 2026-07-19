@@ -16,6 +16,7 @@ pub struct TrustKernel {
     conn: Arc<Mutex<Connection>>,
     task_repo: TaskRepo,
     audit: Arc<SqliteAuditLogger>,
+    gateway: Arc<crate::gateway::ActionGateway>,
 }
 
 impl TrustKernel {
@@ -33,11 +34,22 @@ impl TrustKernel {
 
     fn with_conn(conn: Connection) -> Self {
         let shared = Arc::new(Mutex::new(conn));
+        let cedar_src = include_str!("policies/default.cedar");
+        let gateway = Arc::new(
+            crate::gateway::ActionGateway::new(cedar_src)
+                .expect("default cedar policy must parse"),
+        );
         Self {
             conn: shared.clone(),
             task_repo: TaskRepo::new(),
             audit: Arc::new(SqliteAuditLogger::new(shared)),
+            gateway,
         }
+    }
+
+    /// Access the Action Gateway for policy decisions.
+    pub fn gateway(&self) -> &crate::gateway::ActionGateway {
+        &self.gateway
     }
 
     pub fn create_task(&self, task_id: &str, user_goal: &str) -> Result<TaskRecord> {
