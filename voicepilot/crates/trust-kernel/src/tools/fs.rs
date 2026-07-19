@@ -200,6 +200,61 @@ impl FilesystemTool {
             preconditions_recheck: commit_result.preconditions_recheck,
         })
     }
+
+    /// Strong Verifier — V1.1 §7.1.
+    ///
+    /// Re-reads each destination file, recomputes sha256 + size, compares with
+    /// the original source snapshot in the manifest. Returns Strong evidence
+    /// if ALL sources match. Returns Err on any mismatch (caller decides retry vs fail).
+    pub fn verify_move(&self, manifest: &EffectManifest) -> Result<VerifyResult> {
+        let dest_dir = std::path::PathBuf::from(&manifest.destination);
+        for snap in &manifest.sources {
+            let filename = std::path::Path::new(&snap.canonical_path)
+                .file_name()
+                .ok_or_else(|| KernelError::Filesystem("source path has no filename".to_string()))?
+                .to_string_lossy()
+                .to_string();
+            let dest_target = dest_dir.join(&filename);
+
+            let dest_meta = std::fs::metadata(&dest_target).map_err(|_| {
+                KernelError::Verification {
+                    message: format!("destination file missing after move: {}", dest_target.display()),
+                }
+            })?;
+            if !dest_meta.is_file() {
+                return Err(KernelError::Verification {
+                    message: format!("destination is not a regular file: {}", dest_target.display()),
+                });
+            }
+            if dest_meta.len() != snap.size {
+                return Err(KernelError::Verification {
+                    message: format!(
+                        "size mismatch for {}: expected {} got {}",
+                        dest_target.display(),
+                        snap.size,
+                        dest_meta.len()
+                    ),
+                });
+            }
+
+            let actual_hash = sha256_of_file(&dest_target)?;
+            if actual_hash != snap.sha256 {
+                return Err(KernelError::Verification {
+                    message: format!(
+                        "sha256 mismatch for {}: expected {} got {}",
+                        dest_target.display(),
+                        snap.sha256,
+                        actual_hash
+                    ),
+                });
+            }
+        }
+
+        Ok(VerifyResult {
+            verified: true,
+            evidence_strength: crate::toolresult::EvidenceStrength::Strong,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -229,4 +284,34 @@ fn rollback_moves(moved: &[(std::path::PathBuf, std::path::PathBuf)]) {
             );
         }
     }
+}
+
+use crate::tools::fs_snapshot::FileSnapshot as FsSnap;
+// Avoid pulling fs_snapshot's private sha256_of_file — re-declare a local one.
+fn sha256_of_file(path: &std::path::Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).map_err(KernelError::Io)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = f.read(&mut buf).map_err(KernelError::Io)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifyResult {
+    pub verified: bool,
+    pub evidence_strength: crate::toolresult::EvidenceStrength,
+}
+
+// Suppress unused-import warning for FsSnap (used for type inference in future tasks).
+#[allow(dead_code)]
+fn _touch_fssnap() -> FsSnap {
+    unimplemented!()
 }
