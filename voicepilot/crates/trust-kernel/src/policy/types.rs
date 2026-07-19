@@ -24,6 +24,17 @@ pub enum DLevel {
     D3,
 }
 
+impl DLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DLevel::D0 => "D0",
+            DLevel::D1 => "D1",
+            DLevel::D2 => "D2",
+            DLevel::D3 => "D3",
+        }
+    }
+}
+
 /// Final ternary effect after all policy layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
