@@ -255,6 +255,33 @@ impl FilesystemTool {
             evidence_strength: crate::toolresult::EvidenceStrength::Strong,
         })
     }
+
+    /// Walk `root` recursively, return all files whose name matches `pattern`.
+    ///
+    /// Pattern is a simple glob: `*` matches any chars, `?` matches one char.
+    /// Case-insensitive on Windows, case-sensitive on Unix (matches filesystem behavior).
+    /// Returns paths in walkdir's natural order (depth-first, directory then contents).
+    pub fn search_files(&self, root: &Path, pattern: &str) -> Result<Vec<std::path::PathBuf>> {
+        let meta = std::fs::metadata(root).map_err(|e| {
+            KernelError::Filesystem(format!("search root missing: {}", e))
+        })?;
+        if !meta.is_dir() {
+            return Err(KernelError::Filesystem("search root is not a directory".to_string()));
+        }
+
+        let mut out: Vec<std::path::PathBuf> = Vec::new();
+        for entry in walkdir::WalkDir::new(root).follow_links(false) {
+            let entry = entry.map_err(|e| KernelError::Filesystem(format!("walkdir error: {}", e)))?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let filename = entry.file_name().to_string_lossy();
+            if glob_matches(pattern, &filename) {
+                out.push(entry.path().to_path_buf());
+            }
+        }
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -314,4 +341,52 @@ pub struct VerifyResult {
 #[allow(dead_code)]
 fn _touch_fssnap() -> FsSnap {
     unimplemented!()
+}
+
+/// Simple glob matcher: `*` = any chars (including zero), `?` = exactly one char.
+/// Case-insensitive on Windows, case-sensitive elsewhere.
+fn glob_matches(pattern: &str, input: &str) -> bool {
+    #[cfg(windows)]
+    {
+        glob_matches_impl(pattern.to_lowercase().as_str(), input.to_lowercase().as_str())
+    }
+    #[cfg(not(windows))]
+    {
+        glob_matches_impl(pattern, input)
+    }
+}
+
+fn glob_matches_impl(pattern: &str, input: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let s: Vec<char> = input.chars().collect();
+    glob_recursive(&p, 0, &s, 0)
+}
+
+fn glob_recursive(p: &[char], pi: usize, s: &[char], si: usize) -> bool {
+    if pi == p.len() {
+        return si == s.len();
+    }
+    match p[pi] {
+        '*' => {
+            // Try matching zero or more chars.
+            for skip in 0..=(s.len() - si) {
+                if glob_recursive(p, pi + 1, s, si + skip) {
+                    return true;
+                }
+            }
+            false
+        }
+        '?' => {
+            if si >= s.len() {
+                return false;
+            }
+            glob_recursive(p, pi + 1, s, si + 1)
+        }
+        c => {
+            if si >= s.len() || s[si] != c {
+                return false;
+            }
+            glob_recursive(p, pi + 1, s, si + 1)
+        }
+    }
 }
