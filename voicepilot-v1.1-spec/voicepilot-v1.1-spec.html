@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VoicePilot 项目开发规格说明书 V1.1</title>
+<title>VoicePilot 项目开发规格说明书 V1.1.1</title>
 <style>
 @font-face { font-family: "InstrumentSans"; src: url("./_shared/fonts/InstrumentSans-Regular.ttf") format("truetype"); font-weight: 400; }
 @font-face { font-family: "InstrumentSans"; src: url("./_shared/fonts/InstrumentSans-Bold.ttf") format("truetype"); font-weight: 700; }
@@ -249,10 +249,10 @@ sup a:hover { text-decoration: underline; }
 <!-- Cover -->
 <section class="cover">
   <div class="eyebrow">Project Development Specification · 2026-07-19</div>
-  <h1>VoicePilot 项目开发规格说明书 <span class="version-tag">V1.1</span></h1>
+  <h1>VoicePilot 项目开发规格说明书 <span class="version-tag">V1.1.1</span></h1>
   <div class="subtitle">权限感知语音桌面 Agent · 单一 Rust 信任内核 · 二维风险模型 · Skills 快速路径</div>
   <div class="meta">
-    <div><strong>版本：</strong>V1.1（基线修订）</div>
+    <div><strong>版本：</strong>V1.1.1（W2 反馈修订增量）</div>
     <div><strong>编制日期：</strong>2026-07-19</div>
     <div><strong>主平台：</strong>Windows 11 24H2/25H2</div>
     <div><strong>周期：</strong>8-9 周（原 12 周压缩 30%）</div>
@@ -269,6 +269,7 @@ sup a:hover { text-decoration: underline; }
 <tr><td>V0.1</td><td>2026-07-19</td><td>从共享会话提取项目目标、功能和实施路线</td><td>草案</td></tr>
 <tr><td>V1.0</td><td>2026-07-19</td><td>从合并方案中拆分为独立项目；补齐架构、接口、测试、部署和验收</td><td>开发基线</td></tr>
 <tr><td><strong>V1.1</strong></td><td>2026-07-19</td><td>采纳 2026 生态调研与深度评审：单一 Rust 信任内核、二维风险模型 E×D、Skills 层、prepare/approve/commit 事务协议、Taint Tracking、内置官方 MCP、Compensation 三级、8-9 周压缩计划</td><td><strong>修订基线</strong></td></tr>
+<tr><td><strong>V1.1.1</strong></td><td>2026-07-19</td><td>W2 实施反馈修订：§4.3 ToolArgument 无条件 deny（收紧）、§4.4 egress 优先级规则明确（remote 覆盖 E×D，local 由 E×D 权威）、§4.4 step 1 resource.path 规范化时机说明（W3 启用）、§8.1 approval_scope batch 触发条件定义</td><td><strong>修订增量</strong></td></tr>
 </tbody>
 </table>
 </div>
@@ -765,21 +766,26 @@ when { resource.data_class in ["D2", "D3"] };</code></pre>
 <tr><td>web_page</td><td>local_file</td><td>—</td><td>allow（taint=external_untrusted）</td></tr>
 <tr><td>web_page</td><td>remote_llm</td><td>—</td><td>allow（仅作为只读处理上下文）</td></tr>
 <tr><td>web_page</td><td>tool_argument</td><td>—</td><td><strong>deny（taint 不可提升为指令）</strong></td></tr>
+<tr><td>any</td><td>tool_argument</td><td>any</td><td><strong>deny（V1.1 收紧：所有 data flow 到 tool_argument 无条件 deny，provenance-aware 在 W7 评估）</strong></td></tr>
 </tbody>
 </table>
 </div>
 
+<p><strong>V1.1 收紧说明</strong>：原表仅对 <code>web_page → tool_argument</code> 显式 deny，留下 <code>local_file → tool_argument</code> 与 <code>tool_output → tool_argument</code> 的语义空白。V1.1 统一收紧为：所有流向 <code>tool_argument</code> 的数据无条件 deny。理由：tool_argument 等价于指令注入面，任何 provenance 都不应直接提升为指令。W7 引入值级 taint 跟踪后，可基于 <code>taints_json</code> 做精细化放行（例如 <code>user_direct</code> provenance 的常量参数可允许）。</p>
+
 <h3 id="ch4-4">4.4 策略匹配顺序（V1.1 修订）</h3>
 <ol>
-  <li><strong>规范化资源</strong>：路径、域名、应用、窗口、字段名称、数量范围、<strong>provenance 标签</strong>。</li>
+  <li><strong>规范化资源</strong>：路径、域名、应用、窗口、字段名称、数量范围、<strong>provenance 标签</strong>。<span class="add">W2 实现说明：args 内的路径规范化在 step 4 由 Rust Constraint Engine 执行；resource.path 的规范化需要真实 filesystem 工具支持（W3 接入时启用）。</span></li>
   <li><strong>先匹配硬拒绝规则</strong>：D3 凭据、密码、Token、Cookie、支付、提权、系统目录、任意 Shell、<strong>taint 提升为指令</strong>。</li>
   <li><strong>Cedar 授权</strong>：allow/deny 二态判定。</li>
   <li><strong>Rust Constraint Engine</strong>：应用参数约束（max_files、overwrite、allowed_destinations）。</li>
   <li><strong>二维风险分类</strong>：计算 E×D，决定最终 allow/confirm/deny。</li>
-  <li><strong>egress 独立检查</strong>：数据流向 remote_llm/remote_mcp 时单独过 egress 策略。</li>
+  <li><strong>egress 独立检查</strong>：数据流向 remote_llm/remote_mcp 时单独过 egress 策略。<span class="add"><strong>优先级规则（V1.1 明确）</strong>：对 <code>remote_llm</code> / <code>remote_mcp</code> / <code>tool_argument</code> 目的地，egress 表是权威的，覆盖 E×D 结果（因为 egress 行为本身即不可逆，等价于 E3）；对 <code>local_file</code> 目的地，E×D 是权威的，egress 检查返回 allow 占位（"E×D covers it"）。取更严格者（more_restrictive）只在 LocalFile 路径生效。</span></li>
   <li><strong>prepare 阶段冻结参数快照</strong>，生成 effect_manifest + prepare_token；用户编辑后重新运行完整策略检查。</li>
   <li><strong>commit 阶段再次比对</strong> policy_version、approval_token、prepare_token、preconditions_hash，防止竞态或 TOCTOU。</li>
 </ol>
+
+<p><strong>egress 覆盖 E×D 的设计理由</strong>：当数据流向远程目的地时，"发送到远程"本身就是不可逆动作（E3 等价）。此时 E×D 矩阵的 E 维度应被 egress 行为替代，而非叠加。例如 <code>(E3, D2) → RemoteLlm</code>：E×D 矩阵返回 Deny（因 E3×D2=Deny），但 egress 表返回 Confirm（因 D2→RemoteLlm=Confirm）。V1.1 选择 egress 权威 → 最终 Confirm，符合"用户可批准具体片段外发"的语义。</p>
 
 <!-- ============= Chapter 5 ============= -->
 <h2 id="ch5"><span class="num">5</span>Skills 层与确定性快速路径</h2>
@@ -1272,6 +1278,21 @@ failure_policy:
 </tbody>
 </table>
 </div>
+
+<p><strong>approval_scope 语义（V1.1 明确）</strong>：<code>approvals.approval_scope</code> 取值 <code>'single' | 'batch'</code>，由 Action Gateway 在 <code>decide()</code> 时计算并写入 Decision。语义：</p>
+<ul>
+  <li><strong>single</strong>（默认）：本次审批仅覆盖当前 step 的一次 commit。任何后续 step（即使参数相同）必须重新走 prepare→approve→commit。</li>
+  <li><strong>batch</strong>：本次审批覆盖同一 task 内、同一 Skill 内、相同 <code>args_hash</code> + 相同 <code>policy_bundle_hash</code> 的连续 N 个 step，N ≤ Skill manifest 的 <code>approval.max_approval_scope</code>（默认 3）。</li>
+</ul>
+<p><strong>batch 触发条件（全部满足）</strong>：</p>
+<ol>
+  <li>Skill manifest 声明 <code>approval.mode: batch_once</code>；</li>
+  <li>当前 step 与已批准 step 属于同一 <code>task_id</code> + 同一 <code>skill_id</code>；</li>
+  <li>当前 step 的 <code>args_hash</code> 与已批准 step 完全一致（参数未变）；</li>
+  <li>当前 step 的 <code>policy_bundle_hash</code> 与已批准 step 一致（策略版本未变）；</li>
+  <li>已批准 step 数 <code>max_approval_scope</code>。</li>
+</ol>
+<p>任一条件不满足时降级为 <code>single</code>。W2 实现总是返回 <code>single</code>（无 Skill 上下文）；W3 接入 Skill 层后启用 batch 判定。</p>
 
 <h3 id="ch8-2">8.2 Tauri IPC 硬化（V1.1 新增窗口拆分）</h3>
 <p>Tauri 2 的 Capabilities 可按 window/webview 限制权限，但官方文档指出多份 Capability 会合并权限；自定义命令若不额外声明限制，可能被所有窗口调用。V1.1 把窗口拆成 5 类，各自最小权限。</p>
