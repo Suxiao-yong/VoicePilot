@@ -1,0 +1,23 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# VoicePilot runtime data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+voicepilot/data/
+
+# Logs
+*.log
