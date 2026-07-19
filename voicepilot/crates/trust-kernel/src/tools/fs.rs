@@ -96,6 +96,110 @@ impl FilesystemTool {
             preconditions_hash,
         })
     }
+
+    /// Phase 2 of move_files transaction.
+    ///
+    /// 1. Re-snapshot each source, recompute preconditions_hash, compare with stored.
+    /// 2. Re-check destination conflicts (any new conflict → abort).
+    /// 3. Ask TransactionManager to validate the token + hash (also enforces TTL).
+    /// 4. Execute atomic-ish move (rename; fall back to copy+delete across volumes).
+    /// 5. Return CommitMoveResult with succeeded=true + moved_paths.
+    ///
+    /// On any failure mid-move: attempt to roll back (move files back) and return Err.
+    pub fn commit_move(
+        &self,
+        token: &PrepareToken,
+        manifest: &EffectManifest,
+        mgr: &TransactionManager,
+    ) -> Result<CommitMoveResult> {
+        // Re-snapshot sources and recompute hash via the manager.
+        let mut fresh_snapshots: Vec<FileSnapshot> = Vec::with_capacity(manifest.sources.len());
+        for snap in &manifest.sources {
+            let path = std::path::PathBuf::from(&snap.canonical_path);
+            let fresh = snapshot_file(&path)?;
+            fresh_snapshots.push(fresh);
+        }
+        let fresh_manifest = EffectManifest {
+            sources: fresh_snapshots.clone(),
+            destination: manifest.destination.clone(),
+            conflicts: manifest.conflicts.clone(),
+            total_bytes: manifest.total_bytes,
+        };
+
+        // Token validation (checks stored hash + expiry).
+        let commit_result = mgr.commit(token, &fresh_manifest)?;
+
+        // Re-check destination conflicts (a new conflict appearing after prepare is TOCTOU).
+        let dest_path = std::path::PathBuf::from(&manifest.destination);
+        let mut new_conflicts: Vec<String> = Vec::new();
+        for snap in &manifest.sources {
+            let filename = std::path::Path::new(&snap.canonical_path)
+                .file_name()
+                .ok_or_else(|| KernelError::Filesystem("source path has no filename".to_string()))?
+                .to_string_lossy()
+                .to_string();
+            let dest_target = dest_path.join(&filename);
+            if dest_target.exists() {
+                // Was this conflict already known at prepare time?
+                let was_known = manifest
+                    .conflicts
+                    .iter()
+                    .any(|c| c == &canonicalize(&dest_target.to_string_lossy()));
+                if !was_known {
+                    new_conflicts.push(canonicalize(&dest_target.to_string_lossy()));
+                }
+            }
+        }
+        if !new_conflicts.is_empty() {
+            return Err(KernelError::Filesystem(format!(
+                "new destination conflict appeared after prepare: {:?}",
+                new_conflicts
+            )));
+        }
+
+        // Execute moves with rollback tracking.
+        let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+        for snap in &manifest.sources {
+            let src = std::path::PathBuf::from(&snap.canonical_path);
+            let filename = src
+                .file_name()
+                .ok_or_else(|| KernelError::Filesystem("source path has no filename".to_string()))?
+                .to_string_lossy()
+                .to_string();
+            let dest_target = dest_path.join(&filename);
+
+            match std::fs::rename(&src, &dest_target) {
+                Ok(_) => {
+                    moved.push((src, dest_target));
+                }
+                Err(e) if e.raw_os_error() == Some(17) /* EXDEV: cross-device */ => {
+                    // Fallback: copy + delete.
+                    std::fs::copy(&src, &dest_target).map_err(|e| {
+                        rollback_moves(&moved);
+                        KernelError::Filesystem(format!("copy fallback failed: {}", e))
+                    })?;
+                    if let Err(e) = std::fs::remove_file(&src) {
+                        rollback_moves(&moved);
+                        return Err(KernelError::Filesystem(format!(
+                            "post-copy delete failed: {}",
+                            e
+                        )));
+                    }
+                    moved.push((src, dest_target));
+                }
+                Err(e) => {
+                    rollback_moves(&moved);
+                    return Err(KernelError::Filesystem(format!("move failed: {}", e)));
+                }
+            }
+        }
+
+        Ok(CommitMoveResult {
+            succeeded: true,
+            moved_paths: moved,
+            preconditions_recheck: commit_result.preconditions_recheck,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -103,4 +207,26 @@ pub struct PrepareMoveResult {
     pub manifest: EffectManifest,
     pub token: PrepareToken,
     pub preconditions_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitMoveResult {
+    pub succeeded: bool,
+    pub moved_paths: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+    pub preconditions_recheck: String,
+}
+
+/// Attempt to move already-moved files back to their original locations.
+/// Best-effort; logs failures via tracing.
+fn rollback_moves(moved: &[(std::path::PathBuf, std::path::PathBuf)]) {
+    for (original_src, current_dest) in moved.iter().rev() {
+        if let Err(e) = std::fs::rename(current_dest, original_src) {
+            tracing::error!(
+                "rollback failed: {} -> {}: {}",
+                current_dest.display(),
+                original_src.display(),
+                e
+            );
+        }
+    }
 }
