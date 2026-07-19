@@ -29,22 +29,23 @@ forbid (
 )
 when { resource.data_class == "D3" };
 
-// Egress to remote LLM — D0/D1 only; D2/D3 forbidden in Cedar
-@id("allow_remote_llm_d0_d1")
+// Egress to remote LLM — D0/D1/D2 permitted by Cedar; D3 forbidden.
+// D2 is downgraded to Confirm by the egress check (§4.3: D0/D1 allow, D2 confirm, D3 deny).
+@id("allow_remote_llm_d0_d1_d2")
 permit (
     principal == User::"voicepilot",
     action == Action::"send_to_remote_llm",
     resource
 )
-when { resource.data_class == "D0" || resource.data_class == "D1" };
+when { resource.data_class == "D0" || resource.data_class == "D1" || resource.data_class == "D2" };
 
-@id("forbid_remote_llm_d2_d3")
+@id("forbid_remote_llm_d3")
 forbid (
     principal,
     action == Action::"send_to_remote_llm",
     resource
 )
-when { resource.data_class == "D2" || resource.data_class == "D3" };
+when { resource.data_class == "D3" };
 
 // Move files — Cedar permits; Rust Constraint applies max_files/overwrite
 @id("allow_move_files_non_d3")
