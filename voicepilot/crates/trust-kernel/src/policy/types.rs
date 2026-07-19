@@ -46,7 +46,8 @@ pub struct Resource {
 /// Action being requested — maps to Cedar Action entity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Action {
-    pub name: String, // e.g. "read_file", "move_files", "send_to_remote_llm"
+    /// Action name — e.g. "read_file", "move_files", "send_to_remote_llm".
+    pub name: String,
     pub e_level: ELevel,
 }
 
@@ -61,6 +62,9 @@ pub enum EgressDest {
 }
 
 impl EgressDest {
+    /// Returns the snake_case string for this destination.
+    /// NOTE: must match the variant names produced by `#[serde(rename_all = "snake_case")]`
+    /// above. Used for Cedar entity UID construction in Task 4.
     pub fn as_str(self) -> &'static str {
         match self {
             EgressDest::LocalFile => "local_file",

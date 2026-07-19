@@ -1,5 +1,4 @@
-use trust_kernel::policy::types::{Action, Decision, DLevel, ELevel, Effect, EgressDest, Resource};
-use trust_kernel::policy::risk_matrix::classify;
+use trust_kernel::policy::types::{Decision, DLevel, ELevel, Effect, EgressDest, Resource};
 
 #[test]
 fn e_level_round_trips_through_serde() {
@@ -15,6 +14,8 @@ fn d_level_round_trips_through_serde() {
     let d = DLevel::D3;
     let s = serde_json::to_string(&d).unwrap();
     assert_eq!(s, "\"D3\"");
+    let back: DLevel = serde_json::from_str(&s).unwrap();
+    assert_eq!(back, d);
 }
 
 #[test]
@@ -48,12 +49,16 @@ fn decision_carries_effect_and_matched_policies() {
         reasons: vec!["D2 requires confirm".to_string()],
     };
     assert_eq!(d.effect, Effect::Confirm);
-    assert!(!d.matched_policies.is_empty());
+    assert_eq!(d.matched_policies, vec!["policy_d2_read".to_string()]);
+    assert_eq!(d.reasons, vec!["D2 requires confirm".to_string()]);
+    assert_eq!(d.approval_scope, "single");
+    assert_eq!(d.policy_bundle_hash, "sha256:abc");
 }
 
 #[test]
-fn egress_dest_reprs_remote_destinations() {
+fn egress_dest_as_str_matches_snake_case() {
+    assert_eq!(EgressDest::LocalFile.as_str(), "local_file");
     assert_eq!(EgressDest::RemoteLlm.as_str(), "remote_llm");
     assert_eq!(EgressDest::RemoteMcp.as_str(), "remote_mcp");
-    assert_eq!(EgressDest::LocalFile.as_str(), "local_file");
+    assert_eq!(EgressDest::ToolArgument.as_str(), "tool_argument");
 }
