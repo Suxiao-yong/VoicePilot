@@ -27,6 +27,12 @@ pub enum KernelError {
     /// Reserved for W4 approval flow (UI-driven confirmation).
     #[error("approval required but not granted")]
     ApprovalRequired,
+    #[error("filesystem error: {0}")]
+    Filesystem(String),
+    #[error("compensation error: {0}")]
+    Compensation(String),
+    #[error("verification failed: {message}")]
+    Verification { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;

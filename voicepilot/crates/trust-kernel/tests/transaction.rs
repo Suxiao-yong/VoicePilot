@@ -1,5 +1,4 @@
 use trust_kernel::policy::transaction::{EffectManifest, PrepareToken, TransactionManager};
-use trust_kernel::policy::types::{DLevel, ELevel};
 
 fn sample_manifest() -> EffectManifest {
     EffectManifest {

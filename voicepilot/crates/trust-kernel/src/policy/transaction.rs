@@ -15,14 +15,13 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileSnapshot {
-    pub canonical_path: String,
-    pub file_id: String,
-    pub size: u64,
-    pub last_write_time: String, // RFC3339
-    pub sha256: String,
-}
+// Re-export FileSnapshot from tools::fs_snapshot so that policy::transaction
+// and tools::fs_snapshot share a single type. W2 originally defined a local
+// FileSnapshot here with identical fields, but W3a's FilesystemTool needs to
+// push tools::fs_snapshot::FileSnapshot instances into EffectManifest.sources
+// (Vec<FileSnapshot>). Without this re-export, the two structs are distinct
+// types and the push would fail. See W3a Task 3 spec deviation note.
+pub use crate::tools::fs_snapshot::FileSnapshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectManifest {

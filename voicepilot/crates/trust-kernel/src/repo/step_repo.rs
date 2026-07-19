@@ -318,4 +318,37 @@ impl StepRepo {
         }
         Ok(())
     }
+
+    /// Update the prepare_token + preconditions_hash + effect_manifest for a step.
+    pub fn update_prepare_state(
+        &self,
+        conn: &Connection,
+        step_id: &str,
+        prepare_token: &str,
+        preconditions_hash: &str,
+        effect_manifest: &serde_json::Value,
+    ) -> Result<()> {
+        conn.execute(
+            "UPDATE steps SET prepare_token = ?1, preconditions_hash = ?2, effect_manifest = ?3
+             WHERE step_id = ?4",
+            rusqlite::params![prepare_token, preconditions_hash, effect_manifest.to_string(), step_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update post-commit fields: evidence_strength + compensation_ref.
+    pub fn update_post_commit(
+        &self,
+        conn: &Connection,
+        step_id: &str,
+        evidence_strength: &str,
+        compensation_ref: Option<&str>,
+    ) -> Result<()> {
+        conn.execute(
+            "UPDATE steps SET evidence_strength = ?1, compensation_ref = ?2
+             WHERE step_id = ?3",
+            rusqlite::params![evidence_strength, compensation_ref, step_id],
+        )?;
+        Ok(())
+    }
 }
