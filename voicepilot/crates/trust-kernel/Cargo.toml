@@ -15,6 +15,7 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
+cedar-policy = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
