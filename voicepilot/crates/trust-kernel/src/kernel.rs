@@ -17,6 +17,9 @@ pub struct TrustKernel {
     task_repo: TaskRepo,
     audit: Arc<SqliteAuditLogger>,
     gateway: Arc<crate::gateway::ActionGateway>,
+    fs: Arc<crate::tools::fs::FilesystemTool>,
+    comp_repo: Arc<crate::compensation::repo::CompensationRepo>,
+    txn_mgr: Arc<crate::policy::transaction::TransactionManager>,
 }
 
 impl TrustKernel {
@@ -44,12 +47,30 @@ impl TrustKernel {
             task_repo: TaskRepo::new(),
             audit: Arc::new(SqliteAuditLogger::new(shared)),
             gateway,
+            fs: Arc::new(crate::tools::fs::FilesystemTool::new()),
+            comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
+            txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
         }
     }
 
     /// Access the Action Gateway for policy decisions.
     pub fn gateway(&self) -> &crate::gateway::ActionGateway {
         &self.gateway
+    }
+
+    /// Access the FilesystemTool adapter.
+    pub fn filesystem(&self) -> &crate::tools::fs::FilesystemTool {
+        &self.fs
+    }
+
+    /// Access the Compensation repository.
+    pub fn compensation_repo(&self) -> &crate::compensation::repo::CompensationRepo {
+        &self.comp_repo
+    }
+
+    /// Access the TransactionManager (for prepare/commit lifecycle).
+    pub fn transaction_manager(&self) -> &crate::policy::transaction::TransactionManager {
+        &self.txn_mgr
     }
 
     pub fn create_task(&self, task_id: &str, user_goal: &str) -> Result<TaskRecord> {

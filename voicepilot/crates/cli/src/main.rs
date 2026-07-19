@@ -24,6 +24,7 @@ fn main() -> Result<()> {
     println!("  cancel <task>   kill-switch cancel a task");
     println!("  show <task>     show task state and audit count");
     println!("  policy <tool> <path> <D-level> [E-level]  run policy decision (W2)");
+    println!("  move <src1> [src2...] <dest>  move files via prepare→commit (W3a)");
     println!("  quit");
     println!();
 
@@ -52,6 +53,10 @@ fn main() -> Result<()> {
         }
         if let Some(rest) = line.strip_prefix("policy ") {
             handle_policy_command(&kernel, rest);
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("move ") {
+            handle_move_command(&kernel, rest);
             continue;
         }
         if let Some(task_id) = line.strip_prefix("show ") {
@@ -156,4 +161,55 @@ fn handle_policy_command(kernel: &TrustKernel, args: &str) {
         }
         Err(e) => println!("error: {}", e),
     }
+}
+
+fn handle_move_command(kernel: &TrustKernel, args: &str) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 2 {
+        println!("usage: move <src1> [src2...] <dest>");
+        return;
+    }
+    let (sources, dest) = parts.split_at(parts.len() - 1);
+    let dest = std::path::PathBuf::from(dest[0]);
+    let srcs: Vec<std::path::PathBuf> = sources.iter().map(std::path::PathBuf::from).collect();
+    let src_refs: Vec<&std::path::Path> = srcs.iter().map(|p| p.as_path()).collect();
+
+    // Phase 1: prepare.
+    let prepared = match kernel.filesystem().prepare_move(
+        "cli-task", "cli-step", &src_refs, &dest, kernel.transaction_manager(),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("prepare failed: {}", e);
+            return;
+        }
+    };
+    println!("prepare OK: {} sources, {} bytes, {} conflicts",
+             prepared.manifest.sources.len(),
+             prepared.manifest.total_bytes,
+             prepared.manifest.conflicts.len());
+    println!("  prepare_token: {}", prepared.token.token);
+    println!("  preconditions_hash: {}", prepared.preconditions_hash);
+
+    // Phase 2: commit.
+    let committed = match kernel.filesystem().commit_move(
+        &prepared.token, &prepared.manifest, kernel.transaction_manager(),
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("commit failed: {}", e);
+            return;
+        }
+    };
+    println!("commit OK: moved {} files", committed.moved_paths.len());
+
+    // Phase 3: verify (Strong Verifier).
+    match kernel.filesystem().verify_move(&prepared.manifest) {
+        Ok(v) => println!("verify OK: evidence_strength = {:?}", v.evidence_strength),
+        Err(e) => println!("verify FAILED: {}", e),
+    }
+
+    // Phase 4: compensation record creation deferred to W3b (needs kernel method to access conn).
+    // W3a CLI smoke stops here; W3b will add `kernel.create_compensation(rec)`.
+    println!("(compensation record creation deferred to W3b — see Task 9 of W3a plan)");
 }
