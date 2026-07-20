@@ -5,6 +5,7 @@
 > **最新 commit:** `877d861` test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required)
 > **测试状态:** 196 passing (default, W1-W4) / +voice tests opt-in via `--features voice`(requires CMake + MSVC), 0 warnings
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
+> **W5 Fast-Follow:** 已尝试(2026-07-20)— MSVC + CMake 已就绪,被 crates.io 网络阻塞(缺 `windows-0.54.0.crate`),详见 §二 W5 段落
 
 ---
 
@@ -329,11 +330,20 @@ crates/trust-kernel/src/voice/
 - CLI `voice listen` 录固定 5s(W5 PoC;无 VAD-based auto-stop)
 - `RouterBridge::route_text` 不执行 Skill — W5 PoC 由 caller(CLI)提示用户输入 args;W7 LLM Planner 将自动提取参数
 
-**⚠️ CMake 未安装 — voice 代码已提交但编译/测试未验证:**
-- 当前开发机未安装 CMake + MSVC Build Tools,因此 `cargo build --features voice` 和 `cargo test --features voice` 无法验证
-- 默认 `cargo check` + `cargo test` 通过(196 passing,W1-W4 无回归)
+**⚠️ W5 Fast-Follow 已尝试 — 被 crates.io 网络阻塞(2026-07-20):**
+- ✅ MSVC Build Tools 已确认可用:Visual Studio Community 2022 at `E:\VS2022\VS`
+- ✅ CMake 3.31.6 已确认可用:VS 自带 at `E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`(满足 whisper-rs 3.20+ 要求)
+- ✅ 608 个 crate 已下载到 `~/.cargo/registry/cache/`(89.8 MB),包括 `whisper-rs-sys-0.11.1`、`cpal-0.15.3`、`hound-3.5.1`
+- ❌ **唯一缺失**:`windows-0.54.0.crate`(cpal 0.15.3 间接依赖)— Fastly CDN (146.75.46.137:443) 连接建立但数据传输停滞 50+ 分钟
+- ❌ RsProxy 镜像配置被用户取消;直接下载 static.crates.io 也卡住(同一 Fastly CDN)
+- ✅ 默认 `cargo check` + `cargo test` 通过(196 passing,W1-W4 无回归)
 - voice 模块代码已按 plan 完整提交,API 与签名严格遵循 plan 规格
-- 验证 voice 编译需要安装 CMake 3.20+ + MSVC Build Tools,然后运行 `cargo test --features voice`(W5 fast-follow 任务,见 §五)
+
+**Fast-Follow 恢复方式(任选其一):**
+1. 配置 RsProxy 镜像:在 `~/.cargo/config.toml` 添加 `[source.crates-io] replace-with = 'rsproxy-sparse'` + `[source.rsproxy-sparse] registry = "sparse+https://rsproxy.cn/index/"`,然后 `cargo check --features voice`
+2. 手动下载 `windows-0.54.0.crate` 放到 `~/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/`,然后 `cargo check --features voice --offline`
+3. 启用 VPN/代理后运行 `cargo check --features voice`
+4. 跳过验证,直接进入 W6(issue #49 记录 voice 编译未验证)
 
 **已知偏离(已记录 issue #44-#49,延后 W6+):**
 - #44: VAD 用简单能量阈值;可能误触发于背景噪声(W6+ 换 Silero VAD)
@@ -341,7 +351,7 @@ crates/trust-kernel/src/voice/
 - #46: 模型 auto-download 未实现(用户须手动下载 `ggml-tiny.bin`)
 - #47: 流式 partial transcripts 未实现(W6+,Whisper.cpp streaming API)
 - #48: wake word detection 未实现(W6+,用户须手动运行 `voice listen`)
-- #49: voice feature 需要 CMake + MSVC;默认构建排除 voice(opt-in decision 2026-07-20)
+- #49: voice feature 需要 CMake + MSVC;默认构建排除 voice(opt-in decision 2026-07-20);**W5 fast-follow 因 crates.io 网络阻塞未完成验证**
 
 ---
 
@@ -493,25 +503,45 @@ git log --oneline -3                # 应看到 877d861 test(w5): end-to-end smo
 cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196(default,W1-W4;voice tests cfg-gated 跳过)
 ```
 
-### 5.2 推荐起点:W5 fast-follow + W6 计划编写
+### 5.2 推荐起点:W5 fast-follow 恢复 + W6 计划编写
 
-W5 voice 模块代码已全部提交到 master(commit `877d861`),但 **CMake 未安装导致 voice 编译/测试未验证**。这是首要 fast-follow 任务。
+W5 voice 模块代码已全部提交到 master(commit `877d861`)。**W5 fast-follow 已于 2026-07-20 尝试,MSVC + CMake 均已确认可用,但被 crates.io 网络阻塞**(无法下载 `windows-0.54.0.crate`,Fastly CDN 连接停滞)。详见 §二 W5 段落。
 
-**Step 1: W5 fast-follow(优先 — 验证 voice 编译):**
+**Step 1: W5 fast-follow 恢复(优先 — 解决网络后验证 voice 编译):**
+
+工具链已就绪(无需安装):
+- MSVC: `E:\VS2022\VS`(Visual Studio Community 2022)
+- CMake 3.31.6: `E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
+
+恢复方式(任选其一):
 
 ```powershell
-# 安装 CMake 3.20+ 和 MSVC Build Tools(Visual Studio 2022 或 Build Tools only)
-# 验证:
-cmake --version
+# 方式 A: 配置 RsProxy 镜像(推荐)
+# 在 ~/.cargo/config.toml 添加:
+# [source.crates-io]
+# replace-with = 'rsproxy-sparse'
+# [source.rsproxy-sparse]
+# registry = "sparse+https://rsproxy.cn/index/"
 # 然后:
-cd d:\voicepilot
-cargo test --manifest-path voicepilot\Cargo.toml --features voice
-# 应编译通过(首次 5-10 min,whisper.cpp 编译);Tier 1 自动跑(2 tests),Tier 2/3 标 #[ignore] 跳过
-# 可选:下载 ggml-tiny.bin 到 ~/.voicepilot/models/,运行:
-# cargo test --manifest-path voicepilot\Cargo.toml --features voice -- --ignored
+$env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
+cd d:\voicepilot\voicepilot
+cargo check --features voice     # 首次 5-10 min(whisper.cpp 编译)
+cargo test --features voice      # Tier 1 自动跑;Tier 2/3 #[ignore] 跳过
+
+# 方式 B: 手动下载缺失 crate
+# 浏览器下载 https://crates.io/api/v1/crates/windows/0.54.0/download
+# 放到 ~/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/windows-0.54.0.crate
+# 然后:
+cargo check --features voice --offline
+
+# 方式 C: VPN/代理
+# 启用后直接 cargo check --features voice
+
+# 可选: 下载 ggml-tiny.bin 到 ~/.voicepilot/models/
+# cargo test --features voice -- --ignored  # 跑 Tier 2 模型测试
 ```
 
-验证完成后更新本文件 §二 W5 段落中 "⚠️ CMake 未安装" 子段为 "✅ CMake 已安装 — voice 编译验证通过"。
+验证完成后更新本文件 §二 W5 段落中 "⚠️ W5 Fast-Follow 已尝试" 子段为 "✅ voice 编译验证通过"。
 
 **Step 2: W6 计划编写:**
 
