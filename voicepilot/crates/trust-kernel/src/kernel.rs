@@ -371,6 +371,14 @@ impl TrustKernel {
         Ok(task_id)
     }
 
+    /// Borrow the underlying connection for repo operations.
+    /// Used by MCP repo and other sub-repos that need direct DB access.
+    /// W4 note: returns a MutexGuard — caller must drop before any other
+    /// kernel method that locks conn (no reentrancy).
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.conn.lock().unwrap()
+    }
+
     fn audit_append(
         &self,
         task_id: &str,
