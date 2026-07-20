@@ -2,9 +2,9 @@
 
 > **最后更新:** 2026-07-20 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `1e10586` test(w4): end-to-end smoke test for MCP server
-> **测试状态:** 194 passing, 0 warnings
-> **规格版本:** V1.1.1 (W3b issue 27-35 + W4 issue 37-43 待 V1.1.2 修订)
+> **最新 commit:** `4169e5b` fix(mcp): run_stdio continues after kernel errors (spec issue #37)
+> **测试状态:** 196 passing, 0 warnings
+> **规格版本:** V1.1.1 (W3b issue 27-35 + W4 issue 38-43 待 V1.1.2 修订;issue #37 已解决)
 
 ---
 
@@ -16,13 +16,13 @@
 | W2 | Policy + Action Gateway | ✅ 已合并 | 53 | 2026-07-19 | `59a5999` |
 | W3a | Filesystem Adapter + Compensation + Verifier | ✅ 已合并 | 38 | 2026-07-19 | `d8bd4b5` |
 | W3b | files.organize Skill + 端到端审批流 | ✅ 已合并 | 39 | 2026-07-20 | `e9aa5ca` |
-| W4 | MCP Server Wrapping | ✅ 已完成 | 38 | 2026-07-20 | `1e10586` (direct on master) |
+| W4 | MCP Server Wrapping | ✅ 已完成 | 40 | 2026-07-20 | `1e10586` (direct on master) |
 | W5 | Voice Input (Whisper.cpp) | ⏳ 未开始 | — | — | — |
 | W6 | Tauri UI Shell | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 194 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 38)
+**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40)
 
 ---
 
@@ -242,6 +242,7 @@ crates/trust-kernel/src/
 | `f5c1191` | Task 10: seed_builtin_filesystem idempotent row creator (V1.1 §8.1) |
 | `69ea70e` | Task 11: CLI mcp-serve command with allowed_paths injection (V1.1 §6.1, §8.1, issue #31) |
 | `1e10586` | Task 12: end-to-end smoke test for MCP server (V1.1 §6.1, §11.1 W4 gate) |
+| `4169e5b` | W4 fast-follow: run_stdio continues after kernel errors (spec issue #37) |
 
 **关键修复(CRITICAL):**
 - Task 3 `row_to_record` 返回类型:plan 指定 `crate::error::Result<McpServerRecord>` 但 `query_map` 闭包要求 `rusqlite::Result<T>` → 改返回类型为 `rusqlite::Result<McpServerRecord>`(`?` 通过 `#[from]` 自动转换)
@@ -253,14 +254,15 @@ crates/trust-kernel/src/
 
 **最终代码审查(Verdict: APPROVED_WITH_NITS):**
 - **1 Important(fast-follow post-merge):** `run_stdio` 用 `?` 传播 kernel 错误,客户端发送畸形输入时会崩循环 — 应捕获并返回 error response 而非 panic loop
+  - ✅ **已解决(commit `4169e5b`):** `handle_tools_call` 内两个 `?` 路径(缺失 `name` 字段 + `audit_append_external` 失败)改为返回 `OutgoingMessage::Error`(InvalidParams -32602 / InternalError -32603),循环不再传播 kernel 错误。新增 2 个端到端测试 `run_stdio_continues_after_invalid_params_missing_name` + `run_stdio_continues_after_audit_failure`。
 - **4 minor nits:**
   - 错误码断言过松(只检查 code 字段为负数,应精确断言 -32603)
-  - 缺少 missing `name` 字段的测试
+  - 缺少 missing `name` 字段的测试 ✅ **已补(commit `4169e5b`)**
   - `OutgoingMessage` 可改用 `#[serde(untagged)]` 简化
   - 几个 pre-existing clippy warnings(非 W4 引入)
 
 **已知偏离(已记录规格 issue 37-43):**
-- §6.1 `run_stdio` 错误传播行为未规定(malformed input 应返回 error response 还是断开连接?当前实现 propagate,W4 final review 标记为 fast-follow)
+- ~~§6.1 `run_stdio` 错误传播行为未规定~~ ✅ **issue #37 已解决(commit `4169e5b`,2026-07-20):** `handle_tools_call` 内 `name` 缺失返回 InvalidParams -32602,`audit_append_external` 失败返回 InternalError -32603,循环不再传播 kernel 错误
 - §6.1 `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`)
 - §8.1 `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array,如 `["D:/", "E:/"]`)
 - §6.1 `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本)
@@ -277,7 +279,7 @@ crates/trust-kernel/src/
 ```powershell
 cd d:\voicepilot
 cargo test --manifest-path voicepilot\Cargo.toml
-# 结果:194 passing, 0 failing, 0 warnings
+# 结果:196 passing, 0 failing, 0 warnings
 cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # 结果:0 warnings
 ```
@@ -286,7 +288,7 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ```
 当前分支: master
-最新 commit: 1e10586 test(w4): end-to-end smoke test for MCP server (V1.1 §6.1, §11.1 W4 gate)
+最新 commit: 4169e5b fix(mcp): run_stdio continues after kernel errors (spec issue #37)
 保留分支: (无,W4 直接提交到 master,无 feature 分支)
 ```
 
@@ -338,10 +340,6 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
    - `voice transcribe <file>` — 转写已有音频文件
    - `voice list-models` — 列出可用模型
 
-5. **W4 fast-follow 修复(优先级高)**
-   - `run_stdio` 错误传播行为:捕获 parse 错误并返回 error response,不崩循环
-   - spec issue #37 落地
-
 **W5 不在范围(留到 W6+):**
 - Tauri UI(留 W6)
 - LLM Planner fallback(留 W7)
@@ -386,15 +384,15 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 **W4 执行期发现的新 issue(37-43):**
 
-| # | 来源 | 问题 |
-|---|---|---|
-| 37 | §6.1 | `run_stdio` 错误传播行为未规定 — malformed input 应返回 error response 还是断开连接?当前实现 propagate,客户端畸形输入崩循环(final review Important 标记) |
-| 38 | §6.1 | `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`) |
-| 39 | §8.1 | `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array `["D:/", "E:/"]`) |
-| 40 | §6.1 | `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本) |
-| 41 | §6.1 | `tools/call` 审计日志 `details` schema 未规定(W4 用 `{"server_id", "tool_name", "args", "success"}` 自定义结构) |
-| 42 | §8.1 | `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE) |
-| 43 | §6.1 | `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律 -32603 InternalError,未区分 -32601 MethodNotFound / -32602 InvalidParams) |
+| # | 来源 | 问题 | 状态 |
+|---|---|---|---|
+| 37 | §6.1 | `run_stdio` 错误传播行为未规定 — malformed input 应返回 error response 还是断开连接?当前实现 propagate,客户端畸形输入崩循环(final review Important 标记) | ✅ 已解决(`4169e5b`,2026-07-20):`name` 缺失→-32602,`audit_append_external` 失败→-32603,循环不再传播 kernel 错误 |
+| 38 | §6.1 | `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`) | 待 V1.1.2 |
+| 39 | §8.1 | `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array `["D:/", "E:/"]`) | 待 V1.1.2 |
+| 40 | §6.1 | `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本) | 待 V1.1.2 |
+| 41 | §6.1 | `tools/call` 审计日志 `details` schema 未规定(W4 用 `{"server_id", "tool_name", "args", "success"}` 自定义结构) | 待 V1.1.2 |
+| 42 | §8.1 | `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE) | 待 V1.1.2 |
+| 43 | §6.1 | `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律 -32603 InternalError,未区分 -32601 MethodNotFound / -32602 InvalidParams) | 部分解决(`4169e5b`):`name` 缺失现映射为 -32602,其余仍 -32603;完整映射规则待 V1.1.2 |
 
 ### 4.3 后续周次计划(高层)
 
@@ -412,33 +410,15 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 ```powershell
 cd d:\voicepilot
 git status                          # 应为 clean,on master
-git log --oneline -3                # 应看到 1e10586 test(w4): end-to-end smoke test
-cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 194
+git log --oneline -3                # 应看到 4169e5b fix(mcp): run_stdio continues after kernel errors
+cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196
 ```
 
-### 5.2 推荐起点:W5 计划编写 + W4 fast-follow
+### 5.2 推荐起点:W5 计划编写
 
-**优先(同日可做):** W4 fast-follow — 修复 spec issue #37
+W4 fast-follow(spec issue #37)已在 `4169e5b` 解决,可直接进入 W5。
 
-`run_stdio` 错误传播问题:当前实现用 `?` 传播 kernel 错误,客户端发送畸形 NDJSON 会导致循环退出而非返回 error response。修复方案:
-
-```rust
-// mcp/server.rs run_stdio 内
-match parse_line(&line) {
-    Ok(Some(msg)) => match self.handle_request(&msg) {
-        Ok(out) => write_message(&mut writer, &out)?,
-        Err(_) => { /* 已在 handle_request 内转换为 OutgoingMessage::Error */ }
-    },
-    Ok(None) => continue,
-    Err(e) => {
-        // 解析错误 → 返回 JSON-RPC ParseError (-32700) 而非崩循环
-        let err = OutgoingMessage::Error(/* ... */);
-        write_message(&mut writer, &err)?;
-    }
-}
-```
-
-**然后:** 使用 `superpowers:writing-plans` skill 创建 W5 计划:
+使用 `superpowers:writing-plans` skill 创建 W5 计划:
 
 ```
 d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w5-voice-input.md
