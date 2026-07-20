@@ -257,7 +257,7 @@ fn handle_organize_command(kernel: &TrustKernel, args: &str) {
     let parts: Vec<&str> = args.split_whitespace().collect();
     if parts.len() != 3 {
         println!("usage: organize <root> <filter> <dest>");
-        println!("  e.g. organize {}\\dl *.pdf {}\\papers", "%TEMP%", "%TEMP%");
+        println!("  e.g. organize %TEMP%\\dl *.pdf %TEMP%\\papers");
         return;
     }
     let root = std::path::PathBuf::from(parts[0]);
