@@ -220,3 +220,53 @@ fn vad_ignores_speech_shorter_than_min_speech_ms() {
     let outcome = vad.detect(&samples);
     assert!(matches!(outcome, VadOutcome::NoSpeech));
 }
+
+use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+use trust_kernel::kernel::TrustKernel;
+use trust_kernel::approval::approver::AutoApprover;
+
+#[test]
+fn router_bridge_routes_files_organize_intent() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let approver = AutoApprover;
+    let outcome = route_text(
+        &kernel,
+        &approver,
+        "把下载目录里的 PDF 整理到论文文件夹",
+    )
+    .unwrap();
+    match outcome {
+        RouteOutcome::Routed { skill_id, .. } => {
+            assert_eq!(skill_id, "files.organize");
+        }
+        other => panic!("expected Routed, got {:?}", other),
+    }
+}
+
+#[test]
+fn router_bridge_returns_unmatched_for_unknown_intent() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let approver = AutoApprover;
+    let outcome = route_text(&kernel, &approver, "random unrelated text without keywords").unwrap();
+    assert!(matches!(outcome, RouteOutcome::Unmatched { .. }));
+}
+
+#[test]
+fn router_bridge_returns_empty_for_blank_input() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let approver = AutoApprover;
+    let outcome = route_text(&kernel, &approver, "   ").unwrap();
+    assert!(matches!(outcome, RouteOutcome::Empty));
+}
+
+#[test]
+fn router_bridge_routes_with_skill_keyword_match() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let approver = AutoApprover;
+    // "整理" + "下载" — should match files.organize via keyword fallback.
+    let outcome = route_text(&kernel, &approver, "整理下载文件夹").unwrap();
+    match outcome {
+        RouteOutcome::Routed { skill_id, .. } => assert_eq!(skill_id, "files.organize"),
+        other => panic!("expected Routed, got {:?}", other),
+    }
+}
