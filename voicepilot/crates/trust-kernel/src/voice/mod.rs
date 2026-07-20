@@ -11,3 +11,4 @@ pub mod model;
 pub mod wav;
 pub mod vad;
 pub mod whisper;
+pub mod audio;

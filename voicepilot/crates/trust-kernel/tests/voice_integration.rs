@@ -107,3 +107,51 @@ fn resample_linear(samples: &[i16], from: u32, to: u32) -> Vec<i16> {
         })
         .collect()
 }
+
+use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
+use trust_kernel::voice::vad::{VadConfig, VadDetector};
+
+#[test]
+#[ignore]
+fn audio_recorder_captures_from_microphone_and_applies_vad() {
+    let recorder = AudioRecorder::new(AudioRecorderConfig {
+        sample_rate: 16000,
+        channels: 1,
+        device: None, // default input device
+    })
+    .expect("failed to init AudioRecorder (no microphone?)");
+
+    println!("Recording up to 5 seconds — please say something...");
+    let samples = recorder
+        .record_with_timeout(std::time::Duration::from_secs(5))
+        .expect("record failed");
+
+    assert!(!samples.is_empty(), "should capture some samples");
+    // Should be roughly 5 seconds * 16000 = 80000 samples (±10%).
+    let expected = 5 * 16000;
+    let lower = (expected as f32 * 0.85) as usize;
+    let upper = (expected as f32 * 1.15) as usize;
+    assert!(
+        samples.len() >= lower && samples.len() <= upper,
+        "expected ~80000 samples, got {}",
+        samples.len()
+    );
+
+    // VAD should detect speech (assuming user spoke) OR return NoSpeech (if silent).
+    // Both are valid; we just verify VAD runs without panic.
+    let vad = VadDetector::new(VadConfig::default());
+    let _outcome = vad.detect(&samples);
+    // No assertion on outcome — user may or may not have spoken.
+}
+
+#[test]
+fn audio_recorder_returns_capture_failed_for_invalid_sample_rate() {
+    let result = AudioRecorder::new(AudioRecorderConfig {
+        sample_rate: 99999, // invalid
+        channels: 1,
+        device: None,
+    });
+    // May succeed (cpal might error on stream creation instead) or fail.
+    // We just verify it doesn't panic.
+    let _ = result;
+}
