@@ -7,3 +7,4 @@
 //! All modules feature-gated under `voice` feature (default on).
 
 pub mod error;
+pub mod model;
