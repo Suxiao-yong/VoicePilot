@@ -162,3 +162,17 @@ fn kernel_audit_append_external_rejects_unknown_task() {
     // FK constraint — audit_logs.task_id REFERENCES tasks(task_id).
     assert!(result.is_err());
 }
+
+#[test]
+fn kernel_replace_filesystem_enforces_allowed_paths() {
+    use trust_kernel::allowed_paths::AllowedPaths;
+    use std::path::Path;
+
+    let k = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    let allowed = AllowedPaths::new(vec!["C:/Users".to_string()]);
+    k.replace_filesystem_with_allowed_paths(allowed);
+
+    // Path outside whitelist must be rejected.
+    let result = k.filesystem().search_files(Path::new("E:/elsewhere"), "*.pdf");
+    assert!(result.is_err(), "search_files outside allowed_paths must fail");
+}

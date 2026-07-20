@@ -6,6 +6,9 @@ use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::transaction::EffectManifest;
 use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
 use trust_kernel::state::TaskState;
+use trust_kernel::mcp::handler::McpHandler;
+use trust_kernel::mcp::repo::McpServerRepo;
+use trust_kernel::mcp::server::McpServer;
 use uuid::Uuid;
 
 /// CLI Approver that prints the effect_manifest and prompts y/n on stdin.
@@ -60,6 +63,7 @@ fn main() -> Result<()> {
     println!("  policy <tool> <path> <D-level> [E-level]  run policy decision (W2)");
     println!("  move <src1> [src2...] <dest>  move files via prepare→commit (W3a)");
     println!("  organize <root> <filter> <dest>  run files.organize Skill (W3b)");
+    println!("  mcp-serve       start MCP server on stdio (W4)");
     println!("  quit");
     println!();
 
@@ -93,6 +97,11 @@ fn main() -> Result<()> {
         if let Some(rest) = line.strip_prefix("organize ") {
             handle_organize_command(&kernel, rest);
             continue;
+        }
+        if line == "mcp-serve" {
+            // Terminal command — consumes kernel and exits.
+            handle_mcp_serve_command(kernel);
+            return Ok(());
         }
         if let Some(rest) = line.strip_prefix("move ") {
             handle_move_command(&kernel, rest);
@@ -304,5 +313,31 @@ fn handle_organize_command(kernel: &TrustKernel, args: &str) {
         Err(e) => {
             println!("skill execution failed: {}", e);
         }
+    }
+}
+
+fn handle_mcp_serve_command(kernel: TrustKernel) {
+    // Seed builtin server row (idempotent).
+    let repo = McpServerRepo::new();
+    if let Err(e) = repo.seed_builtin_filesystem(&kernel.conn()) {
+        eprintln!("error seeding builtin mcp_servers row: {}", e);
+        return;
+    }
+    // Load allowed_paths from the builtin row.
+    let allowed = repo
+        .load_allowed_paths(&kernel.conn(), "voicepilot-filesystem")
+        .ok()
+        .flatten();
+    if let Some(allowed) = allowed {
+        kernel.replace_filesystem_with_allowed_paths(allowed);
+    }
+    // Construct McpServer and run stdio loop.
+    // mcp-serve is terminal — consumes kernel and exits when stdin closes.
+    let server = McpServer::new(McpHandler::new(), kernel);
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
+    if let Err(e) = server.run_stdio(stdin.lock(), &mut stdout) {
+        eprintln!("mcp-serve error: {}", e);
     }
 }

@@ -21,7 +21,7 @@ pub struct TrustKernel {
     task_repo: TaskRepo,
     audit: Arc<SqliteAuditLogger>,
     gateway: Arc<crate::gateway::ActionGateway>,
-    fs: Arc<crate::tools::fs::FilesystemTool>,
+    fs: Arc<std::sync::Mutex<crate::tools::fs::FilesystemTool>>,
     comp_repo: Arc<crate::compensation::repo::CompensationRepo>,
     approval_repo: Arc<ApprovalRepo>,
     txn_mgr: Arc<crate::policy::transaction::TransactionManager>,
@@ -52,7 +52,7 @@ impl TrustKernel {
             task_repo: TaskRepo::new(),
             audit: Arc::new(SqliteAuditLogger::new(shared)),
             gateway,
-            fs: Arc::new(crate::tools::fs::FilesystemTool::new()),
+            fs: Arc::new(std::sync::Mutex::new(crate::tools::fs::FilesystemTool::new())),
             comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
             approval_repo: Arc::new(ApprovalRepo::new()),
             txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
@@ -65,8 +65,20 @@ impl TrustKernel {
     }
 
     /// Access the FilesystemTool adapter.
-    pub fn filesystem(&self) -> &crate::tools::fs::FilesystemTool {
-        &self.fs
+    /// Returns a MutexGuard — caller can call methods via deref coercion.
+    /// The guard is short-lived; drop it before calling other kernel
+    /// methods that may lock `fs` (no reentrancy).
+    pub fn filesystem(&self) -> std::sync::MutexGuard<'_, crate::tools::fs::FilesystemTool> {
+        self.fs.lock().unwrap()
+    }
+
+    /// Replace the internal FilesystemTool with one that enforces an
+    /// AllowedPaths whitelist. Used by the CLI mcp-serve command to
+    /// inject the whitelist loaded from mcp_servers.allowed_paths.
+    /// V1.1 §4.4 + §8.1 — resolves spec issue #31.
+    pub fn replace_filesystem_with_allowed_paths(&self, allowed: crate::allowed_paths::AllowedPaths) {
+        let new_tool = crate::tools::fs::FilesystemTool::new_with_allowed_paths(allowed);
+        *self.fs.lock().unwrap() = new_tool;
     }
 
     /// Access the Compensation repository.
