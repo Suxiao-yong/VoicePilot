@@ -145,17 +145,56 @@ impl FilesOrganizeSkill {
             });
         }
 
-        // Step 4: commit.
+        // Step 4: commit. On failure, mark step Failed before propagating.
         let committed = kernel.filesystem().commit_move(
             &prepared.token,
             &prepared.manifest,
             kernel.transaction_manager(),
-        )?;
+        )
+        .map_err(|e| {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            e
+        })?;
 
         // Step 5: verify (Strong Verifier).
-        let verify_result = kernel.filesystem().verify_move(&prepared.manifest)?;
+        // On verify failure, the move is already committed — we MUST create a
+        // compensation record so the user can invoke auto_reverse_move. Mark the
+        // step Failed and return Err. V1.1 §7.1 + §7.2.
+        let verify_result = match kernel.filesystem().verify_move(&prepared.manifest) {
+            Ok(v) => v,
+            Err(e) => {
+                let comp_id = format!("comp-{}", uuid::Uuid::new_v4());
+                let reverse_payload = serde_json::json!({
+                    "moves": committed.moved_paths.iter().map(|(orig, curr)| {
+                        serde_json::json!({
+                            "from": orig.to_string_lossy().replace('\\', "/"),
+                            "to":   curr.to_string_lossy().replace('\\', "/"),
+                        })
+                    }).collect::<Vec<_>>()
+                })
+                .to_string();
+                let comp_rec = CompensationRecord {
+                    comp_id: comp_id.clone(),
+                    step_id: input.step_id.clone(),
+                    level: CompensationLevel::Strong,
+                    snapshot_encrypted: None,
+                    ttl_expires: (Utc::now() + chrono::Duration::seconds(3600)).to_rfc3339(),
+                    status: "active".to_string(),
+                    snapshot_vault_ref: None,
+                    conflict_policy: ConflictPolicy::AutoReverse,
+                    compensate_fn: "filesystem.reverse_move".to_string(),
+                    reverse_payload,
+                };
+                let _ = kernel.create_compensation(&comp_rec);
+                let _ = kernel.update_step_post_commit(&input.step_id, "weak", Some(&comp_id));
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                return Err(e);
+            }
+        };
 
         // Step 6: create CompensationRecord (strong + auto_reverse ready).
+        // If this fails after commit succeeded, the move is on disk but
+        // uncompensatable — mark step Failed and surface the error.
         let comp_id = format!("comp-{}", uuid::Uuid::new_v4());
         let reverse_payload = serde_json::json!({
             "moves": committed.moved_paths.iter().map(|(orig, curr)| {
@@ -178,7 +217,13 @@ impl FilesOrganizeSkill {
             compensate_fn: "filesystem.reverse_move".to_string(),
             reverse_payload,
         };
-        kernel.create_compensation(&comp_rec)?;
+        if let Err(e) = kernel.create_compensation(&comp_rec) {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "move committed but compensation creation failed (manual reverse required): {}",
+                e
+            )));
+        }
 
         // Step 7: persist post-commit state + assemble ToolResult.
         kernel.update_step_post_commit(
