@@ -70,6 +70,8 @@ fn main() -> Result<()> {
     println!("  voice transcribe <file>   Transcribe a WAV file (mono 16-bit) to text");
     #[cfg(feature = "voice")]
     println!("  voice route <text>        Route text through SkillRouter (no audio, no execution)");
+    #[cfg(feature = "voice")]
+    println!("  voice listen             Record 5s audio, transcribe, route to Skill");
     println!("  quit");
     println!();
 
@@ -118,6 +120,10 @@ fn main() -> Result<()> {
             if let Some(rest) = line.strip_prefix("voice route ") {
                 let text = rest.trim();
                 handle_voice_route_command(text)?;
+                return Ok(());
+            }
+            if line == "voice listen" {
+                handle_voice_listen_command()?;
                 return Ok(());
             }
         }
@@ -470,4 +476,70 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+#[cfg(feature = "voice")]
+fn handle_voice_listen_command() -> anyhow::Result<()> {
+    use trust_kernel::approval::approver::AutoApprover;
+    use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
+    use trust_kernel::voice::model::ModelRegistry;
+    use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+    use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
+    use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
+    use trust_kernel::kernel::TrustKernel;
+
+    // 1. Record up to 5 seconds of audio.
+    println!("Listening (5 seconds)...");
+    let recorder = AudioRecorder::new(AudioRecorderConfig::default())
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let samples = recorder
+        .record_with_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Captured {} samples", samples.len());
+
+    // 2. Run VAD — skip transcription if no speech.
+    let vad = VadDetector::new(VadConfig::default());
+    match vad.detect(&samples) {
+        VadOutcome::Speech { .. } => {}
+        VadOutcome::NoSpeech => {
+            println!("No speech detected.");
+            return Ok(());
+        }
+    }
+
+    // 3. Load Whisper model.
+    let registry = ModelRegistry::new();
+    let model_path = registry
+        .resolve("ggml-tiny.bin")
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    // 4. Transcribe.
+    let engine = WhisperEngine::new(WhisperConfig {
+        model_path,
+        language: None,
+        ..Default::default()
+    })
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let text = engine
+        .transcribe(&samples)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Transcription: {:?}", text);
+
+    // 5. Route.
+    let kernel = TrustKernel::open_in_memory()?;
+    let approver = AutoApprover;
+    let outcome = route_text(&kernel, &approver, &text)?;
+    match outcome {
+        RouteOutcome::Routed { skill_id, .. } => {
+            println!("Matched skill: {}", skill_id);
+            println!("(Skill execution requires user-supplied args; use `voicepilot organize` to run)");
+        }
+        RouteOutcome::Unmatched { text } => {
+            println!("No skill matched for: {:?}", text);
+        }
+        RouteOutcome::Empty => {
+            println!("Empty transcription");
+        }
+    }
+    Ok(())
 }
