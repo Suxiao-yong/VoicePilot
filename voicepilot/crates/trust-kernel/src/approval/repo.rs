@@ -5,6 +5,80 @@ use crate::error::Result;
 use crate::policy::types::{DLevel, ELevel};
 use rusqlite::{params, Connection};
 
+/// Column list shared by `get` and `list_for_task` SELECT queries.
+/// Must stay in sync with `ApprovalRow` field order.
+const SELECT_COLS: &str = "approval_id, task_id, step_id, risk_level, args_hash, user_decision,
+                    decided_at, E_level, D_level, destination, egress_approved,
+                    approval_scope, policy_bundle_hash";
+
+/// Row tuple shape produced by the rusqlite `query_map` closures.
+/// Field order matches `SELECT_COLS`.
+type ApprovalRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+);
+
+/// Convert a raw row tuple into an `ApprovalRecord`, parsing enum columns.
+fn row_to_record(row: ApprovalRow) -> Result<ApprovalRecord> {
+    let (
+        approval_id,
+        task_id,
+        step_id,
+        risk_level,
+        args_hash,
+        user_decision_str,
+        decided_at,
+        e_level_str,
+        d_level_str,
+        destination,
+        egress_approved,
+        approval_scope_str,
+        policy_bundle_hash,
+    ) = row;
+    let user_decision = ApprovalDecision::parse(&user_decision_str)
+        .ok_or_else(|| crate::error::KernelError::Approval(format!(
+            "invalid user_decision: {}", user_decision_str
+        )))?;
+    let e_level = ELevel::as_enum_from_str(&e_level_str)
+        .ok_or_else(|| crate::error::KernelError::Approval(format!(
+            "invalid E_level: {}", e_level_str
+        )))?;
+    let d_level = DLevel::as_enum_from_str(&d_level_str)
+        .ok_or_else(|| crate::error::KernelError::Approval(format!(
+            "invalid D_level: {}", d_level_str
+        )))?;
+    let approval_scope = ApprovalScope::parse(&approval_scope_str)
+        .ok_or_else(|| crate::error::KernelError::Approval(format!(
+            "invalid approval_scope: {}", approval_scope_str
+        )))?;
+    Ok(ApprovalRecord {
+        approval_id,
+        task_id,
+        step_id,
+        risk_level,
+        args_hash,
+        user_decision,
+        decided_at,
+        e_level,
+        d_level,
+        destination,
+        egress_approved: egress_approved != 0,
+        approval_scope,
+        policy_bundle_hash,
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ApprovalRepo;
 
@@ -28,7 +102,7 @@ impl ApprovalRepo {
                 rec.args_hash,
                 rec.user_decision.as_str(),
                 rec.decided_at,
-                format!("{:?}", rec.e_level),
+                rec.e_level.as_str(),
                 rec.d_level.as_str(),
                 rec.destination,
                 rec.egress_approved as i64,
@@ -40,133 +114,62 @@ impl ApprovalRepo {
     }
 
     pub fn get(&self, conn: &Connection, approval_id: &str) -> Result<Option<ApprovalRecord>> {
-        let mut stmt = conn.prepare(
-            "SELECT approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                    decided_at, E_level, D_level, destination, egress_approved,
-                    approval_scope, policy_bundle_hash
-             FROM approvals WHERE approval_id = ?1",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM approvals WHERE approval_id = ?1",
+            SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![approval_id], |r| {
-            let approval_id: String = r.get(0)?;
-            let task_id: String = r.get(1)?;
-            let step_id: Option<String> = r.get(2)?;
-            let risk_level: String = r.get(3)?;
-            let args_hash: String = r.get(4)?;
-            let user_decision: String = r.get(5)?;
-            let decided_at: String = r.get(6)?;
-            let e_level_str: String = r.get(7)?;
-            let d_level_str: String = r.get(8)?;
-            let destination: String = r.get(9)?;
-            let egress_approved: i64 = r.get(10)?;
-            let approval_scope_str: String = r.get(11)?;
-            let policy_bundle_hash: String = r.get(12)?;
             Ok((
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                decided_at, e_level_str, d_level_str, destination, egress_approved,
-                approval_scope_str, policy_bundle_hash,
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+                r.get(10)?,
+                r.get(11)?,
+                r.get(12)?,
             ))
         })?;
         if let Some(row_result) = rows.next() {
-            let (
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision_str,
-                decided_at, e_level_str, d_level_str, destination, egress_approved,
-                approval_scope_str, policy_bundle_hash,
-            ) = row_result?;
-            let user_decision = ApprovalDecision::parse(&user_decision_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid user_decision: {}", user_decision_str
-                )))?;
-            let e_level = parse_e_level(&e_level_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid E_level: {}", e_level_str
-                )))?;
-            let d_level = DLevel::as_enum_from_str(&d_level_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid D_level: {}", d_level_str
-                )))?;
-            let approval_scope = ApprovalScope::parse(&approval_scope_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid approval_scope: {}", approval_scope_str
-                )))?;
-            Ok(Some(ApprovalRecord {
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                decided_at, e_level, d_level, destination,
-                egress_approved: egress_approved != 0,
-                approval_scope, policy_bundle_hash,
-            }))
+            Ok(Some(row_to_record(row_result?)?))
         } else {
             Ok(None)
         }
     }
 
     pub fn list_for_task(&self, conn: &Connection, task_id: &str) -> Result<Vec<ApprovalRecord>> {
-        let mut stmt = conn.prepare(
-            "SELECT approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                    decided_at, E_level, D_level, destination, egress_approved,
-                    approval_scope, policy_bundle_hash
-             FROM approvals WHERE task_id = ?1 ORDER BY decided_at",
-        )?;
+        let sql = format!(
+            "SELECT {} FROM approvals WHERE task_id = ?1 ORDER BY decided_at",
+            SELECT_COLS
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![task_id], |r| {
-            let approval_id: String = r.get(0)?;
-            let task_id: String = r.get(1)?;
-            let step_id: Option<String> = r.get(2)?;
-            let risk_level: String = r.get(3)?;
-            let args_hash: String = r.get(4)?;
-            let user_decision: String = r.get(5)?;
-            let decided_at: String = r.get(6)?;
-            let e_level_str: String = r.get(7)?;
-            let d_level_str: String = r.get(8)?;
-            let destination: String = r.get(9)?;
-            let egress_approved: i64 = r.get(10)?;
-            let approval_scope_str: String = r.get(11)?;
-            let policy_bundle_hash: String = r.get(12)?;
             Ok((
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                decided_at, e_level_str, d_level_str, destination, egress_approved,
-                approval_scope_str, policy_bundle_hash,
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+                r.get(10)?,
+                r.get(11)?,
+                r.get(12)?,
             ))
         })?;
         let mut out = Vec::new();
         for row_result in rows {
-            let (
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision_str,
-                decided_at, e_level_str, d_level_str, destination, egress_approved,
-                approval_scope_str, policy_bundle_hash,
-            ) = row_result?;
-            let user_decision = ApprovalDecision::parse(&user_decision_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid user_decision: {}", user_decision_str
-                )))?;
-            let e_level = parse_e_level(&e_level_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid E_level: {}", e_level_str
-                )))?;
-            let d_level = DLevel::as_enum_from_str(&d_level_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid D_level: {}", d_level_str
-                )))?;
-            let approval_scope = ApprovalScope::parse(&approval_scope_str)
-                .ok_or_else(|| crate::error::KernelError::Approval(format!(
-                    "invalid approval_scope: {}", approval_scope_str
-                )))?;
-            out.push(ApprovalRecord {
-                approval_id, task_id, step_id, risk_level, args_hash, user_decision,
-                decided_at, e_level, d_level, destination,
-                egress_approved: egress_approved != 0,
-                approval_scope, policy_bundle_hash,
-            });
+            out.push(row_to_record(row_result?)?);
         }
         Ok(out)
-    }
-}
-
-/// Parse "E0".."E3" string into ELevel. Used because rusqlite stores E_level as TEXT.
-fn parse_e_level(s: &str) -> Option<ELevel> {
-    match s {
-        "E0" => Some(ELevel::E0),
-        "E1" => Some(ELevel::E1),
-        "E2" => Some(ELevel::E2),
-        "E3" => Some(ELevel::E3),
-        _ => None,
     }
 }

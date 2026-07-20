@@ -13,6 +13,27 @@ pub enum ELevel {
     E3,
 }
 
+impl ELevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ELevel::E0 => "E0",
+            ELevel::E1 => "E1",
+            ELevel::E2 => "E2",
+            ELevel::E3 => "E3",
+        }
+    }
+
+    pub fn as_enum_from_str(s: &str) -> Option<Self> {
+        match s {
+            "E0" => Some(ELevel::E0),
+            "E1" => Some(ELevel::E1),
+            "E2" => Some(ELevel::E2),
+            "E3" => Some(ELevel::E3),
+            _ => None,
+        }
+    }
+}
+
 /// Data sensitivity — V1.1 §4.1.
 /// D0: public; D1: personal; D2: private docs; D3: credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
