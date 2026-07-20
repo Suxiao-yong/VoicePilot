@@ -129,6 +129,23 @@ impl TrustKernel {
         Ok(count as usize)
     }
 
+    /// Public entry point for external modules (MCP server, future IPC
+    /// layers) to append audit events. V1.1 §6.1 — every MCP tools/call
+    /// must leave an audit trail.
+    ///
+    /// Caller must supply a valid task_id (FK enforced). For stateless
+    /// calls (initialize, tools/list) where no task exists, skip audit
+    /// logging — those calls carry no security-relevant state changes.
+    pub fn audit_append_external(
+        &self,
+        task_id: &str,
+        step_id: Option<&str>,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<()> {
+        self.audit_append(task_id, step_id, event_type, details)
+    }
+
     // ===== Compensation accessors (W3b) =====
 
     pub fn create_compensation(&self, rec: &CompensationRecord) -> Result<()> {

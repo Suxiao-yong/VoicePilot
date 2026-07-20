@@ -130,3 +130,35 @@ fn kernel_check_approval_scope_returns_single_in_w3b() {
     let scope = k.check_approval_scope("t1", "files.organize", "sha256:args", "sha256:bundle", 3);
     assert_eq!(scope, ApprovalScope::Single);
 }
+
+#[test]
+fn kernel_audit_append_external_logs_event() {
+    let k = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    k.create_task("t-ext", "external audit test").unwrap();
+    let before = k.audit_count_for_task("t-ext").unwrap();
+    k.audit_append_external(
+        "t-ext",
+        None,
+        "MCP_TOOLS_CALL",
+        serde_json::json!({
+            "tool": "filesystem.search_files",
+            "args": {"root": "C:/Users", "pattern": "*.pdf"}
+        }),
+    )
+    .unwrap();
+    let after = k.audit_count_for_task("t-ext").unwrap();
+    assert_eq!(after, before + 1);
+}
+
+#[test]
+fn kernel_audit_append_external_rejects_unknown_task() {
+    let k = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    let result = k.audit_append_external(
+        "nonexistent-task",
+        None,
+        "MCP_TOOLS_CALL",
+        serde_json::json!({}),
+    );
+    // FK constraint — audit_logs.task_id REFERENCES tasks(task_id).
+    assert!(result.is_err());
+}
