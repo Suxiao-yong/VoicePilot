@@ -96,3 +96,50 @@ fn model_registry_resolve_returns_path_for_present_file() {
     let path = registry.resolve("ggml-tiny.bin").unwrap();
     assert!(path.ends_with("ggml-tiny.bin"));
 }
+
+use trust_kernel::voice::wav::{read_wav, write_wav};
+
+#[test]
+fn wav_write_then_read_round_trip_preserves_samples() {
+    let dir = std::env::temp_dir().join("vp-w5-wav-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("round_trip.wav");
+
+    let samples: Vec<i16> = vec![0, 1000, -1000, 32767, -32768, 500];
+    write_wav(&path, &samples, 16000).unwrap();
+
+    let (read_samples, sample_rate) = read_wav(&path).unwrap();
+    assert_eq!(sample_rate, 16000);
+    assert_eq!(read_samples, samples);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn wav_read_returns_invalid_wav_error_for_non_wav_file() {
+    let dir = std::env::temp_dir().join("vp-w5-wav-test-2");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("not_a_wav.wav");
+    std::fs::write(&path, b"this is not a wav file").unwrap();
+
+    let result = read_wav(&path);
+    assert!(matches!(result, Err(VoiceError::InvalidWav(_))));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn wav_read_returns_invalid_wav_error_for_missing_file() {
+    let path = std::path::Path::new("/definitely/nonexistent/w5-test.wav");
+    let result = read_wav(path);
+    assert!(matches!(result, Err(VoiceError::InvalidWav(_))));
+}
+
+#[test]
+fn wav_write_creates_parent_dirs_if_missing() {
+    let dir = std::env::temp_dir().join("vp-w5-wav-test-3").join("nested").join("deeper");
+    let path = dir.join("out.wav");
+    write_wav(&path, &[100, 200, 300], 16000).unwrap();
+    assert!(path.is_file());
+    std::fs::remove_dir_all(dir.parent().unwrap().parent().unwrap()).ok();
+}
