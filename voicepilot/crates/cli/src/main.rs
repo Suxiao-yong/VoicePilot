@@ -66,6 +66,8 @@ fn main() -> Result<()> {
     println!("  mcp-serve       start MCP server on stdio (W4)");
     #[cfg(feature = "voice")]
     println!("  voice list-models         List available Whisper models + download URLs");
+    #[cfg(feature = "voice")]
+    println!("  voice transcribe <file>   Transcribe a WAV file (mono 16-bit) to text");
     println!("  quit");
     println!();
 
@@ -104,6 +106,11 @@ fn main() -> Result<()> {
         {
             if line == "voice list-models" {
                 handle_voice_list_models_command();
+                return Ok(());
+            }
+            if let Some(rest) = line.strip_prefix("voice transcribe ") {
+                let path = rest.trim();
+                handle_voice_transcribe_command(path)?;
                 return Ok(());
             }
         }
@@ -370,4 +377,61 @@ fn handle_voice_list_models_command() {
     println!("Default model: {}", registry.default_model().name);
     println!();
     println!("To install: download the .bin file from the URL above and place it at the path shown.");
+}
+
+#[cfg(feature = "voice")]
+fn handle_voice_transcribe_command(path: &str) -> anyhow::Result<()> {
+    use trust_kernel::voice::model::ModelRegistry;
+    use trust_kernel::voice::wav::read_wav;
+    use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
+
+    let registry = ModelRegistry::new();
+    let model_path = registry
+        .resolve("ggml-tiny.bin")
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let engine = WhisperEngine::new(WhisperConfig {
+        model_path,
+        language: None, // auto-detect
+        ..Default::default()
+    })
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let (samples, sample_rate) = read_wav(std::path::Path::new(path))
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    // Resample to 16kHz if needed.
+    let samples_16k = if sample_rate != 16000 {
+        resample_linear_cli(&samples, sample_rate, 16000)
+    } else {
+        samples
+    };
+
+    let text = engine
+        .transcribe(&samples_16k)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    println!("Transcription:");
+    println!("{}", text);
+    Ok(())
+}
+
+#[cfg(feature = "voice")]
+fn resample_linear_cli(samples: &[i16], from: u32, to: u32) -> Vec<i16> {
+    if from == to || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let ratio = to as f64 / from as f64;
+    let out_len = ((samples.len() as f64) * ratio) as usize;
+    (0..out_len)
+        .map(|i| {
+            let src_idx = i as f64 / ratio;
+            let lo = src_idx.floor() as usize;
+            let hi = (lo + 1).min(samples.len() - 1);
+            let frac = src_idx - lo as f64;
+            let lo_f = samples[lo] as f64;
+            let hi_f = samples[hi] as f64;
+            (lo_f + (hi_f - lo_f) * frac) as i16
+        })
+        .collect()
 }
