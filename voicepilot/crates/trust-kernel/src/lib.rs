@@ -19,3 +19,6 @@ pub mod approval;
 pub mod allowed_paths;
 pub mod mcp;
 pub mod skills;
+
+#[cfg(feature = "voice")]
+pub mod voice;
