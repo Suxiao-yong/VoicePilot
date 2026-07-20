@@ -17,4 +17,5 @@ pub mod compensation;
 pub mod toolresult;
 pub mod approval;
 pub mod allowed_paths;
+pub mod mcp;
 pub mod skills;
