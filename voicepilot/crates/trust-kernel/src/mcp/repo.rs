@@ -127,6 +127,28 @@ impl McpServerRepo {
         }
         Ok(Some(AllowedPaths::new(roots)))
     }
+
+    /// Ensure the builtin voicepilot-filesystem server row exists.
+    /// Idempotent — does not overwrite an existing row (preserves user
+    /// customizations to allowed_paths).
+    pub fn seed_builtin_filesystem(&self, conn: &Connection) -> Result<()> {
+        if self.get(conn, "voicepilot-filesystem")?.is_some() {
+            return Ok(());
+        }
+        let default_paths = serde_json::json!(["C:/Users", "D:/"]).to_string();
+        let rec = McpServerRecord {
+            server_id: "voicepilot-filesystem".to_string(),
+            name: "VoicePilot Filesystem".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            transport: "stdio".to_string(),
+            enabled: true,
+            trusted: true,
+            protocol_version: Some("2025-11-25".to_string()),
+            allowed_origins: None,
+            allowed_paths: Some(default_paths),
+        };
+        self.create(conn, &rec)
+    }
 }
 
 impl Default for McpServerRepo {

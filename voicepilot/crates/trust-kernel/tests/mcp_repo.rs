@@ -150,3 +150,38 @@ fn load_allowed_paths_returns_err_on_invalid_json() {
     repo.create(&k.conn(), &rec).unwrap();
     assert!(repo.load_allowed_paths(&k.conn(), "s3").is_err());
 }
+
+#[test]
+fn repo_seed_builtin_creates_row_if_missing() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    // Confirm row does not exist yet.
+    assert!(repo.get(&k.conn(), "voicepilot-filesystem").unwrap().is_none());
+    // Seed.
+    repo.seed_builtin_filesystem(&k.conn()).unwrap();
+    let rec = repo.get(&k.conn(), "voicepilot-filesystem")
+        .unwrap()
+        .expect("row must exist after seed");
+    assert_eq!(rec.name, "VoicePilot Filesystem");
+    assert_eq!(rec.protocol_version.as_deref(), Some("2025-11-25"));
+    assert_eq!(rec.transport, "stdio");
+    assert!(rec.enabled);
+    assert!(rec.trusted);
+    // allowed_paths should be a non-empty JSON array.
+    assert!(rec.allowed_paths.is_some());
+}
+
+#[test]
+fn repo_seed_builtin_is_idempotent() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    repo.seed_builtin_filesystem(&k.conn()).unwrap();
+    // Modify the row.
+    let mut rec = repo.get(&k.conn(), "voicepilot-filesystem").unwrap().unwrap();
+    rec.allowed_paths = Some(r#"["D:/custom"]"#.to_string());
+    repo.update(&k.conn(), &rec).unwrap();
+    // Seed again — must NOT overwrite the custom allowed_paths.
+    repo.seed_builtin_filesystem(&k.conn()).unwrap();
+    let loaded = repo.get(&k.conn(), "voicepilot-filesystem").unwrap().unwrap();
+    assert_eq!(loaded.allowed_paths.as_deref(), Some(r#"["D:/custom"]"#));
+}
