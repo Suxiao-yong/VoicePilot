@@ -185,7 +185,16 @@ impl FilesOrganizeSkill {
                     compensate_fn: "filesystem.reverse_move".to_string(),
                     reverse_payload,
                 };
-                let _ = kernel.create_compensation(&comp_rec);
+                // Surface compensation creation failure explicitly — the move is
+                // committed on disk, so silent failure here would be data loss
+                // (mirrors the happy-path handling at line 220-226).
+                if let Err(comp_err) = kernel.create_compensation(&comp_rec) {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                    return Err(KernelError::Skill(format!(
+                        "verify failed AND compensation creation failed (manual reverse required): verify={}, comp={}",
+                        e, comp_err
+                    )));
+                }
                 let _ = kernel.update_step_post_commit(&input.step_id, "weak", Some(&comp_id));
                 let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
                 return Err(e);
