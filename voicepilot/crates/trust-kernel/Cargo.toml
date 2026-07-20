@@ -17,8 +17,15 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 cedar-policy = { workspace = true }
 walkdir = { workspace = true }
+whisper-rs = { workspace = true, optional = true }
+cpal = { workspace = true, optional = true }
+hound = { workspace = true, optional = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
+
+[features]
+default = []
+voice = ["dep:whisper-rs", "dep:cpal", "dep:hound"]

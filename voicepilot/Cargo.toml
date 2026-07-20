@@ -26,3 +26,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 cedar-policy = "4.11.2"
 walkdir = "2.5"
+whisper-rs = { version = "0.13" }
+cpal = { version = "0.15" }
+hound = { version = "3.5" }
