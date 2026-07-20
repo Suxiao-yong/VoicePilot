@@ -79,3 +79,74 @@ fn sample(id: &str) -> McpServerRecord {
         allowed_paths: None,
     }
 }
+
+use std::path::Path;
+
+#[test]
+fn load_allowed_paths_returns_canonicalized_roots() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    let rec = McpServerRecord {
+        server_id: "s1".to_string(),
+        name: "S1".to_string(),
+        version: "0.1.0".to_string(),
+        transport: "stdio".to_string(),
+        enabled: true,
+        trusted: true,
+        protocol_version: Some("2025-11-25".to_string()),
+        allowed_origins: None,
+        allowed_paths: Some(r#"["C:/Users","D:/voicepilot"]"#.to_string()),
+    };
+    repo.create(&k.conn(), &rec).unwrap();
+
+    let allowed = repo.load_allowed_paths(&k.conn(), "s1").unwrap().expect("must exist");
+    // Path under root C:/Users should be allowed.
+    assert!(allowed.check(Path::new("C:/Users/me/file.txt")).is_ok());
+    // Path outside all roots should be rejected.
+    assert!(allowed.check(Path::new("E:/elsewhere")).is_err());
+}
+
+#[test]
+fn load_allowed_paths_returns_none_when_column_empty() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    let rec = McpServerRecord {
+        server_id: "s2".to_string(),
+        name: "S2".to_string(),
+        version: "0.1.0".to_string(),
+        transport: "stdio".to_string(),
+        enabled: true,
+        trusted: false,
+        protocol_version: None,
+        allowed_origins: None,
+        allowed_paths: None,
+    };
+    repo.create(&k.conn(), &rec).unwrap();
+    assert!(repo.load_allowed_paths(&k.conn(), "s2").unwrap().is_none());
+}
+
+#[test]
+fn load_allowed_paths_returns_none_when_server_missing() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    assert!(repo.load_allowed_paths(&k.conn(), "nonexistent").unwrap().is_none());
+}
+
+#[test]
+fn load_allowed_paths_returns_err_on_invalid_json() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    let rec = McpServerRecord {
+        server_id: "s3".to_string(),
+        name: "S3".to_string(),
+        version: "0.1.0".to_string(),
+        transport: "stdio".to_string(),
+        enabled: true,
+        trusted: false,
+        protocol_version: None,
+        allowed_origins: None,
+        allowed_paths: Some("not valid json".to_string()),
+    };
+    repo.create(&k.conn(), &rec).unwrap();
+    assert!(repo.load_allowed_paths(&k.conn(), "s3").is_err());
+}

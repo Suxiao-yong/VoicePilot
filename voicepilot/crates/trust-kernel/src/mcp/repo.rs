@@ -5,6 +5,7 @@
 //! allowed_paths at startup and injects into FilesystemTool via
 //! new_with_allowed_paths(), resolving spec issue #31.
 
+use crate::allowed_paths::AllowedPaths;
 use crate::error::Result;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,30 @@ impl McpServerRepo {
     pub fn delete(&self, conn: &Connection, server_id: &str) -> Result<()> {
         conn.execute(r#"DELETE FROM mcp_servers WHERE server_id = ?1"#, params![server_id])?;
         Ok(())
+    }
+
+    /// Load and parse the allowed_paths JSON column for a server.
+    /// Returns Ok(None) if the server has no allowed_paths configured
+    /// (caller may treat as "no whitelist enforced").
+    /// Returns Err on missing server with invalid JSON.
+    pub fn load_allowed_paths(
+        &self,
+        conn: &Connection,
+        server_id: &str,
+    ) -> Result<Option<AllowedPaths>> {
+        let rec = match self.get(conn, server_id)? {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let json_str = match rec.allowed_paths {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let roots: Vec<String> = serde_json::from_str(&json_str)?;
+        if roots.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(AllowedPaths::new(roots)))
     }
 }
 
