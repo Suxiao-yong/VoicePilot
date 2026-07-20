@@ -43,13 +43,38 @@ impl McpServer {
     /// transport. Notifications (no id) are handled separately by the
     /// transport loop — this method is only called for Requests.
     pub fn handle_request(&self, req: JsonRpcRequest) -> Result<OutgoingMessage> {
-        // Tasks 7-8 will replace this match with real handlers.
         let id = req.id.clone();
-        Ok(OutgoingMessage::Error(JsonRpcError::new(
-            id,
-            JsonRpcErrorCode::MethodNotFound,
-            format!("method not found: {}", req.method),
-        )))
+        match req.method.as_str() {
+            "initialize" => self.handle_initialize(id, req.params),
+            // tools/list and tools/call added in Task 8.
+            _ => Ok(OutgoingMessage::Error(JsonRpcError::new(
+                id,
+                JsonRpcErrorCode::MethodNotFound,
+                format!("method not found: {}", req.method),
+            ))),
+        }
+    }
+
+    fn handle_initialize(
+        &self,
+        id: crate::mcp::transport::JsonRpcId,
+        _params: Option<serde_json::Value>,
+    ) -> Result<OutgoingMessage> {
+        let result = serde_json::json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+                "tools": {
+                    "listChanged": false
+                }
+            },
+            "serverInfo": {
+                "name": "voicepilot",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        });
+        Ok(OutgoingMessage::Response(
+            crate::mcp::transport::JsonRpcResponse::new(id, result),
+        ))
     }
 
     pub fn handler(&self) -> &McpHandler {
