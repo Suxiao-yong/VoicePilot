@@ -68,6 +68,8 @@ fn main() -> Result<()> {
     println!("  voice list-models         List available Whisper models + download URLs");
     #[cfg(feature = "voice")]
     println!("  voice transcribe <file>   Transcribe a WAV file (mono 16-bit) to text");
+    #[cfg(feature = "voice")]
+    println!("  voice route <text>        Route text through SkillRouter (no audio, no execution)");
     println!("  quit");
     println!();
 
@@ -111,6 +113,11 @@ fn main() -> Result<()> {
             if let Some(rest) = line.strip_prefix("voice transcribe ") {
                 let path = rest.trim();
                 handle_voice_transcribe_command(path)?;
+                return Ok(());
+            }
+            if let Some(rest) = line.strip_prefix("voice route ") {
+                let text = rest.trim();
+                handle_voice_route_command(text)?;
                 return Ok(());
             }
         }
@@ -434,4 +441,33 @@ fn resample_linear_cli(samples: &[i16], from: u32, to: u32) -> Vec<i16> {
             (lo_f + (hi_f - lo_f) * frac) as i16
         })
         .collect()
+}
+
+#[cfg(feature = "voice")]
+fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
+    use trust_kernel::approval::approver::AutoApprover;
+    use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+    use trust_kernel::kernel::TrustKernel;
+
+    // Open in-memory kernel for routing only (no execution needed for route preview).
+    let kernel = TrustKernel::open_in_memory()?;
+    let approver = AutoApprover;
+
+    let outcome = route_text(&kernel, &approver, text)?;
+
+    match outcome {
+        RouteOutcome::Routed { skill_id, .. } => {
+            println!("Matched skill: {}", skill_id);
+            Ok(())
+        }
+        RouteOutcome::Unmatched { text } => {
+            println!("No skill matched for: {:?}", text);
+            println!("(W7 LLM Planner fallback not yet implemented)");
+            Ok(())
+        }
+        RouteOutcome::Empty => {
+            println!("Empty input");
+            Ok(())
+        }
+    }
 }
