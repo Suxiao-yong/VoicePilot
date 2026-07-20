@@ -33,6 +33,16 @@ impl DLevel {
             DLevel::D3 => "D3",
         }
     }
+
+    pub fn as_enum_from_str(s: &str) -> Option<Self> {
+        match s {
+            "D0" => Some(DLevel::D0),
+            "D1" => Some(DLevel::D1),
+            "D2" => Some(DLevel::D2),
+            "D3" => Some(DLevel::D3),
+            _ => None,
+        }
+    }
 }
 
 /// Final ternary effect after all policy layers.

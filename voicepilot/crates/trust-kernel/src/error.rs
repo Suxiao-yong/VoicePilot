@@ -33,6 +33,14 @@ pub enum KernelError {
     Compensation(String),
     #[error("verification failed: {message}")]
     Verification { message: String },
+    #[error("approval error: {0}")]
+    Approval(String),
+    #[error("skill error: {0}")]
+    Skill(String),
+    #[error("mcp error: {0}")]
+    Mcp(String),
+    #[error("path not allowed: {0}")]
+    PathNotAllowed(String),
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;

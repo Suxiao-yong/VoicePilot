@@ -15,3 +15,4 @@ pub mod gateway;
 pub mod tools;
 pub mod compensation;
 pub mod toolresult;
+pub mod approval;
