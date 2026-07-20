@@ -6,16 +6,25 @@
 
 **Architecture:** New `voice/` module inside `trust-kernel` crate (consistent with "single Rust kernel" principle from V1.1.2 §3.3). Whisper.cpp via `whisper-rs` FFI binding (feature-gated to avoid C++ build dependency for non-voice tests). Audio capture via `cpal` (cross-platform). VAD uses simple energy threshold (W5 PoC; Silero VAD deferred to W6+). WAV I/O via `hound` for test fixtures and file transcription. CLI `voice` subcommands live in `cli/src/main.rs` alongside existing `move`/`organize`/`mcp-serve` commands.
 
+**Feature gating (opt-in, decided 2026-07-20):**
+- `default = []` — pure Rust, no CMake dependency, W1-W4 tests only (196 tests)
+- `voice = ["dep:whisper-rs", "dep:cpal", "dep:hound"]` — opt-in, enables voice module + tests
+- All W5 test files (`voice_unit.rs`, `voice_integration.rs`, `w5_e2e_smoke.rs`) start with `#![cfg(feature = "voice")]` so default `cargo test` skips them entirely
+- Rationale: preserves "single Rust architecture" invariant from project_memory; CI and default dev workflow stay CMake-free; voice is a progressive enhancement
+
 **Tech Stack:**
 - `whisper-rs` 0.13+ (FFI binding to whisper.cpp, requires CMake + MSVC on Windows)
 - `cpal` 0.15+ (cross-platform audio I/O)
 - `hound` 3.5 (WAV encoding/decoding)
 - `rubato` 0.15 (resampling 44.1kHz → 16kHz for Whisper, optional)
 
-**Build prerequisites (Windows):**
+**Build prerequisites (only when `--features voice` is used):**
 - CMake 3.20+ installed and on PATH
 - MSVC Build Tools (Visual Studio 2022 or Build Tools only)
 - These are required because `whisper-rs` builds whisper.cpp from source via `cc` crate
+- **If CMake is not installed:** voice code can still be written and committed; verify with `cargo check` (default, no voice) for W1-W4 no-regression. Voice-specific compilation/tests require CMake.
+
+**Subagent execution note:** All `cargo test` / `cargo check` commands in Tasks 2-13 that touch voice code require `--features voice` flag. If CMake is unavailable, run `cargo check` (default) to verify no W1-W4 regression, and skip `--features voice` verification (document this in the commit message).
 
 **Out of scope (deferred):**
 - Tauri UI for voice (W6)
@@ -87,24 +96,25 @@ Add at end of file:
 
 ```toml
 [features]
-default = ["voice"]
+default = []
 voice = ["dep:whisper-rs", "dep:cpal", "dep:hound"]
 ```
 
-- [ ] **Step 3: Verify build compiles with default features**
+- [ ] **Step 3: Verify build compiles with default features (pure Rust, no CMake)**
 
 Run: `cargo check --manifest-path voicepilot\Cargo.toml`
-Expected: PASS (may take 5-10 min on first run due to whisper.cpp compilation)
+Expected: PASS (fast, no C++ compilation, no voice module)
 
-- [ ] **Step 4: Verify build compiles without voice feature**
+- [ ] **Step 4: Verify build compiles with voice feature (requires CMake + MSVC)**
 
-Run: `cargo check --manifest-path voicepilot\Cargo.toml --no-default-features`
-Expected: PASS (fast, no C++ compilation)
+Run: `cargo check --manifest-path voicepilot\Cargo.toml --features voice`
+Expected: PASS if CMake 3.20+ and MSVC Build Tools are installed (may take 5-10 min on first run due to whisper.cpp compilation).
+If CMake is not installed: SKIP this step, document in commit message that voice compilation requires CMake. Proceed to Step 5.
 
-- [ ] **Step 5: Run existing tests to confirm no regression**
+- [ ] **Step 5: Run existing tests to confirm no regression (default features)**
 
 Run: `cargo test --manifest-path voicepilot\Cargo.toml`
-Expected: 196 passing (unchanged from W4 fast-follow)
+Expected: 196 passing (W1-W4 tests, unchanged; voice tests are gated by `#![cfg(feature = "voice")]` and skipped)
 
 - [ ] **Step 6: Commit**
 
@@ -128,6 +138,8 @@ git commit -m "build(voice): add whisper-rs + cpal + hound deps with voice featu
 Create `voicepilot/crates/trust-kernel/tests/voice_unit.rs`:
 
 ```rust
+#![cfg(feature = "voice")]
+
 use trust_kernel::voice::error::VoiceError;
 
 #[test]
@@ -911,8 +923,10 @@ git commit -m "feat(voice): energy-threshold VAD with frame-based silence detect
 Create `voicepilot/crates/trust-kernel/tests/voice_integration.rs`:
 
 ```rust
+#![cfg(feature = "voice")]
+
 //! Voice integration tests — require real Whisper model file.
-//! All tests marked #[ignore]; run with `cargo test -- --ignored`.
+//! All tests marked #[ignore]; run with `cargo test --features voice -- --ignored`.
 
 use std::path::PathBuf;
 use trust_kernel::voice::model::ModelRegistry;
@@ -1636,30 +1650,47 @@ git commit -m "feat(voice): RouterBridge wires transcribed text to SkillRouter"
 - Modify: `voicepilot/crates/cli/Cargo.toml`
 - Modify: `voicepilot/crates/cli/src/main.rs`
 
-- [ ] **Step 1: Enable voice feature in CLI Cargo.toml**
+- [ ] **Step 1: Add opt-in `voice` feature to CLI Cargo.toml**
 
-Edit `voicepilot/crates/cli/Cargo.toml`, modify the trust-kernel dependency:
+Edit `voicepilot/crates/cli/Cargo.toml`. Keep the trust-kernel dependency as-is (no default voice feature):
 
 ```toml
-trust-kernel = { workspace = true, features = ["voice"] }
+[dependencies]
+trust-kernel = { workspace = true }
+# ... existing deps unchanged ...
 ```
+
+Add at end of file (CLI forwards `voice` feature to trust-kernel):
+
+```toml
+[features]
+default = []
+voice = ["trust-kernel/voice"]
+```
+
+This keeps CLI build pure-Rust by default; `cargo build --features voice -p cli` enables voice commands (requires CMake).
 
 - [ ] **Step 2: Add `voice list-models` dispatch to CLI main.rs**
 
 Read `voicepilot/crates/cli/src/main.rs` to find the command dispatch pattern (likely a series of `if line == "..." { handle_...; return Ok(()); }` branches).
 
-Add a new branch in the dispatch loop, before the `mcp-serve` branch:
+Add a new `#[cfg(feature = "voice")]`-gated block in the dispatch loop, before the `mcp-serve` branch. All voice commands (Tasks 9-12) go inside this single block:
 
 ```rust
-if line == "voice list-models" {
-    handle_voice_list_models_command();
-    return Ok(());
+#[cfg(feature = "voice")]
+{
+    if line == "voice list-models" {
+        handle_voice_list_models_command();
+        return Ok(());
+    }
+    // Tasks 10-12 will add more voice branches here.
 }
 ```
 
-Add the handler function (place near other `handle_*_command` functions):
+Add the handler function (place near other `handle_*_command` functions), gated with `#[cfg(feature = "voice")]`:
 
 ```rust
+#[cfg(feature = "voice")]
 fn handle_voice_list_models_command() {
     use trust_kernel::voice::model::ModelRegistry;
 
@@ -1681,23 +1712,33 @@ fn handle_voice_list_models_command() {
 }
 ```
 
-Also add `voice list-models` to the help text (find the help string in main.rs and append):
+Also add `voice list-models` to the help text (find the help string in main.rs and append). The help text is always printed; guard the voice-specific lines with a `#[cfg(feature = "voice")]` block or print them conditionally:
 
-```
-  voice list-models         List available Whisper models + download URLs
+```rust
+#[cfg(feature = "voice")]
+println!("  voice list-models         List available Whisper models + download URLs");
 ```
 
-- [ ] **Step 3: Verify CLI compiles**
+**Note for Tasks 10-12:** Each subsequent voice command adds its branch *inside* the existing `#[cfg(feature = "voice")] { ... }` block in the dispatch loop, and its handler function is individually gated with `#[cfg(feature = "voice")]`.
+
+- [ ] **Step 3: Verify CLI compiles (default, no voice)**
 
 Run: `cargo build --manifest-path voicepilot\Cargo.toml -p cli`
-Expected: PASS (may take 5+ min first time due to whisper.cpp compilation)
+Expected: PASS (fast, pure Rust, no CMake; voice commands excluded from binary)
 
-- [ ] **Step 4: Run CLI command manually to verify output**
+- [ ] **Step 4: Verify CLI compiles with voice feature (requires CMake)**
 
-Run: `cargo run --manifest-path voicepilot\Cargo.toml -p cli -- voice list-models`
-Expected: prints list of 5 models with paths and URLs, default = ggml-tiny.bin
+Run: `cargo build --manifest-path voicepilot\Cargo.toml -p cli --features voice`
+Expected (if CMake installed): PASS (may take 5+ min first time due to whisper.cpp compilation)
+Expected (if CMake NOT installed): SKIP, document in commit message.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run CLI command manually to verify output (requires CMake)**
+
+Run: `cargo run --manifest-path voicepilot\Cargo.toml -p cli --features voice -- voice list-models`
+Expected (if CMake installed): prints list of 5 models with paths and URLs, default = ggml-tiny.bin
+Expected (if CMake NOT installed): SKIP.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 cd d:\voicepilot
@@ -1727,6 +1768,7 @@ if let Some(rest) = line.strip_prefix("voice transcribe ") {
 Add the handler function:
 
 ```rust
+#[cfg(feature = "voice")]
 fn handle_voice_transcribe_command(path: &str) -> anyhow::Result<()> {
     use trust_kernel::voice::model::ModelRegistry;
     use trust_kernel::voice::wav::read_wav;
@@ -1829,6 +1871,7 @@ if let Some(rest) = line.strip_prefix("voice route ") {
 Add the handler function:
 
 ```rust
+#[cfg(feature = "voice")]
 fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
     use trust_kernel::approval::AutoApprover;
     use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
@@ -1908,6 +1951,7 @@ if line == "voice listen" {
 Add the handler function:
 
 ```rust
+#[cfg(feature = "voice")]
 fn handle_voice_listen_command() -> anyhow::Result<()> {
     use trust_kernel::approval::AutoApprover;
     use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
@@ -2011,6 +2055,8 @@ git commit -m "feat(cli): voice listen command — record + transcribe + route e
 Create `voicepilot/crates/trust-kernel/tests/w5_e2e_smoke.rs`:
 
 ```rust
+#![cfg(feature = "voice")]
+
 //! W5 end-to-end smoke test — V1.1 §11.1 W5 gate.
 //!
 //! Three test tiers:
@@ -2206,49 +2252,59 @@ git commit -m "test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-
 **Files:**
 - Modify: `docs/PROGRESS.md`
 
-- [ ] **Step 1: Run full test suite**
+- [ ] **Step 1: Run default test suite (pure Rust, no CMake)**
 
 Run: `cargo test --manifest-path voicepilot\Cargo.toml`
-Expected: 198 passing, 0 warnings
+Expected: 196 passing (W1-W4 tests; voice tests are `#![cfg(feature = "voice")]`-gated and skipped), 0 warnings
 
-- [ ] **Step 2: Run clippy on voice module**
+- [ ] **Step 2: Run voice test suite (requires CMake + MSVC)**
 
-Run: `cargo clippy --manifest-path voicepilot\Cargo.toml -p trust-kernel --tests`
-Expected: 0 new warnings (pre-existing warnings from W4 may remain)
+Run: `cargo test --manifest-path voicepilot\Cargo.toml --features voice`
+Expected (if CMake installed): 196 + voice tests passing (Tier 1 always-run + Tier 2/3 `#[ignore]`-skipped)
+Expected (if CMake NOT installed): SKIP this step, document in PROGRESS.md that voice tests require CMake to verify. The voice code is committed but unverified.
 
-- [ ] **Step 3: Verify `--no-default-features` still compiles (no voice)**
+- [ ] **Step 3: Run clippy on voice module**
 
-Run: `cargo check --manifest-path voicepilot\Cargo.toml --no-default-features`
-Expected: PASS (confirms voice module is properly feature-gated)
+Run: `cargo clippy --manifest-path voicepilot\Cargo.toml -p trust-kernel --tests --features voice`
+Expected (if CMake installed): 0 new warnings (pre-existing warnings from W4 may remain)
+Expected (if CMake NOT installed): SKIP, document in commit message.
 
-- [ ] **Step 4: Update PROGRESS.md**
+- [ ] **Step 4: Verify default build (no voice) compiles**
+
+Run: `cargo check --manifest-path voicepilot\Cargo.toml`
+Expected: PASS (confirms voice module is properly feature-gated; default build stays pure Rust)
+
+- [ ] **Step 5: Update PROGRESS.md**
 
 Update the following sections in `docs/PROGRESS.md`:
 
 1. **Header:**
    - Latest commit: `<final commit SHA>`
-   - Test count: 198
+   - Test count: 196 (default) / 196 + voice tests (with `--features voice`, requires CMake)
    - Spec version: V1.1.2 (no change)
 
 2. **§一 milestone table:**
-   - W5 row: status `✅ 已完成`, tests `+2 (Tier 1 only; Tier 2/3 are #[ignore])`, date `2026-07-20`
+   - W5 row: status `✅ 已完成`, tests `+voice (opt-in, requires CMake)`, date `2026-07-20`
 
 3. **§二 add W5 detailed record:**
    - Module structure: `voice/{error, model, wav, vad, whisper, audio, router_bridge}.rs`
    - Commits (list all from `git log --oneline | head -14`)
    - Key deviations / decisions:
+     - **Feature gating changed to opt-in** (`default = []`, `voice = [...]`) — preserves pure-Rust default build, CMake only needed for voice feature
      - whisper-rs + cpal + hound added as optional deps under `voice` feature
      - VAD uses simple energy threshold (W5 PoC); Silero VAD deferred to W6+
      - Model files: user manually downloads; CLI prints URLs (no auto-download in W5)
      - WhisperEngine integration tests marked `#[ignore]` (require model file)
      - AudioRecorder tests marked `#[ignore]` (require microphone)
      - CLI `voice listen` records fixed 5s (no VAD-based auto-stop in W5 PoC)
-   - Known issues (add as #44-#48):
+     - **If CMake was not installed during W5:** voice code is committed but compilation/tests unverified; document this clearly
+   - Known issues (add as #44-#49):
      - #44: VAD uses simple energy threshold; may false-trigger on background noise
      - #45: `voice listen` records fixed 5s; no VAD-based auto-stop
      - #46: Model auto-download not implemented (user must manually download)
      - #47: Streaming partial transcripts not implemented (W6+)
      - #48: Wake word detection not implemented (W6+)
+     - #49: Voice feature requires CMake + MSVC; default build excludes voice (opt-in decision 2026-07-20)
 
 4. **§三 git state:**
    - Latest commit, test count
@@ -2256,26 +2312,26 @@ Update the following sections in `docs/PROGRESS.md`:
 5. **§四 replace W5 scope with W6 scope:**
    - W6: Tauri UI Shell — desktop app + approval UI + settings panel
 
-6. **§四.2 add W5 issues #44-#48**
+6. **§四.2 add W5 issues #44-#49**
 
 7. **§五 recovery guide:**
-   - W5 fast-follow: none critical
+   - W5 fast-follow: install CMake + MSVC, then run `cargo test --features voice` to verify voice code
    - W6 starting point: Tauri project scaffold
 
 8. **§六 add W5 plan link**
 
-- [ ] **Step 5: Commit PROGRESS.md update**
+- [ ] **Step 6: Commit PROGRESS.md update**
 
 ```bash
 cd d:\voicepilot
 git add docs/PROGRESS.md
-git commit -m "docs: update PROGRESS.md for W5 completion (198 tests, issues #44-#48)"
+git commit -m "docs: update PROGRESS.md for W5 completion (voice opt-in, issues #44-#49)"
 ```
 
-- [ ] **Step 6: Run final verification**
+- [ ] **Step 7: Run final verification**
 
 Run: `cargo test --manifest-path voicepilot\Cargo.toml`
-Expected: 198 passing
+Expected: 196 passing (default, W1-W4 only)
 
 Run: `git log --oneline -15`
 Expected: 14 new commits from Task 1 onwards + PROGRESS.md commit
@@ -2287,9 +2343,10 @@ Expected: 14 new commits from Task 1 onwards + PROGRESS.md commit
 After completing all 14 tasks:
 
 - **New code:** 8 files in `voice/` module + 3 test files + fixtures README
-- **New deps:** whisper-rs, cpal, hound (all feature-gated under `voice`)
-- **New CLI commands:** `voice listen`, `voice transcribe`, `voice route`, `voice list-models`
-- **Tests:** +2 always-run (Tier 1) + 6 `#[ignore]` (Tiers 2-3, require model/mic)
+- **New deps:** whisper-rs, cpal, hound (all feature-gated under `voice`, **opt-in**)
+- **New CLI commands:** `voice listen`, `voice transcribe`, `voice route`, `voice list-models` (only available when CLI built with `--features voice`)
+- **Tests (default):** 196 passing (W1-W4, unchanged; voice tests are `#![cfg(feature = "voice")]`-gated)
+- **Tests (`--features voice`):** 196 + 2 Tier 1 always-run + 6 `#[ignore]` Tier 2/3 (requires CMake + model + mic)
 - **Commits:** ~14 commits, one per task
 
 ## Known Limitations (W5 PoC)
@@ -2301,11 +2358,13 @@ After completing all 14 tasks:
 5. **No wake word detection** — user must run `voice listen` manually (issue #48)
 6. **No LLM Planner fallback** — unmatched intents return `Unmatched` without execution (W7)
 7. **No Tauri UI** — CLI-only in W5 (W6)
+8. **Voice feature is opt-in** — requires CMake + MSVC to compile; default build is pure Rust (issue #49)
 
 ## Build Prerequisites Reminder
 
-`whisper-rs` compiles whisper.cpp from source, requiring:
+`whisper-rs` compiles whisper.cpp from source, requiring (only when `--features voice` is used):
 - **Windows:** CMake 3.20+ on PATH + MSVC Build Tools
 - **Unix:** CMake + C++ compiler (gcc or clang)
 
-If build fails with C++ errors, install prerequisites and re-run `cargo build`.
+If `cargo build --features voice` fails with C++ errors, install prerequisites and re-run.
+Default `cargo build` does NOT require CMake (voice feature is opt-in).
