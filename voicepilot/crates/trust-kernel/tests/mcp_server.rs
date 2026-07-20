@@ -215,3 +215,82 @@ fn run_stdio_continues_after_parse_error() {
     assert!(lines[0].contains(r#""code":-32700"#), "first must be parse error");
     assert!(lines[1].contains(r#""filesystem.search_files""#));
 }
+
+#[test]
+fn run_stdio_continues_after_invalid_params_missing_name() {
+    // Spec issue #37: malformed JSON-RPC (valid JSON but missing required
+    // fields) must produce an error response, not crash the loop.
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let server = McpServer::new(McpHandler::new(), kernel);
+
+    // tools/call without "name" field (InvalidParams), then a valid tools/list.
+    let bad_call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"arguments":{}}}"#;
+    let list = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let input = format!("{}\n{}\n", bad_call, list);
+    let reader = Cursor::new(input.into_bytes());
+    let mut writer = Vec::new();
+
+    server.run_stdio(reader, &mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "loop must continue after invalid params, got: {:?}",
+        lines
+    );
+    // First response: InvalidParams -32602 for id=1.
+    assert!(
+        lines[0].contains(r#""code":-32602"#),
+        "missing name must be InvalidParams -32602, got: {}",
+        lines[0]
+    );
+    assert!(lines[0].contains(r#""id":1"#));
+    // Second response: tools/list succeeded — loop did not crash.
+    assert!(lines[1].contains(r#""filesystem.search_files""#));
+}
+
+#[test]
+fn run_stdio_continues_after_audit_failure() {
+    // Spec issue #37: when audit_append_external fails (e.g. task_id FK
+    // violation), the loop must emit InternalError -32603 and continue,
+    // not propagate the kernel error and exit.
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let server = McpServer::new(McpHandler::new(), kernel);
+
+    // tools/call with task_id that doesn't exist — FK violation on audit log.
+    // Use search_files with a real temp dir so the call_tool itself succeeds,
+    // then audit_append_external fails on the bogus task_id.
+    let dir = std::env::temp_dir().join(format!("vp-w4-audit-fail-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.pdf"), b"a").unwrap();
+
+    let dir_str = dir.to_string_lossy().replace('\\', "/");
+    let bad_call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"filesystem.search_files","arguments":{"root":"__DIR__","pattern":"*.pdf","task_id":"nonexistent-task"}}}"#
+        .replace("__DIR__", &dir_str);
+    let list = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let input = format!("{}\n{}\n", bad_call, list);
+    let reader = Cursor::new(input.into_bytes());
+    let mut writer = Vec::new();
+
+    server.run_stdio(reader, &mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "loop must continue after audit failure, got: {:?}",
+        lines
+    );
+    // First response: InternalError -32603 for id=1.
+    assert!(
+        lines[0].contains(r#""code":-32603"#),
+        "audit failure must be InternalError -32603, got: {}",
+        lines[0]
+    );
+    assert!(lines[0].contains(r#""id":1"#));
+    // Second response: tools/list succeeded — loop did not crash.
+    assert!(lines[1].contains(r#""filesystem.search_files""#));
+
+    std::fs::remove_dir_all(&dir).ok();
+}

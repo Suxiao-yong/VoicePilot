@@ -4,7 +4,7 @@
 //! Holds the kernel via Arc<TrustKernel> so multiple owners (server + test
 //! harness) can share the same audit log / DB state.
 
-use crate::error::{KernelError, Result};
+use crate::error::Result;
 use crate::kernel::TrustKernel;
 use crate::mcp::handler::{McpCallResult, McpHandler};
 use crate::mcp::transport::{
@@ -101,12 +101,21 @@ impl McpServer {
         params: Option<serde_json::Value>,
     ) -> Result<OutgoingMessage> {
         let params = params.unwrap_or(serde_json::Value::Null);
-        let name = params
+        // Spec issue #37: missing 'name' must return InvalidParams -32602,
+        // not propagate as KernelError::Mcp and crash the stdio loop.
+        let name = match params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                KernelError::Mcp("tools/call requires 'name' field".to_string())
-            })?;
+        {
+            Some(n) => n,
+            None => {
+                return Ok(OutgoingMessage::Error(JsonRpcError::new(
+                    id,
+                    JsonRpcErrorCode::InvalidParams,
+                    "tools/call requires 'name' field",
+                )));
+            }
+        };
         let arguments = params
             .get("arguments")
             .cloned()
@@ -140,8 +149,11 @@ impl McpServer {
         };
 
         // Audit log if task_id is present (stateful call).
+        // Spec issue #37: audit failure (e.g. FK violation on unknown task_id)
+        // must emit InternalError -32603 and let the loop continue, not
+        // propagate as KernelError::Db and crash the stdio loop.
         if let Some(tid) = &task_id {
-            self.kernel.audit_append_external(
+            if let Err(e) = self.kernel.audit_append_external(
                 tid,
                 step_id.as_deref(),
                 "MCP_TOOLS_CALL",
@@ -150,7 +162,13 @@ impl McpServer {
                     "arguments": arguments,
                     "success": matches!(result, McpCallResult::Ok(_)),
                 }),
-            )?;
+            ) {
+                return Ok(OutgoingMessage::Error(JsonRpcError::new(
+                    id,
+                    JsonRpcErrorCode::InternalError,
+                    format!("audit log failure: {}", e),
+                )));
+            }
         }
 
         let (content, is_error) = match result {
