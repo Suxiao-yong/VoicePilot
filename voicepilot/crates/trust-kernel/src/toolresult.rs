@@ -17,6 +17,16 @@ pub enum EvidenceStrength {
     Weak,
 }
 
+impl EvidenceStrength {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EvidenceStrength::Strong => "strong",
+            EvidenceStrength::Medium => "medium",
+            EvidenceStrength::Weak => "weak",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolStatus {

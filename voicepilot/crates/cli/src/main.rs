@@ -1,8 +1,42 @@
 use anyhow::{anyhow, Result};
 use std::io::{self, Write};
+use trust_kernel::approval::approver::Approver;
+use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
+use trust_kernel::policy::transaction::EffectManifest;
+use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
 use trust_kernel::state::TaskState;
 use uuid::Uuid;
+
+/// CLI Approver that prints the effect_manifest and prompts y/n on stdin.
+struct CliApprover;
+
+impl Approver for CliApprover {
+    fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision {
+        println!("\n=== Effect Manifest ===");
+        println!("  sources: {} file(s)", manifest.sources.len());
+        println!("  total_bytes: {}", manifest.total_bytes);
+        println!("  destination: {}", manifest.destination);
+        if !manifest.conflicts.is_empty() {
+            println!("  conflicts: {:?}", manifest.conflicts);
+        }
+        println!("========================\n");
+        print!("approve commit? [y/N] ");
+        let _ = io::stdout().flush();
+        let mut buf = String::new();
+        let n = io::stdin().read_line(&mut buf).unwrap_or(0);
+        if n == 0 {
+            // EOF — treat as deny (safer default).
+            return ApprovalDecision::Deny;
+        }
+        let trimmed = buf.trim().to_lowercase();
+        if trimmed == "y" || trimmed == "yes" {
+            ApprovalDecision::Allow
+        } else {
+            ApprovalDecision::Deny
+        }
+    }
+}
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -25,6 +59,7 @@ fn main() -> Result<()> {
     println!("  show <task>     show task state and audit count");
     println!("  policy <tool> <path> <D-level> [E-level]  run policy decision (W2)");
     println!("  move <src1> [src2...] <dest>  move files via prepare→commit (W3a)");
+    println!("  organize <root> <filter> <dest>  run files.organize Skill (W3b)");
     println!("  quit");
     println!();
 
@@ -53,6 +88,10 @@ fn main() -> Result<()> {
         }
         if let Some(rest) = line.strip_prefix("policy ") {
             handle_policy_command(&kernel, rest);
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("organize ") {
+            handle_organize_command(&kernel, rest);
             continue;
         }
         if let Some(rest) = line.strip_prefix("move ") {
@@ -212,4 +251,58 @@ fn handle_move_command(kernel: &TrustKernel, args: &str) {
     // Phase 4: compensation record creation deferred to W3b (needs kernel method to access conn).
     // W3a CLI smoke stops here; W3b will add `kernel.create_compensation(rec)`.
     println!("(compensation record creation deferred to W3b — see Task 9 of W3a plan)");
+}
+
+fn handle_organize_command(kernel: &TrustKernel, args: &str) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() != 3 {
+        println!("usage: organize <root> <filter> <dest>");
+        println!("  e.g. organize %TEMP%\\dl *.pdf %TEMP%\\papers");
+        return;
+    }
+    let root = std::path::PathBuf::from(parts[0]);
+    let filter = parts[1].to_string();
+    let dest = std::path::PathBuf::from(parts[2]);
+
+    // Create a task + step for this organize run.
+    let task_id = format!("task-{}", Uuid::new_v4());
+    let step_id = format!("step-{}", Uuid::new_v4());
+    let goal = format!("organize {} ({}) -> {}", parts[0], parts[1], parts[2]);
+    if let Err(e) = kernel.create_task(&task_id, &goal) {
+        println!("create_task failed: {}", e);
+        return;
+    }
+    if let Err(e) = kernel.create_step(&trust_kernel::repo::step_repo::StepRecord::new(
+        &step_id, &task_id, 1,
+    )) {
+        println!("create_step failed: {}", e);
+        return;
+    }
+
+    let input = FilesOrganizeInput {
+        task_id: task_id.clone(),
+        step_id: step_id.clone(),
+        source: root,
+        filter,
+        destination: dest,
+    };
+
+    let approver = CliApprover;
+    let skill = FilesOrganizeSkill::new();
+    match skill.execute(kernel, &input, &approver) {
+        Ok(execution) => {
+            println!("\n--- ToolResult V2 ---");
+            println!("  status: {:?}", execution.tool_result.status);
+            println!("  evidence_strength: {:?}", execution.tool_result.evidence_strength);
+            println!("  compensation_ref: {:?}", execution.tool_result.compensation_ref);
+            println!("  compensation_level: {}", execution.tool_result.compensation_level.as_str());
+            println!("  idempotency_key: {}", execution.tool_result.idempotency_key);
+            println!("  moved: {} file(s)", execution.moved_paths.len());
+            println!("  task_id: {}", task_id);
+            println!("  step_id: {}", step_id);
+        }
+        Err(e) => {
+            println!("skill execution failed: {}", e);
+        }
+    }
 }
