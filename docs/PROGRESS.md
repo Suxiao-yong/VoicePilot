@@ -4,7 +4,7 @@
 > **当前分支:** `master`
 > **最新 commit:** `4169e5b` fix(mcp): run_stdio continues after kernel errors (spec issue #37)
 > **测试状态:** 196 passing, 0 warnings
-> **规格版本:** V1.1.1 (W3b issue 27-35 + W4 issue 38-43 待 V1.1.2 修订;issue #37 已解决)
+> **规格版本:** V1.1.2(全部 issue #17-#43 已解决)
 
 ---
 
@@ -345,54 +345,39 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 - LLM Planner fallback(留 W7)
 - 真实 Stronghold 加密(留 W8)
 
-### 4.2 待修订规格问题(留待 V1.1.2)
+### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
-**W3a 计划文档已记录的 planning-time issue(17-21):**
+**全部 27 个 spec issue(#17-#43)已在 V1.1.2 规格文档中修订完成。** 详见 `voicepilot-v1.1-spec/voicepilot-v1.1-spec.html` changelog V1.1.2 行 + 各章节末尾的"V1.1.2 修订"callout。
 
-| # | 章节 | 问题 | 建议 |
+| Issue 范围 | 章节 | 修订主题 | V1.1.2 callout 位置 |
 |---|---|---|---|
-| 17 | §6.1 | "filesystem-mcp uses `@modelcontextprotocol/server-filesystem`" 与单一 Rust 内核冲突 | host 原生 Rust,MCP 是薄包装 |
-| 18 | §7.2 ① | `snapshot_encrypted` 须用 stronghold,但 W3a-W7 需明文 PoC | 加注:W3a-W7 明文,W8 gate |
-| 19 | §6.2 | `file_id: "fi_001"` 构造未定义 | pin per-OS file_id 构造 |
-| 20 | §6.3 | `ToolResult.compensation_level` 与 `CompensationRecord.level` 语义重复 | 区分:工具上限 vs 实际级别 |
-| 21 | §7.2 | `conflict_policy` 触发条件未定义 | 加 (level, policy) → behavior 表 |
-
-**W3a 执行期发现的新 issue(22-26):**
-
-| # | 来源 | 问题 |
-|---|---|---|
-| 22 | Task 4 | prepare token 在 new-conflict TOCTOU check 之前被消费,caller 无法用原 token 重试 |
-| 23 | Task 5 | 测试依赖 Windows NTFS 大小写不敏感;`sha256_of_file` 在 fs.rs 和 fs_snapshot.rs 重复;`VerifyResult.verified` 字段冗余 |
-| 24 | Task 7 | PoC stash hack:当提供真实 `vault_ref` 时 `compensate_fn`/`reverse_payload` 丢失 |
-| 25 | Task 8 | cross-volume rename 未处理(Windows 跨卷 `std::fs::rename` 失败);rollback 失败静默吞没 |
-| 26 | Task 9 | CLI `move` 命令 Phase 4 补偿记录创建被推迟到 W3b(`kernel.conn` 私有) |
-
-**W3b 执行期发现的新 issue(27-36):**
-
-| # | 来源 | 问题 |
-|---|---|---|
-| 27 | §5.3 | Skill Manifest 用 YAML 但 V1.1 技术栈未指定 `serde_yaml` |
-| 28 | §6.2 | `approval_token` 提及但格式未定义,与 `approval_id` 语义重叠 |
-| 29 | §8.1 | `approvals` 表同时有 `risk_level`(V1.0 legacy)和 `E_level`/`D_level`,冗余 |
-| 30 | §5.3 | `inputs.<param>.type: file_filter` schema 未定义 |
-| 31 | §8.1 | `mcp_servers.allowed_paths` 强制层级未规定(本 kernel vs MCP server) |
-| 32 | §5.1 | Skill Router "轻量模型" 未指定具体模型,无法验证 §1.4 "命中率 ≥ 40%" |
-| 33 | §11.1 | W3 gate "可跑" 范围模糊(端到端审计链 vs 仅跑通) |
-| 34 | §6.2 | `effect_manifest` 对 D2/D3 数据脱敏未规定 |
-| 35 | §7.2 | `conflict_policy=require_confirmation` 的 "confirmation" 语义未定义 |
-| 36 | §4.4 | `fs_paths::canonicalize` 在 Unix 上剥离前导 `/`,导致根 `/foo` 误匹配 `/foobar`(W3b 已在 `allowed_paths.rs` 文档注释) |
-
-**W4 执行期发现的新 issue(37-43):**
-
-| # | 来源 | 问题 | 状态 |
-|---|---|---|---|
-| 37 | §6.1 | `run_stdio` 错误传播行为未规定 — malformed input 应返回 error response 还是断开连接?当前实现 propagate,客户端畸形输入崩循环(final review Important 标记) | ✅ 已解决(`4169e5b`,2026-07-20):`name` 缺失→-32602,`audit_append_external` 失败→-32603,循环不再传播 kernel 错误 |
-| 38 | §6.1 | `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`) | 待 V1.1.2 |
-| 39 | §8.1 | `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array `["D:/", "E:/"]`) | 待 V1.1.2 |
-| 40 | §6.1 | `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本) | 待 V1.1.2 |
-| 41 | §6.1 | `tools/call` 审计日志 `details` schema 未规定(W4 用 `{"server_id", "tool_name", "args", "success"}` 自定义结构) | 待 V1.1.2 |
-| 42 | §8.1 | `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE) | 待 V1.1.2 |
-| 43 | §6.1 | `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律 -32603 InternalError,未区分 -32601 MethodNotFound / -32602 InvalidParams) | 部分解决(`4169e5b`):`name` 缺失现映射为 -32602,其余仍 -32603;完整映射规则待 V1.1.2 |
+| #17 | §3.3 / §6.1 | filesystem-mcp 自研化(原生 Rust FilesystemTool,替代 @modelcontextprotocol/server-filesystem) | §6.1 表格行 + V1.1.2 修订 callout ① |
+| #18 | §7.2 | snapshot_encrypted 加密时序(W3a-W7 明文 PoC → W8 stronghold gate → W9 验收无明文残留) | §7.2 V1.1.2 修订 callout ① |
+| #19 | §6.2 | file_id 构造规则(Windows: volume_serial+file_index;Unix: st_dev+st_ino) | §6.2 V1.1.2 修订 callout ① |
+| #20 | §6.3 | ToolResult.compensation_level(工具上限)vs CompensationRecord.level(实际级别)语义区分 | §6.3 V1.1.2 修订 callout |
+| #21 | §7.2 | conflict_policy 触发条件表(auto_reverse/require_confirmation/fail × conflicts 空/非空) | §7.2 V1.1.2 修订 callout ② |
+| #22 | §6.2 | prepare token 在 TOCTOU 失败时可重用(commit 操作仅在所有检查通过后才消费 token) | §6.2 V1.1.2 修订 callout ② |
+| #23 | §7.1 | sha256_of_file 单点定义(fs_snapshot.rs 唯一,fs.rs use 引用)+ VerifyResult.verified 语义 | §7.1 V1.1.2 修订 callout |
+| #24 | §6.2 | effect_manifest D2/D3 脱敏(D3 canonical_path 替换为 <redacted:D3>,sha256 保留供比对) | §6.2 V1.1.2 修订 callout ③ |
+| #25 | §6.2 | cross-volume rename fallback(EXDEV → copy+remove)+ rollback 失败上报 tracing::error! | §6.2 V1.1.2 修订 callout ④ |
+| #26 | §8.1 | TrustKernel 公开 API 边界(领域特定 API 替代 kernel.conn() 私有访问) | §8.1 V1.1.2 修订 callout ① |
+| #27 | §5.3 | Skill Manifest 双形态(W3b-W6 Rust struct literal;W7+ YAML 文件 + serde_yaml) | §5.3 V1.1.2 修订 callout ① |
+| #28 | §6.2 | approval_token 与 approval_id 合并(废弃 approval_token,统一用 approval_id UUID) | §6.2 V1.1.2 修订 callout ⑤ |
+| #29 | §8.1 | approvals 表 risk_level 字段废弃 + compensations 表 level 字段重命名为 compensation_level | §8.1 V1.1.2 修订 callout ②③ + 表格行 |
+| #30 | §5.3 | file_filter schema 定义(mode: extension/name_pattern/date_range/size_range + 各 mode 字段) | §5.3 V1.1.2 修订 callout ② |
+| #31 | §8.1 | mcp_servers.allowed_paths 强制层级(在 FilesystemTool 层强制,非 MCP server 层) | §6.1 V1.1.2 修订 callout ③ + §3.3 表格行 |
+| #32 | §5.1 | Skill Router 实现明确(W3b-W6 纯关键词匹配;W7+ 本地 LLM fallback) | §5.1 V1.1.2 修订 callout |
+| #33 | §11.1 | W3 gate 明确为"端到端审计链可跑"(prepare→approve→commit→verify→compensate + audit_logs 完整) | §11.1 W3 行修订 |
+| #34 | §6.2 | effect_manifest 持久化策略(W3a-W7 明文 JSON;W8 vault_ref + summary) | §6.2 V1.1.2 修订 callout ⑥ |
+| #35 | §7.2 | conflict_policy=require_confirmation 的 confirmation 语义(Approver::request_conflict_resolution 三选一) | §7.2 V1.1.2 修订 callout ③ |
+| #36 | §4.4 | canonicalize 跨平台语义统一(POSIX 风格 + 路径组件前缀匹配,避免 /foo 误匹配 /foobar) | §4.4 V1.1.2 修订 callout |
+| #37 | §6.1 | run_stdio 错误传播行为(已在 4169e5b 修复,name 缺失→-32602,audit 失败→-32603,循环不中断) | §6.1 V1.1.2 修订 callout ⑦(代码层已修复) |
+| #38 | §6.1 | OutgoingMessage 序列化策略(手写 impl Serialize 或 #[serde(untagged)] 均合法) | §6.1 V1.1.2 修订 callout ② |
+| #39 | §8.1 | mcp_servers.allowed_paths JSON 数组字符串格式(如 `["D:/", "E:/documents"]`) | §6.1 V1.1.2 修订 callout ③ |
+| #40 | §6.1 | protocolVersion 协商策略(服务端硬编码 2025-11-25,客户端字段仅日志,ServerCapabilities 标注 version_locked=true) | §6.1 V1.1.2 修订 callout ④ |
+| #41 | §6.1 | tools/call 审计日志 details schema(server_id+tool_name+arguments+success+error_class+duration_ms) | §6.1 V1.1.2 修订 callout ⑤ |
+| #42 | §8.1 | mcp_servers builtin row 启动加载策略(seed_builtin_filesystem 幂等 INSERT OR IGNORE,FK 约束防 DELETE) | §6.1 V1.1.2 修订 callout ⑥ |
+| #43 | §6.1 | 内核错误 → JSON-RPC 错误码完整映射表(-32602/-32601/-32603 按变体分类) | §6.1 V1.1.2 修订 callout ⑦ + 错误码映射表 |
 
 ### 4.3 后续周次计划(高层)
 

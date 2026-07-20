@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VoicePilot 项目开发规格说明书 V1.1.1</title>
+<title>VoicePilot 项目开发规格说明书 V1.1.2</title>
 <style>
 @font-face { font-family: "InstrumentSans"; src: url("./_shared/fonts/InstrumentSans-Regular.ttf") format("truetype"); font-weight: 400; }
 @font-face { font-family: "InstrumentSans"; src: url("./_shared/fonts/InstrumentSans-Bold.ttf") format("truetype"); font-weight: 700; }
@@ -248,12 +248,12 @@ sup a:hover { text-decoration: underline; }
 
 <!-- Cover -->
 <section class="cover">
-  <div class="eyebrow">Project Development Specification · 2026-07-19</div>
-  <h1>VoicePilot 项目开发规格说明书 <span class="version-tag">V1.1.1</span></h1>
+  <div class="eyebrow">Project Development Specification · 2026-07-20</div>
+  <h1>VoicePilot 项目开发规格说明书 <span class="version-tag">V1.1.2</span></h1>
   <div class="subtitle">权限感知语音桌面 Agent · 单一 Rust 信任内核 · 二维风险模型 · Skills 快速路径</div>
   <div class="meta">
-    <div><strong>版本：</strong>V1.1.1（W2 反馈修订增量）</div>
-    <div><strong>编制日期：</strong>2026-07-19</div>
+    <div><strong>版本：</strong>V1.1.2（W3a/W3b/W4 实施反馈修订增量，issue #17-#43）</div>
+    <div><strong>编制日期：</strong>2026-07-20</div>
     <div><strong>主平台：</strong>Windows 11 24H2/25H2</div>
     <div><strong>周期：</strong>8-9 周（原 12 周压缩 30%）</div>
   </div>
@@ -270,6 +270,7 @@ sup a:hover { text-decoration: underline; }
 <tr><td>V1.0</td><td>2026-07-19</td><td>从合并方案中拆分为独立项目；补齐架构、接口、测试、部署和验收</td><td>开发基线</td></tr>
 <tr><td><strong>V1.1</strong></td><td>2026-07-19</td><td>采纳 2026 生态调研与深度评审：单一 Rust 信任内核、二维风险模型 E×D、Skills 层、prepare/approve/commit 事务协议、Taint Tracking、内置官方 MCP、Compensation 三级、8-9 周压缩计划</td><td><strong>修订基线</strong></td></tr>
 <tr><td><strong>V1.1.1</strong></td><td>2026-07-19</td><td>W2 实施反馈修订：§4.3 ToolArgument 无条件 deny（收紧）、§4.4 egress 优先级规则明确（remote 覆盖 E×D，local 由 E×D 权威）、§4.4 step 1 resource.path 规范化时机说明（W3 启用）、§8.1 approval_scope batch 触发条件定义</td><td><strong>修订增量</strong></td></tr>
+<tr><td><strong>V1.1.2</strong></td><td>2026-07-20</td><td>W3a/W3b/W4 实施反馈修订（issue #17-#43）：§3.3 filesystem 改为原生 Rust 适配器（替代 @modelcontextprotocol/server-filesystem）、§4.4 canonicalize Unix 前导斜杠保留、§5.1 Skill Router 明确为纯关键词匹配（W7 接入轻量 LLM）、§5.3 Skill Manifest 引入 Rust struct literal 形态 + file_filter schema 定义、§6.1 OutgoingMessage serde 策略 + allowed_paths JSON 数组格式 + protocolVersion 协商策略 + audit details schema + builtin seed 策略 + 内核错误→JSON-RPC 错误码完整映射、§6.2 approval_token 与 approval_id 合并 + effect_manifest D2/D3 脱敏 + prepare token 在 TOCTOU 失败时可重用 + cross-volume rename fallback + file_id 构造规则、§6.3 ToolResult.compensation_level 与 CompensationRecord.level 语义区分、§7.1 sha256_of_file 单点定义 + VerifyResult.verified 字段语义、§7.2 snapshot_encrypted W3a-W7 明文 PoC 时序 + conflict_policy 触发条件表 + conflict_policy=require_confirmation 语义 + compensions 表 schema 调整、§8.1 approvals 表 risk_level 字段废弃 + kernel 公开 API 边界、§11.1 W3 gate 明确为端到端审计链</td><td><strong>修订增量</strong></td></tr>
 </tbody>
 </table>
 </div>
@@ -555,7 +556,7 @@ sup a:hover { text-decoration: underline; }
 <tr><td>Agent 编排</td><td>LangGraph StateGraph + interrupt()（Python sidecar，可选）</td><td>状态机、HITL、Checkpointer；无 MCP 直连权</td><td><strong>新增</strong></td></tr>
 <tr><td>MCP 协议</td><td><strong>2025-11-25（生产基线）</strong></td><td>Tasks 实验性不可依赖；2026-07-28 spec 9 天后发布需重新评估</td><td><strong>锁定版本</strong></td></tr>
 <tr><td>浏览器</td><td><strong>Microsoft Playwright MCP（官方 v0.0.78）</strong></td><td>Accessibility Snapshot 优先，结构化状态</td><td><strong>内置（替代自研）</strong></td></tr>
-<tr><td>文件系统</td><td><strong>@modelcontextprotocol/server-filesystem（官方）</strong></td><td>--allowed-paths 白名单 + ro 只读</td><td><strong>内置（替代自研）</strong></td></tr>
+<tr><td>文件系统</td><td><strong>原生 Rust FilesystemTool（V1.1.2 修订，issue #17）</strong></td><td>不依赖 @modelcontextprotocol/server-filesystem，由 Trust Kernel 直接实现 prepare_move/commit_move/verify_move/search_files；allowed_paths 白名单在 FilesystemTool 层强制</td><td><strong>自研（替代内置 Node）</strong></td></tr>
 <tr><td>RAG</td><td><strong>chroma-core/chroma-mcp（官方）</strong></td><td>仅启用 query/search 工具实现严格只读</td><td><strong>内置（替代自研）</strong></td></tr>
 <tr><td>Windows 11 加速</td><td><strong>Windows 原生 MCP（ODR + File Explorer + Settings Connector）</strong></td><td>预览能力，检测到后优先使用，自研 fallback</td><td><strong>新增</strong></td></tr>
 <tr><td>Windows UIA</td><td>自研 Rust UIA Adapter（参考 microsoft/UFO² + AutoGenesis/pywinauto-mcp-server）</td><td>AutomationId → ControlType+Name → 父子层级</td><td>自研（无成熟替代）</td></tr>
@@ -787,6 +788,16 @@ when { resource.data_class in ["D2", "D3"] };</code></pre>
 
 <p><strong>egress 覆盖 E×D 的设计理由</strong>：当数据流向远程目的地时，"发送到远程"本身就是不可逆动作（E3 等价）。此时 E×D 矩阵的 E 维度应被 egress 行为替代，而非叠加。例如 <code>(E3, D2) → RemoteLlm</code>：E×D 矩阵返回 Deny（因 E3×D2=Deny），但 egress 表返回 Confirm（因 D2→RemoteLlm=Confirm）。V1.1 选择 egress 权威 → 最终 Confirm，符合"用户可批准具体片段外发"的语义。</p>
 
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3b 实施反馈，issue #36）</div>
+  <p><strong>canonicalize 跨平台语义统一：</strong>V1.1.1 <code>fs_paths::canonicalize(path)</code> 在 Unix 上若仅做"剥离前导 <code>/</code>"会误匹配(如规范化 <code>"/foo"</code> → <code>"foo"</code>,导致 <code>"foo"</code> 是 <code>"foobar"</code> 的前缀 → 误判 allowed)。V1.1.2 修订:</p>
+  <ul>
+    <li><strong>规范化规则</strong>:统一为 POSIX 风格 <code>'/'</code> 分隔符 + 末尾无 <code>'/'</code>(根目录除外)。Windows 路径 <code>"C:\\Users\\me"</code> → <code>"C:/Users/me"</code>;Unix 路径 <code>"/home/me"</code> → <code>"/home/me"</code>(保留前导 <code>/</code>)。</li>
+    <li><strong>AllowedPaths 前缀匹配</strong>:使用"路径组件前缀匹配"而非"字符串前缀匹配"。<code>AllowedPaths::check(path)</code> 实现:把 candidate 与每个 root 都做 <code>canonicalize</code>,然后比较 <code>candidate.ancestors()</code> 是否包含 root(避免 <code>"/foo"</code> 误匹配 <code>"/foobar"</code>)。</li>
+    <li><strong>纯字符串实现</strong>:V1.1.1 强调"不触碰文件系统"(避免 TOCTOU),V1.1.2 保留此约束 — <code>canonicalize</code> 不调 <code>std::fs::canonicalize</code>,仅做字符串规范化。符号链接解析在 prepare_move 实际执行时由 OS 处理。</li>
+  </ul>
+</div>
+
 <!-- ============= Chapter 5 ============= -->
 <h2 id="ch5"><span class="num">5</span>Skills 层与确定性快速路径</h2>
 
@@ -859,6 +870,16 @@ when { resource.data_class in ["D2", "D3"] };</code></pre>
 <figcaption>图 5-1：Skills 路由流程——命中 Skill 走确定性路径，未命中走通用 Planner</figcaption>
 </figure>
 
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3b 实施反馈，issue #32）</div>
+  <p><strong>Skill Router 实现明确（替代"轻量模型"模糊表述）：</strong>V1.1.1 §5.1 提及"确定性规则 + 轻量模型",但未指定具体模型,无法验证 §1.4 "命中率 ≥ 40%"。V1.1.2 明确分阶段:</p>
+  <ul>
+    <li><strong>W3b-W6(确定性阶段)</strong>:<code>SkillRouter::route(text)</code> 使用<strong>纯关键词匹配</strong> — 每个 Skill 在 manifest 中声明 <code>intent_examples: [string]</code> + <code>curated_keywords: [string]</code>(精选关键词,降低 false-positive)。匹配算法:文本分词后,若任一 example 完整包含于输入,或 ≥ 2 个 curated_keywords 命中,则判定该 Skill。多 Skill 命中时取 <code>score = matched_keywords / total_keywords</code> 最高者。零外部依赖,零延迟。</li>
+    <li><strong>W7(LLM 阶段)</strong>:接入本地小模型(如 Qwen2.5-3B 或 mistral-7b-instruct)做意图分类,作为 fallback:若关键词匹配 score &lt; 0.3 且无完整 example 命中,则调 LLM 分类。LLM 调用经过 Policy Engine <code>(E2, D1) → local_only</code> 强制。</li>
+    <li><strong>§1.4 "命中率 ≥ 40%" 验证</strong>:W5 集成后用 100 任务评测集(§9.2)测量。低于 40% 触发回流:扩充 curated_keywords 或加 Skill。</li>
+  </ul>
+</div>
+
 <h3 id="ch5-2">5.2 首批 8 个 Skill</h3>
 <div class="table-wrap">
 <table>
@@ -929,6 +950,39 @@ failure_policy:
   <p>④ <strong>可保存复用</strong>：用户成功后可"保存为快捷操作"，保存的是冻结 Workflow Template，不是原始 Prompt 或鼠标坐标</p>
 </div>
 
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3b 实施反馈，issue #27 / #30）</div>
+  <p><strong>① issue #27 Skill Manifest 表达形态：</strong>V1.1.1 §5.3 用 YAML 表达,但 V1.1 技术栈(§3.3)未引入 <code>serde_yaml</code>。V1.1.2 明确双形态:</p>
+  <ul>
+    <li><strong>W3b-W6(Rust struct literal 形态)</strong>:builtin Skills(files.organize 等 8 个)以 Rust <code>SkillManifest</code> struct literal 直接构造,编译进二进制。无运行时解析,零依赖。示例:<pre><code>pub fn files_organize_manifest() -> SkillManifest {
+    SkillManifest {
+        id: "files.organize".into(),
+        version: "1.0.0".into(),
+        intent_examples: vec!["把下载目录里的 PDF 移到论文文件夹".into(), ...],
+        curated_keywords: vec!["整理", "下载", "PDF", "移动", ...],
+        inputs: HashMap::from([...]),
+        ...
+    }
+}</code></pre></li>
+    <li><strong>W7+ (YAML 形态)</strong>:用户自定义 Skills 保存在 <code>~/.voicepilot/skills/*.yaml</code>,引入 <code>serde_yaml</code> 依赖。Schema 与 Rust struct 完全一致(附录 C)。启动时解析为 <code>SkillManifest</code> struct。</li>
+    <li><strong>持久化</strong>:<code>skills.manifest_json</code> 字段(§8.1)始终存 JSON,与 YAML/Rust 形态无关。</li>
+  </ul>
+  <p><strong>② issue #30 file_filter schema 定义：</strong>V1.1.1 §5.3 inputs 中 <code>type: file_filter</code> 未定义 schema。V1.1.2 明确:</p>
+  <pre><code># YAML 形态
+filter:
+  type: file_filter
+  required: true
+  schema:
+    mode: extension | name_pattern | date_range | size_range
+    extension: [string]          # mode=extension 时,如 [".pdf", ".docx"]
+    pattern: string              # mode=name_pattern 时,glob 如 "*.pdf"
+    date_from: iso8601           # mode=date_range 时
+    date_to: iso8601
+    size_min_bytes: int          # mode=size_range 时
+    size_max_bytes: int</code></pre>
+  <p>W3b <code>files.organize</code> 实现仅支持 <code>mode=name_pattern</code>(glob,如 <code>*.pdf</code>),其他 mode 留 W7+。<code>SkillRouter</code> 解析时若 mode 未声明则默认 <code>name_pattern</code>。<code>FilesystemTool::search_files(root, pattern)</code> 实现简单 glob 匹配(<code>*</code> 任意字符,<code>?</code> 单字符),不引入 regex crate。</p>
+</div>
+
 <!-- ============= Chapter 6 ============= -->
 <h2 id="ch6"><span class="num">6</span>MCP Server 与事务协议</h2>
 
@@ -939,7 +993,7 @@ failure_policy:
 <table>
 <thead><tr><th>Server</th><th>方案</th><th>维护方</th><th>默认风险</th><th>备注</th></tr></thead>
 <tbody>
-<tr><td>filesystem-mcp</td><td><span class="pill builtin">内置官方</span> <code>@modelcontextprotocol/server-filesystem</code></td><td>Anthropic</td><td>E0-E3</td><td>--allowed-paths 白名单 + ro 只读；L2/L3 客户端层拦截</td></tr>
+<tr><td>filesystem-mcp</td><td><span class="pill self">自研（V1.1.2 修订，issue #17）</span> 原生 Rust FilesystemTool</td><td>本项目</td><td>E0-E3</td><td>由 Trust Kernel 直接实现；allowed_paths 白名单在 FilesystemTool 层强制（非 MCP server 层）；不引入 Node 进程</td></tr>
 <tr><td>playwright-mcp</td><td><span class="pill builtin">内置官方</span> <code>@playwright/mcp</code> v0.0.78</td><td>Microsoft</td><td>E0-E2</td><td>Accessibility Snapshot 优先；--allowed-origins 白名单</td></tr>
 <tr><td>rag-mcp</td><td><span class="pill builtin">内置官方</span> <code>chroma-core/chroma-mcp</code></td><td>Chroma</td><td>E0</td><td>仅启用 query/search 工具实现严格只读</td></tr>
 <tr><td>Win11 原生 MCP</td><td><span class="pill replace">可选加速</span> ODR + File Explorer + Settings Connector</td><td>Microsoft</td><td>E0-E2</td><td>预览能力，检测到后优先使用，自研 fallback</td></tr>
@@ -956,6 +1010,39 @@ failure_policy:
 <div class="callout warn">
   <div class="title">⚠ MCP 工具注解不可信</div>
   <p>MCP 规范明确：客户端<strong>必须</strong>将工具注解（inputSchema / outputSchema / readOnlyHint / destructiveHint / idempotentHint / openWorldHint）视为不可信，除非来自受信 Server<sup><a href="#cite-6">[6]</a></sup>。VoicePilot 的 Policy Engine 不依赖 Server 自报的风险等级，所有风险由 Rust 侧独立计算。</p>
+</div>
+
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W4 实施反馈，issue #17 / #38-#43）</div>
+  <p><strong>① issue #17 filesystem-mcp 自研化：</strong>不引入 <code>@modelcontextprotocol/server-filesystem</code> Node 进程，由 Trust Kernel 内的 Rust <code>FilesystemTool</code> 直接实现 <code>prepare_move</code> / <code>commit_move</code> / <code>verify_move</code> / <code>search_files</code>。MCP 协议层（<code>McpServer</code>）是薄包装，仅做 JSON-RPC 调度与审计。</p>
+  <p><strong>② issue #38 OutgoingMessage 序列化策略：</strong>Rust 端 <code>OutgoingMessage</code> 枚举（<code>Response(JsonRpcResponse)</code> | <code>Error(JsonRpcError)</code>）使用手写 <code>impl Serialize</code> 委托内部变体。两种合法实现（手写 vs <code>#[serde(untagged)]</code>）产出等价 JSON，实现可自由选择。客户端不应假设特定内部结构。</p>
+  <p><strong>③ issue #39 mcp_servers.allowed_paths JSON 格式：</strong>字段类型为 <code>TEXT</code>，存储 JSON 数组字符串，如 <code>"[\"D:/\", \"E:/documents\"]"</code>。加载时由 <code>McpServerRepo::load_allowed_paths</code> 解析为 <code>Vec&lt;String&gt;</code>，再交给 <code>AllowedPaths::new(roots)</code> 规范化为 canonical paths。空数组 <code>"[]"</code> 表示无白名单（仅 builtin filesystem server 之外的 server 允许）。</p>
+  <p><strong>④ issue #40 protocolVersion 协商策略：</strong>服务端在 <code>initialize</code> 响应中硬编码返回 <code>"2025-11-25"</code>。客户端请求中的 <code>protocolVersion</code> 字段<strong>仅用于日志记录</strong>，不参与协商（因 V1.1 锁定 2025-11-25 为生产基线，无降级路径）。若客户端请求其他版本，服务端仍返回 2025-11-25 并在 <code>ServerCapabilities</code> 中标注 <code>"version_locked": true</code>。</p>
+  <p><strong>⑤ issue #41 tools/call 审计日志 details schema：</strong><code>audit_logs.event_type = "MCP_TOOLS_CALL"</code> 时，<code>details</code> 字段为如下 JSON：</p>
+  <pre><code>{
+  "server_id": "builtin.filesystem",
+  "tool_name": "filesystem.search_files",
+  "arguments": { ... },          // 调用参数（已脱敏，D2/D3 字段以 "***" 替代）
+  "success": true,
+  "error_class": null,           // 失败时填 KernelError 变体名
+  "duration_ms": 12
+}</code></pre>
+  <p><strong>⑥ issue #42 mcp_servers builtin row 启动加载策略：</strong>Trust Kernel 启动时调用 <code>McpServerRepo::seed_builtin_filesystem(conn)</code>，使用 <code>INSERT OR IGNORE</code> 幂等地写入 <code>server_id="builtin.filesystem"</code> 的 builtin row（transport=stdio, enabled=1, trusted=1）。后续用户可通过 <code>UPDATE</code> 修改 <code>allowed_paths</code>，但不可 <code>DELETE</code> builtin row（FK 约束 + 应用层检查）。</p>
+  <p><strong>⑦ issue #43 内核错误 → JSON-RPC 错误码完整映射：</strong><code>handle_tools_call</code> 内核错误按下表映射为 <code>OutgoingMessage::Error</code>，不再 <code>?</code> 传播：</p>
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>KernelError 变体</th><th>JSON-RPC code</th><th>含义</th></tr></thead>
+  <tbody>
+  <tr><td>（params 缺失 <code>name</code> 字段）</td><td>-32602 InvalidParams</td><td>请求参数不完整</td></tr>
+  <tr><td><code>KernelError::Mcp</code>（工具拒绝，如 <code>move_files</code> 必须走 Skill）</td><td>-32601 MethodNotFound</td><td>方法不可直接调用</td></tr>
+  <tr><td><code>KernelError::Filesystem</code>（路径不存在 / 不是目录 / 越权）</td><td>-32603 InternalError</td><td>工具执行失败</td></tr>
+  <tr><td><code>KernelError::Verification</code>（sha256/size 不匹配）</td><td>-32603 InternalError</td><td>验证失败</td></tr>
+  <tr><td><code>KernelError::Db</code>（含 audit_append_external FK 失败）</td><td>-32603 InternalError</td><td>数据库错误</td></tr>
+  <tr><td>其他未分类</td><td>-32603 InternalError</td><td>兜底</td></tr>
+  </tbody>
+  </table>
+  </div>
+  <p>注:JSON parse 错误仍返回 -32700 ParseError(在 <code>run_stdio</code> 内捕获,<code>handle_request</code> 之前)。所有错误响应都带 <code>id</code> 字段(若可从原始请求解析),循环不中断。</p>
 </div>
 
 <h3 id="ch6-2">6.2 prepare → approve → commit 事务协议</h3>
@@ -1058,6 +1145,21 @@ failure_policy:
 
 <p><strong>commit 时重新检查全部 preconditions</strong>：路径、file_id、size、last_write_time、sha256。任意变化都必须重新 prepare 或审批。相比单纯 <code>args_hash</code>，这种设计更接近真正的事务执行，并且审批界面可以直接使用 <code>effect_manifest</code>，不需要 UI 自己推测影响范围。</p>
 
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3a/W3b 实施反馈，issue #19 / #22 / #24 / #25 / #28 / #34）</div>
+  <p><strong>① issue #19 file_id 构造规则：</strong><code>effect_manifest.sources[].file_id</code> 不是 UUID，而是 OS 文件唯一标识，构造规则：</p>
+  <ul>
+    <li><strong>Windows</strong>：<code>"win:{volume_serial_hex}:{file_index_hex}"</code>，通过 FFI <code>GetFileInformationByHandle</code> 读取 <code>dwVolumeSerialNumber</code> + <code>nFileIndexHigh/Low</code>(避免 nightly <code>windows_by_handle</code> feature 依赖)。示例：<code>"win:A1B2C3D4:000100000000ABCD"</code></li>
+    <li><strong>Unix</strong>：<code>"unix:{st_dev}:{st_ino}"</code>，通过 <code>std::os::unix::fs::MetadataExt</code>。示例：<code>"unix:2051:1234567"</code></li>
+    <li>同一文件多次快照 <code>file_id</code> 必须相同;文件被替换(inode 改变)<code>file_id</code> 必须不同。</li>
+  </ul>
+  <p><strong>② issue #22 prepare token 在 TOCTOU 失败时可重用：</strong>V1.1.1 实现中 <code>commit_move</code> 在 new-conflict 检测前已调用 <code>mgr.commit(token, ...)</code> 消费 token,导致 caller 无法用原 token 重试。V1.1.2 修订:事务管理器 <code>commit</code> 操作必须<strong>仅在所有 TOCTOU 检查通过后</strong>才消费 token。检查顺序:(a) 重算 preconditions_hash 比对 → (b) new-conflict 检测 → (c) token 校验消费。任一前置失败都不消费 token,caller 可用同一 token 重试 commit(或重新 prepare 获取新 token)。</p>
+  <p><strong>③ issue #24 effect_manifest D2/D3 脱敏（W3b 实施）：</strong><code>effect_manifest</code> 写入 SQLite 前由 Trust Kernel 根据路径匹配 D 等级:<code>~/Documents|Desktop</code> 默认 D2,<code>*password*|*secret*|*.key|*.pem|*.env|cookies*</code> 强制 D3。D3 字段在 <code>steps.effect_manifest</code> 持久化时,sha256 保留(供比对),但 <code>canonical_path</code> 替换为 <code>"&lt;redacted:D3&gt;"</code>;审批 UI 通过 <code>kernel.get_effect_manifest_decrypted(step_id, approval_token)</code> 访问完整值。W3a-W7 用明文 PoC(脱敏仅写日志),W8 接入 stronghold 后用 vault_ref 替代明文 <code>canonical_path</code>。</p>
+  <p><strong>④ issue #25 cross-volume rename fallback + rollback 失败上报：</strong><code>commit_move</code> 在 <code>std::fs::rename</code> 返回 <code>EXDEV</code>(raw_os_error=17) 时,降级为 <code>copy + remove_file</code>。降级失败或 rollback <code>rename</code> 失败时,<strong>必须</strong>通过 <code>tracing::error!</code> 上报(不静默吞没),并把已成功的部分写入 <code>compensations</code> 表(状态 <code>partial_reversed</code>),由用户在 Trust Center 手动处理。</p>
+  <p><strong>⑤ issue #28 approval_token 与 approval_id 合并：</strong>V1.1.1 同时使用 <code>approval_id</code>(DB 主键)和 <code>approval_token</code>(commit 时凭证),语义重叠。V1.1.2 修订:<strong>废弃 <code>approval_token</code></strong>,统一用 <code>approval_id</code>(UUID)。commit 调用签名为 <code>commit_move(prepare_token, approval_id)</code>。事务管理器通过 <code>ApprovalRepo::get(approval_id)</code> 验证 approval 状态 + scope + 关联 step。</p>
+  <p><strong>⑥ issue #34 effect_manifest 持久化策略明确：</strong><code>steps.effect_manifest</code> 字段类型为 <code>TEXT</code>(JSON)。W3a-W7:存储完整 JSON(含 canonical_path 明文),由 D 等级脱敏(见 #24)。W8 接入 stronghold 后:存储 <code>{"vault_ref": "stronghold://...", "summary": {...}}</code>(vault_ref 指向加密快照,summary 含 sha256/size 供审批 UI 渲染)。<code>TrustKernel::get_effect_manifest(step_id)</code> 根据 vault_ref 是否存在自动选择解密路径。</p>
+</div>
+
 <h3 id="ch6-3">6.3 工具契约 V2（V1.1 扩展）</h3>
 <p>V1.0 的 <code>ToolResult</code> 太简单。V1.1 扩展为支持事务、证据强度、补偿等级、幂等性的完整契约。</p>
 
@@ -1095,6 +1197,16 @@ failure_policy:
 
 <p>另外，每个 MCP Tool 使用规范中的 <code>inputSchema</code>、<code>outputSchema</code>、<code>readOnlyHint</code>、<code>destructiveHint</code>、<code>idempotentHint</code>、<code>openWorldHint</code>。但这些 Annotation 只能作为展示和初始分类提示，<strong>不能替代 Host 自己的可信策略元数据</strong>，因为 MCP 规范明确指出未受信 Server 的工具注解不可信<sup><a href="#cite-6">[6]</a></sup>。</p>
 
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3a 实施反馈，issue #20）</div>
+  <p><strong>ToolResult.compensation_level 与 CompensationRecord.level 语义区分：</strong></p>
+  <ul>
+    <li><code>ToolResult.compensation_level</code> — <strong>工具上限</strong>(capability ceiling),由工具 schema 静态声明,表示该工具<strong>最多能提供</strong>的补偿级别。例:<code>move_files</code> 上限 <code>strong</code>,<code>send_email</code> 上限 <code>none</code>。供 Policy Engine 决策时参考。</li>
+    <li><code>CompensationRecord.level</code> — <strong>实际级别</strong>(actual level),由 Skill Executor 在调用时根据 Skill manifest + 工具上限取<strong>更严格者</strong>写入。例:Skill manifest 声明 <code>best_effort</code> + 工具上限 <code>strong</code> → 实际 <code>best_effort</code>(取更弱者;用户主动降级)。</li>
+  </ul>
+  <p>UI 渲染时:<code>ToolResult.compensation_level</code> 用于"该工具能撤销到什么程度"提示;<code>CompensationRecord.level</code> 用于"本步骤实际能撤销到什么程度"提示。</p>
+</div>
+
 <!-- ============= Chapter 7 ============= -->
 <h2 id="ch7"><span class="num">7</span>Verifier、Compensation 与 Taint Tracking</h2>
 
@@ -1120,6 +1232,13 @@ failure_policy:
   <li><strong>browser</strong>：通过 Playwright accessibility snapshot 验证 DOM 状态，不依赖截图</li>
   <li><strong>system</strong>：音量通过 Core Audio API 重读；系统状态通过注册表/WMI 重读</li>
 </ul>
+
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3a 实施反馈，issue #23）</div>
+  <p><strong>① sha256_of_file 单点定义：</strong>Rust 端 <code>sha256_of_file(path: &Path) -> Result&lt;String&gt;</code> 在 <code>tools/fs_snapshot.rs</code> 中<strong>唯一定义</strong>,<code>tools/fs.rs</code>(FilesystemTool)通过 <code>use crate::tools::fs_snapshot::sha256_of_file;</code> 引用,避免重复。任何新增模块需要计算文件 sha256 必须复用此函数。</p>
+  <p><strong>② VerifyResult.verified 字段语义：</strong><code>VerifyResult { verified: bool, evidence_strength: EvidenceStrength }</code> 字段冗余 — 当 <code>evidence_strength = Strong</code> 时 <code>verified</code> 必为 <code>true</code>。V1.1.2 保留 <code>verified</code> 字段以兼容调用方,但语义明确:<strong><code>verified</code> 是 <code>evidence_strength == Strong</code> 的 syntactic sugar</strong>,仅当所有检查通过时为 <code>true</code>。失败时返回 <code>Err(KernelError::Verification)</code> 而非 <code>Ok(VerifyResult { verified: false, ... })</code>。W9 发布前评估是否弃用 <code>verified</code> 字段。</p>
+  <p><strong>③ 跨平台测试基线：</strong>filesystem verifier 测试用例在 Windows(NTFS 大小写不敏感)与 Unix(ext4 大小写敏感)上行为可能不同,测试套件需在 <code>#[cfg(target_os = "windows")]</code> 与 <code>#[cfg(unix)]</code> 分别声明期望值。</p>
+</div>
 
 <h3 id="ch7-2">7.2 Compensation 三级（V1.1 替代 Undo）</h3>
 <p>V1.0 的"Undo"容易让用户误以为能恢复所有动作。V1.1 改名为 <strong>Compensation</strong>，并明确强弱等级——每条工具声明补偿级别，任务完成页面展示"5 个步骤中，3 个可可靠撤销，1 个可尝试恢复，1 个不可撤销"。</p>
@@ -1153,6 +1272,28 @@ failure_policy:
   <p>② 补偿执行<strong>仍需过 Policy Engine</strong>，不得绕过策略</p>
   <p>③ <code>none</code> 级操作在审批界面必须<strong>红色高亮</strong>"不可撤销"</p>
   <p>④ 补偿 TTL 过期后自动失效，需重新批准</p>
+</div>
+
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3a/W3b 实施反馈，issue #18 / #21 / #35）</div>
+  <p><strong>① issue #18 snapshot_encrypted 加密时序（PoC → W8 gate）：</strong>V1.1.1 安全约束①要求"补偿参数加密存储",但 W3a-W7 未接入 tauri-plugin-stronghold。V1.1.2 明确分阶段:</p>
+  <ul>
+    <li><strong>W3a-W7(PoC 阶段)</strong>:<code>compensations.snapshot_encrypted</code> 字段存储明文 JSON(<code>{"reverse_payload": {...}}</code>),仅在 <code>compensations.vault_ref IS NULL</code> 时使用。文档注明"PoC: not encrypted"。测试库的 compensations 表不应含真实敏感数据。</li>
+    <li><strong>W8 gate(Stronghold 接入)</strong>:<code>snapshot_encrypted</code> 字段废弃(留空),改用 <code>snapshot_vault_ref</code> 指向 <code>stronghold://voicepilot/comp/{comp_id}</code>。Skill Executor 写入 compensations 时先调 <code>stronghold.set(vault_ref, encrypted_payload)</code>,再 INSERT row。读取时反向。</li>
+    <li><strong>V1 验收门禁(W9)</strong>:<code>compensations WHERE snapshot_encrypted IS NOT NULL AND vault_ref IS NULL</code> 必须为 0 行(无明文残留)。</li>
+  </ul>
+  <p><strong>② issue #21 conflict_policy 触发条件表：</strong>V1.1.1 表中"冲突策略"列未定义触发条件。V1.1.2 明确"冲突"指 <code>effect_manifest.conflicts</code> 数组非空(目标路径已存在同名文件)。三级 conflict_policy 行为:</p>
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>policy</th><th>conflicts=[] 时</th><th>conflicts 非空时</th><th>典型 level</th></tr></thead>
+  <tbody>
+  <tr><td><code>auto_reverse</code></td><td>正常 commit</td><td><strong>拒绝 commit</strong>,返回 <code>KernelError::Filesystem("destination conflict")</code>;若已部分 commit 则触发 auto_reverse</td><td>strong</td></tr>
+  <tr><td><code>require_confirmation</code></td><td>正常 commit</td><td>commit 暂停,Skill Executor 调 <code>Approver::request_conflict_resolution(conflicts)</code> → 用户选择 <code>overwrite | skip | abort</code> → 续 commit</td><td>best_effort</td></tr>
+  <tr><td><code>fail</code></td><td>正常 commit</td><td><strong>拒绝 commit</strong>,不触发 auto_reverse(因 <code>level=none</code> 时无补偿),返回错误</td><td>none</td></tr>
+  </tbody>
+  </table>
+  </div>
+  <p><strong>③ issue #35 conflict_policy=require_confirmation 的 confirmation 语义：</strong>第②条已明确 — <code>require_confirmation</code> 指对 <strong>destination conflict</strong> 的二次确认,语义为 <code>Approver::request_conflict_resolution</code> 三选一:<code>overwrite</code>(覆盖目标)、<code>skip</code>(跳过冲突源)、<code>abort</code>(中止整个 step)。这与 <code>approval.mode</code> 的审批模式(对整个 effect_manifest 的批准)是<strong>两套独立流程</strong>,不混淆。<code>require_confirmation</code> 仅在 commit 阶段触发,不替代 prepare 阶段的审批。</p>
 </div>
 
 <h3 id="ch7-3">7.3 Taint Tracking（V1.1 新增）</h3>
@@ -1268,8 +1409,8 @@ failure_policy:
 <tr><td>tasks</td><td>task_id, user_goal, status, created_at, updated_at, transcript_hash</td><td><strong>skill_id, route_path（skill/planner）</strong></td></tr>
 <tr><td>steps</td><td>step_id, task_id, order, tool_name, args, args_hash, status, started_at, finished_at</td><td><strong>prepare_token, preconditions_hash, effect_manifest, evidence_strength, compensation_ref, egress_performed</strong></td></tr>
 <tr><td>policies</td><td>policy_id, version, rules_json, hash, enabled</td><td><strong>cedar_policies, cedar_schema, rust_constraints</strong></td></tr>
-<tr><td>approvals</td><td>approval_id, task_id, step_id, risk_level, args_hash, user_decision, decided_at</td><td><strong>E_level, D_level, destination, egress_approved, approval_scope, policy_bundle_hash</strong></td></tr>
-<tr><td>compensations</td><td>comp_id, step_id, level, snapshot_encrypted, ttl_expires, status</td><td><strong>compensation_level（strong/best_effort/none）, snapshot_vault_ref, conflict_policy</strong></td></tr>
+<tr><td>approvals</td><td>approval_id, task_id, step_id, args_hash, user_decision, decided_at</td><td><strong>E_level, D_level, destination, egress_approved, approval_scope, policy_bundle_hash</strong>(V1.1.2: <del>risk_level</del> 字段废弃,用 E_level+D_level 替代)</td></tr>
+<tr><td>compensations</td><td>comp_id, step_id, level, ttl_expires, status</td><td><strong>compensation_level（strong/best_effort/none）, conflict_policy, snapshot_vault_ref</strong>(V1.1.2: <code>snapshot_encrypted</code> 字段 PoC 阶段明文,W8 强制 vault_ref)</td></tr>
 <tr><td>audit_logs</td><td>log_id, task_id, step_id, event_type, details, timestamp</td><td><strong>otlp_trace_id, otlp_span_id, data_classification_redacted</strong></td></tr>
 <tr><td>skills</td><td>skill_id, version, manifest_json, enabled, success_count, avg_latency_ms</td><td><strong>V1.1 新表</strong></td></tr>
 <tr><td>taints</td><td>taint_id, value_hash, provenance, taints_json, collected_at, source_ref</td><td><strong>V1.1 新表（值级 provenance）</strong></td></tr>
@@ -1293,6 +1434,26 @@ failure_policy:
   <li>已批准 step 数 <code>max_approval_scope</code>。</li>
 </ol>
 <p>任一条件不满足时降级为 <code>single</code>。W2 实现总是返回 <code>single</code>（无 Skill 上下文）；W3 接入 Skill 层后启用 batch 判定。</p>
+
+<div class="callout success">
+  <div class="title">V1.1.2 修订（W3a/W3b/W4 实施反馈，issue #26 / #29）</div>
+  <p><strong>① issue #26 TrustKernel 公开 API 边界（替代 W3a PoC <code>kernel.conn()</code> 私有访问）：</strong>V1.1.1 实现中 CLI <code>move</code> 命令 Phase 4 补偿记录创建需访问 <code>kernel.conn()</code>,但 <code>conn</code> 字段私有(因 <code>Mutex&lt;Connection&gt;</code> 不能多线程共享)。V1.1.2 修订:不暴露 <code>conn()</code>,改为在 <code>TrustKernel</code> 上提供领域特定 API:</p>
+  <ul>
+    <li><code>TrustKernel::create_compensation(step_id, level, conflict_policy, reverse_payload) -&gt; Result&lt;CompensationRecord&gt;</code></li>
+    <li><code>TrustKernel::record_approval(task_id, step_id, decision, E_level, D_level, scope) -&gt; Result&lt;ApprovalRecord&gt;</code></li>
+    <li><code>TrustKernel::update_step_status(step_id, status) -&gt; Result&lt;()&gt;</code></li>
+    <li><code>TrustKernel::audit_append_external(task_id, step_id, event_type, details: serde_json::Value) -&gt; Result&lt;()&gt;</code> (W4 新增,跨进程审计)</li>
+    <li><code>TrustKernel::replace_filesystem_with_allowed_paths(allowed: AllowedPaths)</code> (W4 新增,MCP server 加载 allowed_paths)</li>
+  </ul>
+  <p>所有 Skill Executor / MCP Handler / CLI 命令均通过这些领域 API 访问,不直接操作 Connection。内部仍由 <code>KernelRepo</code> 系列封装,但 pub API 不暴露 rusqlite 类型。</p>
+  <p><strong>② issue #29 approvals 表 risk_level 字段废弃：</strong>V1.1.1 同时保留 <code>risk_level</code>(V1.0 legacy)和 <code>E_level</code> + <code>D_level</code>(V1.1 新增),冗余。V1.1.2 修订:</p>
+  <ul>
+    <li><strong>W3a 已实现</strong>:表 schema 不含 <code>risk_level</code> 字段(W1 迁移时直接采用 V1.1 schema,从未创建过 legacy 字段)。</li>
+    <li><strong>W9 数据迁移</strong>:若用户从 V1.0 升级(W1-W8 不发布,无此场景),提供 <code>migrations/002_drop_risk_level.sql</code>。</li>
+    <li><strong>读取兼容</strong>:<code>ApprovalRepo::get</code> 返回 <code>ApprovalRecord</code> 不含 <code>risk_level</code> 字段,旧代码引用编译失败(强约束)。</li>
+  </ul>
+  <p><strong>③ issue #29 compensations 表 schema 明确：</strong>V1.1.2 字段集:<code>comp_id, step_id, compensation_level, conflict_policy, snapshot_vault_ref, snapshot_encrypted(PoC only), ttl_expires, status, created_at</code>。<code>level</code> 字段重命名为 <code>compensation_level</code> 避免与 <code>ToolResult.compensation_level</code> 命名歧义(虽语义区分,但同名易混)。<code>compensate_fn</code>(V1.1.1 示例)字段废弃 — 函数引用不可序列化,改为内置策略:<code>compensation_level=strong</code> → <code>auto_reverse_move</code>;<code>best_effort</code> → <code>restore_file_content</code>;<code>none</code> → no-op。</p>
+</div>
 
 <h3 id="ch8-2">8.2 Tauri IPC 硬化（V1.1 新增窗口拆分）</h3>
 <p>Tauri 2 的 Capabilities 可按 window/webview 限制权限，但官方文档指出多份 Capability 会合并权限；自定义命令若不额外声明限制，可能被所有窗口调用。V1.1 把窗口拆成 5 类，各自最小权限。</p>
@@ -1610,8 +1771,8 @@ failure_policy:
 <tbody>
 <tr><td>W1</td><td>Rust Trust Kernel</td><td>骨架、SQLite、审计、状态机（<strong>先文本入口，不做语音</strong>）</td><td>文本命令可执行</td></tr>
 <tr><td>W2</td><td>Policy + Action Gateway</td><td>Cedar PoC、Rust Constraint、prepare/commit 事务</td><td>E×D 策略可决策</td></tr>
-<tr><td>W3</td><td>文件/System 能力</td><td>内置 filesystem MCP + 自研 system MCP、Verifier、Compensation</td><td>files.organize Skill 可跑</td></tr>
-<tr><td>W4</td><td>Playwright 浏览器</td><td>内置 @playwright/mcp、只读、导航、填写草稿、域名策略</td><td>research.save_markdown 可跑</td></tr>
+<tr><td>W3</td><td>文件/System 能力</td><td>原生 Rust FilesystemTool(V1.1.2 修订,issue #17)、自研 system MCP、Verifier、Compensation</td><td><strong>files.organize Skill 端到端审计链可跑(V1.1.2 明确,issue #33):prepare→approve→commit→verify→compensate 全链路 + audit_logs 完整 + 可回放</strong></td></tr>
+<tr><td>W4</td><td>MCP Server Wrapping(V1.1.2 调整)</td><td>JSON-RPC 2.0 + NDJSON stdio、McpServerRepo、allowed_paths 注入、CLI mcp-serve、protocolVersion=2025-11-25</td><td><strong>mcp-serve 命令端到端冒烟(V1.1.2):4 NDJSON 消息往返 + audit trail + PathNotAllowed 强制</strong></td></tr>
 <tr><td>W5</td><td>Skills Router</td><td>4 个确定性 Skill（files/note/research/form）</td><td>Skill 命中率 ≥ 40%</td></tr>
 <tr><td>W6</td><td>语音入口</td><td>sherpa-rs Push-to-talk、partial transcript、可中断 TTS</td><td>P95 首字 ≤ 500ms</td></tr>
 <tr><td>W7</td><td>Windows UIA</td><td>自研 UIA Adapter，仅支持记事本和资源管理器</td><td>note.capture 可跑</td></tr>
