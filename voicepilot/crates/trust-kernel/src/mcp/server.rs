@@ -174,4 +174,53 @@ impl McpServer {
     pub fn kernel(&self) -> &TrustKernel {
         &self.kernel
     }
+
+    /// Run the stdio transport loop. Reads NDJSON lines from `reader`,
+    /// dispatches Requests, and writes Responses/Errors to `writer`.
+    /// Returns when `reader` reaches EOF.
+    ///
+    /// Notifications are silently dropped (client-to-server only).
+    /// Parse errors emit a -32700 ParseError response and continue.
+    pub fn run_stdio<R: std::io::BufRead, W: std::io::Write>(
+        &self,
+        reader: R,
+        writer: &mut W,
+    ) -> Result<()> {
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break, // EOF or read error
+            };
+            let parsed = match crate::mcp::transport::parse_line(&line) {
+                Ok(Some(msg)) => msg,
+                Ok(None) => continue, // blank line
+                Err(_) => {
+                    // Parse error — emit -32700 response with null id.
+                    let err = JsonRpcError::new(
+                        JsonRpcId::Null,
+                        JsonRpcErrorCode::ParseError,
+                        "parse error",
+                    );
+                    crate::mcp::transport::write_message(writer, &err)?;
+                    continue;
+                }
+            };
+            match parsed {
+                crate::mcp::transport::IncomingMessage::Request(req) => {
+                    let outgoing = self.handle_request(req)?;
+                    match outgoing {
+                        OutgoingMessage::Response(resp) => {
+                            crate::mcp::transport::write_message(writer, &resp)?;
+                        }
+                        OutgoingMessage::Error(err) => {
+                            crate::mcp::transport::write_message(writer, &err)?;
+                        }
+                    }
+                }
+                // Notifications, Responses, Errors from client are ignored.
+                _ => continue,
+            }
+        }
+        Ok(())
+    }
 }

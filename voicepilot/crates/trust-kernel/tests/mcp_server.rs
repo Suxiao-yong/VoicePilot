@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::sync::Arc;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::mcp::handler::McpHandler;
@@ -155,4 +156,62 @@ fn server_tools_call_logs_audit_when_task_id_present() {
     assert_eq!(after, before + 1, "tools/call with task_id must log audit event");
 
     fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_stdio_handles_initialize_then_tools_list() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let server = McpServer::new(McpHandler::new(), kernel);
+
+    // Two NDJSON lines on stdin: initialize + tools/list.
+    let init_line = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
+    let list_line = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":null}"#;
+    let input = format!("{}\n{}\n", init_line, list_line);
+    let reader = Cursor::new(input.into_bytes());
+    let mut writer = Vec::new();
+
+    server.run_stdio(reader, &mut writer).unwrap();
+
+    let output = String::from_utf8(writer).unwrap();
+    // Two response lines.
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2, "expected 2 responses, got: {:?}", lines);
+    assert!(lines[0].contains(r#""protocolVersion":"2025-11-25""#));
+    assert!(lines[1].contains(r#""filesystem.search_files""#));
+}
+
+#[test]
+fn run_stdio_skips_notifications() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let server = McpServer::new(McpHandler::new(), kernel);
+
+    // A notification (no id) should be silently dropped — no response written.
+    let notif = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+    let input = format!("{}\n", notif);
+    let reader = Cursor::new(input.into_bytes());
+    let mut writer = Vec::new();
+
+    server.run_stdio(reader, &mut writer).unwrap();
+    assert!(writer.is_empty(), "notification must not produce a response");
+}
+
+#[test]
+fn run_stdio_continues_after_parse_error() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let server = McpServer::new(McpHandler::new(), kernel);
+
+    // Invalid JSON line, then a valid request.
+    let input = "{not valid json\n".to_string()
+        + r#"{"jsonrpc":"2.0","id":99,"method":"tools/list"}"#
+        + "\n";
+    let reader = Cursor::new(input.into_bytes());
+    let mut writer = Vec::new();
+
+    server.run_stdio(reader, &mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    // Parse error response for the bad line, then tools/list response.
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines.len() >= 2);
+    assert!(lines[0].contains(r#""code":-32700"#), "first must be parse error");
+    assert!(lines[1].contains(r#""filesystem.search_files""#));
 }
