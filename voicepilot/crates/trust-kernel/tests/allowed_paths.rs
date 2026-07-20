@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use trust_kernel::allowed_paths::AllowedPaths;
 use trust_kernel::tools::fs::FilesystemTool;
 use trust_kernel::policy::transaction::TransactionManager;
+use trust_kernel::error::KernelError;
 
 fn tmp_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("voicepilot-w3b-paths-{}", uuid::Uuid::new_v4()));
@@ -27,7 +28,8 @@ fn allowed_paths_check_fails_for_path_outside_root() {
     let allowed = AllowedPaths::new(vec![root_a.to_string_lossy().to_string()]);
     let file = root_b.join("a.txt");
     fs::write(&file, b"hi").unwrap();
-    assert!(allowed.check(&file).is_err());
+    let err = allowed.check(&file).unwrap_err();
+    assert!(matches!(err, KernelError::PathNotAllowed(_)), "expected PathNotAllowed, got {:?}", err);
     fs::remove_dir_all(&root_a).ok();
     fs::remove_dir_all(&root_b).ok();
 }
@@ -59,7 +61,8 @@ fn filesystem_tool_with_allowed_paths_rejects_outside_source() {
 
     let mgr = TransactionManager::new();
     let result = tool.prepare_move("t1", "s1", &[&src_outside], &dest, &mgr);
-    assert!(result.is_err(), "prepare must reject source outside allowed roots");
+    let err = result.unwrap_err();
+    assert!(matches!(err, KernelError::PathNotAllowed(_)), "expected PathNotAllowed, got {:?}", err);
     fs::remove_dir_all(&root_a).ok();
     fs::remove_dir_all(&root_b).ok();
 }
@@ -75,7 +78,8 @@ fn filesystem_tool_with_allowed_paths_rejects_outside_destination() {
 
     let mgr = TransactionManager::new();
     let result = tool.prepare_move("t1", "s1", &[&src], &dest_outside, &mgr);
-    assert!(result.is_err(), "prepare must reject destination outside allowed roots");
+    let err = result.unwrap_err();
+    assert!(matches!(err, KernelError::PathNotAllowed(_)), "expected PathNotAllowed, got {:?}", err);
     fs::remove_dir_all(&root_a).ok();
     fs::remove_dir_all(&root_b).ok();
 }
@@ -91,5 +95,24 @@ fn filesystem_tool_without_allowed_paths_allows_any_path() {
     let mgr = TransactionManager::new();
     let result = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr);
     assert!(result.is_ok(), "default FilesystemTool must allow any path");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn allowed_paths_rejects_prefix_string_that_is_not_directory_ancestor() {
+    // V1.1 §4.4 — root /foo must NOT match path /foobar/baz.
+    // Verifies the `canon.starts_with(root + "/")` boundary check is correct.
+    let root = tmp_dir();
+    let parent = root.parent().unwrap();
+    let root_name = root.file_name().unwrap().to_string_lossy().to_string();
+    let sibling_name = format!("{}_sibling", root_name);
+    let sibling = parent.join(sibling_name);
+    fs::create_dir_all(&sibling).unwrap();
+    let allowed = AllowedPaths::new(vec![root.to_string_lossy().to_string()]);
+    let file_in_sibling = sibling.join("a.txt");
+    fs::write(&file_in_sibling, b"x").unwrap();
+    let err = allowed.check(&file_in_sibling).unwrap_err();
+    assert!(matches!(err, KernelError::PathNotAllowed(_)), "expected PathNotAllowed, got {:?}", err);
+    fs::remove_dir_all(&sibling).ok();
     fs::remove_dir_all(&root).ok();
 }

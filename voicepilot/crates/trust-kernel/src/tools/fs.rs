@@ -6,10 +6,12 @@
 //!   - search_files: walk directory for matching files
 //!   - verify_move: re-read destination files, compare sha256 + size + mtime
 //!
-//! Not in W3a scope (deferred to W3b/W4):
+//! Not in W3a scope (deferred to W4):
 //!   - MCP server wrapping
 //!   - ro-only enforcement (caller's responsibility until MCP lands)
-//!   - allowed_paths whitelist enforcement (caller's responsibility)
+//!
+//! W3b: `allowed_paths` whitelist is enforced when `FilesystemTool::new_with_allowed_paths()`
+//! is used; `new()` retains open access for backward compatibility.
 
 use crate::error::{KernelError, Result};
 use crate::policy::transaction::{EffectManifest, FileSnapshot, PrepareToken, TransactionManager};
