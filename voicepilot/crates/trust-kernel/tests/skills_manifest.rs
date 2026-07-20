@@ -1,7 +1,6 @@
 use trust_kernel::policy::types::{DLevel, ELevel};
 use trust_kernel::skills::manifest::{
-    files_organize_manifest, ApprovalMode, CompensationConfig, FailurePolicy,
-    SkillInput, SkillInputType, SkillManifest, VerifierConfig,
+    files_organize_manifest, ApprovalMode, SkillInputType,
 };
 
 #[test]

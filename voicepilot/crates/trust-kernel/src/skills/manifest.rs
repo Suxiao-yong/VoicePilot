@@ -117,7 +117,7 @@ pub struct FailurePolicy {
 
 /// The built-in files.organize Skill manifest — V1.1 §5.2 + §5.3 example.
 pub fn files_organize_manifest() -> SkillManifest {
-    let mut inputs = std::collections::HashMap::new();
+    let mut inputs = HashMap::new();
     inputs.insert(
         "source".to_string(),
         SkillInput {
