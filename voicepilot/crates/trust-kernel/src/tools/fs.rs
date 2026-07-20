@@ -18,7 +18,7 @@ use crate::tools::fs_snapshot::snapshot_file;
 use std::path::Path;
 
 pub struct FilesystemTool {
-    // Reserved for future config (allowed_paths, ro_only). Empty for now.
+    allowed_paths: Option<crate::allowed_paths::AllowedPaths>,
 }
 
 impl Default for FilesystemTool {
@@ -29,7 +29,13 @@ impl Default for FilesystemTool {
 
 impl FilesystemTool {
     pub fn new() -> Self {
-        Self {}
+        Self { allowed_paths: None }
+    }
+
+    /// Construct a FilesystemTool that enforces `allowed_paths` on every
+    /// source and destination. V1.1 §4.4 step 1 + §8.1 mcp_servers.allowed_paths.
+    pub fn new_with_allowed_paths(allowed: crate::allowed_paths::AllowedPaths) -> Self {
+        Self { allowed_paths: Some(allowed) }
     }
 
     /// Phase 1 of move_files transaction.
@@ -47,6 +53,14 @@ impl FilesystemTool {
     ) -> Result<PrepareMoveResult> {
         if sources.is_empty() {
             return Err(KernelError::Filesystem("no sources provided".to_string()));
+        }
+
+        // V1.1 §4.4 step 1 + §8.1 allowed_paths enforcement.
+        if let Some(allowed) = &self.allowed_paths {
+            for src in sources {
+                allowed.check(src)?;
+            }
+            allowed.check(destination)?;
         }
 
         // Destination must exist and be a directory.
@@ -262,6 +276,9 @@ impl FilesystemTool {
     /// Case-insensitive on Windows, case-sensitive on Unix (matches filesystem behavior).
     /// Returns paths in walkdir's natural order (depth-first, directory then contents).
     pub fn search_files(&self, root: &Path, pattern: &str) -> Result<Vec<std::path::PathBuf>> {
+        if let Some(allowed) = &self.allowed_paths {
+            allowed.check(root)?;
+        }
         let meta = std::fs::metadata(root).map_err(|e| {
             KernelError::Filesystem(format!("search root missing: {}", e))
         })?;
