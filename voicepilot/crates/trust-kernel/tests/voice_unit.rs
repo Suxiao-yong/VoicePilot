@@ -143,3 +143,80 @@ fn wav_write_creates_parent_dirs_if_missing() {
     assert!(path.is_file());
     std::fs::remove_dir_all(dir.parent().unwrap().parent().unwrap()).ok();
 }
+
+use trust_kernel::voice::vad::{VadDetector, VadConfig, VadOutcome};
+
+#[test]
+fn vad_returns_speech_when_samples_above_threshold() {
+    let config = VadConfig {
+        frame_ms: 20,
+        sample_rate: 16000,
+        energy_threshold: 100.0,
+        min_speech_ms: 100,
+        max_silence_ms: 700,
+    };
+    let vad = VadDetector::new(config);
+    // 500ms of loud samples (sine-like), all above threshold.
+    let samples: Vec<i16> = (0..8000).map(|i| (i % 100) as i16 * 100).collect();
+    let outcome = vad.detect(&samples);
+    assert!(matches!(outcome, VadOutcome::Speech { .. }));
+}
+
+#[test]
+fn vad_returns_no_speech_when_all_samples_silent() {
+    let config = VadConfig {
+        frame_ms: 20,
+        sample_rate: 16000,
+        energy_threshold: 100.0,
+        min_speech_ms: 100,
+        max_silence_ms: 700,
+    };
+    let vad = VadDetector::new(config);
+    let samples: Vec<i16> = vec![0; 16000]; // 1 second of silence
+    let outcome = vad.detect(&samples);
+    assert!(matches!(outcome, VadOutcome::NoSpeech));
+}
+
+#[test]
+fn vad_detects_silence_after_speech_with_correct_boundary() {
+    let config = VadConfig {
+        frame_ms: 20,
+        sample_rate: 16000,
+        energy_threshold: 100.0,
+        min_speech_ms: 100,
+        max_silence_ms: 200, // 200ms of silence ends speech
+    };
+    let vad = VadDetector::new(config);
+    // 300ms loud (4800 samples) + 400ms silent (6400 samples) = 11200 total
+    let mut samples: Vec<i16> = (0..4800).map(|i| (i % 100) as i16 * 100).collect();
+    samples.extend(vec![0i16; 6400]);
+    let outcome = vad.detect(&samples);
+    match outcome {
+        VadOutcome::Speech { speech_end_sample } => {
+            // Speech ends ~4800 + 200ms silence = 4800 + 3200 = 8000
+            assert!(
+                speech_end_sample >= 7000 && speech_end_sample <= 9000,
+                "speech_end_sample {} should be near 8000",
+                speech_end_sample
+            );
+        }
+        other => panic!("expected Speech, got {:?}", other),
+    }
+}
+
+#[test]
+fn vad_ignores_speech_shorter_than_min_speech_ms() {
+    let config = VadConfig {
+        frame_ms: 20,
+        sample_rate: 16000,
+        energy_threshold: 100.0,
+        min_speech_ms: 500, // require 500ms of speech
+        max_silence_ms: 700,
+    };
+    let vad = VadDetector::new(config);
+    // Only 100ms of loud samples (below min_speech_ms).
+    let mut samples: Vec<i16> = (0..1600).map(|i| (i % 100) as i16 * 100).collect();
+    samples.extend(vec![0i16; 6400]);
+    let outcome = vad.detect(&samples);
+    assert!(matches!(outcome, VadOutcome::NoSpeech));
+}

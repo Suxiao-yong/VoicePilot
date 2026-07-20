@@ -9,3 +9,4 @@
 pub mod error;
 pub mod model;
 pub mod wav;
+pub mod vad;
