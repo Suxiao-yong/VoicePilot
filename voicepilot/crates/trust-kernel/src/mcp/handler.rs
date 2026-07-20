@@ -172,7 +172,7 @@ impl McpHandler {
         let result = kernel.filesystem().verify_move(&manifest)?;
         Ok(McpCallResult::Ok(serde_json::json!({
             "verified": result.verified,
-            "evidence_strength": format!("{:?}", result.evidence_strength),
+            "evidence_strength": result.evidence_strength.as_str(),
         })))
     }
 }

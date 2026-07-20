@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::mcp::handler::{McpCallResult, McpHandler};
 use trust_kernel::mcp::schema::McpAnnotations;
-use trust_kernel::repo::step_repo::StepRecord;
 
 fn tmp_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("voicepilot-w3b-mcp-{}", uuid::Uuid::new_v4()));
@@ -77,15 +76,11 @@ fn mcp_handler_call_unknown_tool_returns_error() {
 }
 
 #[test]
-fn mcp_handler_call_move_files_requires_task_id_and_step_id() {
-    // The MCP handler wraps the W3a FilesystemTool, but move_files is a
-    // two-phase operation. W3b MCP handler rejects direct move_files calls
-    // because the proper entry is through the Skill executor (Task 7).
-    // W4 will add prepare_move + commit_move as separate MCP tools.
+fn mcp_handler_call_move_files_is_rejected() {
+    // W3b: move_files must go through the Skill executor (Task 7) — direct
+    // MCP calls are refused because they would bypass the approve phase.
+    // W4 will expose prepare_move + commit_move as separate MCP tools.
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task("t1", "g").unwrap();
-    kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
-
     let handler = McpHandler::new();
     let args = serde_json::json!({
         "task_id": "t1",

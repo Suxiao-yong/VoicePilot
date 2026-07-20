@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpToolSchema {
     pub name: String,
     pub description: String,
@@ -17,6 +18,7 @@ pub struct McpToolSchema {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpAnnotations {
     pub read_only_hint: bool,
     pub destructive_hint: bool,
