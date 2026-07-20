@@ -5,4 +5,5 @@
 pub mod handler;
 pub mod repo;
 pub mod schema;
+pub mod server;
 pub mod transport;
