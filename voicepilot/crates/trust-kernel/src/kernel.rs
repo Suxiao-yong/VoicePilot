@@ -2,6 +2,8 @@
 //!
 //! W1: text entry → state machine + audit. No real tools yet.
 
+use crate::approval::repo::ApprovalRepo;
+use crate::approval::types::{ApprovalRecord, ApprovalScope};
 use crate::audit::{AuditEvent, AuditLogger, SqliteAuditLogger};
 use crate::compensation::types::CompensationRecord;
 use crate::db;
@@ -21,6 +23,7 @@ pub struct TrustKernel {
     gateway: Arc<crate::gateway::ActionGateway>,
     fs: Arc<crate::tools::fs::FilesystemTool>,
     comp_repo: Arc<crate::compensation::repo::CompensationRepo>,
+    approval_repo: Arc<ApprovalRepo>,
     txn_mgr: Arc<crate::policy::transaction::TransactionManager>,
 }
 
@@ -51,6 +54,7 @@ impl TrustKernel {
             gateway,
             fs: Arc::new(crate::tools::fs::FilesystemTool::new()),
             comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
+            approval_repo: Arc::new(ApprovalRepo::new()),
             txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
         }
     }
@@ -185,6 +189,54 @@ impl TrustKernel {
             }),
         )?;
         Ok(())
+    }
+
+    // ===== Approval accessors (W3b) =====
+
+    pub fn record_approval(&self, rec: &ApprovalRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        self.approval_repo.create(&conn, rec)?;
+        drop(conn);
+        self.audit_append(
+            &rec.task_id,
+            rec.step_id.as_deref(),
+            "APPROVAL_RECORDED",
+            serde_json::json!({
+                "approval_id": rec.approval_id,
+                "user_decision": rec.user_decision.as_str(),
+                "approval_scope": rec.approval_scope.as_str(),
+                "e_level": rec.e_level.as_str(),
+                "d_level": rec.d_level.as_str(),
+                "policy_bundle_hash": rec.policy_bundle_hash,
+            }),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_approval(&self, approval_id: &str) -> Result<Option<ApprovalRecord>> {
+        let conn = self.conn.lock().unwrap();
+        self.approval_repo.get(&conn, approval_id)
+    }
+
+    pub fn list_approvals_for_task(&self, task_id: &str) -> Result<Vec<ApprovalRecord>> {
+        let conn = self.conn.lock().unwrap();
+        self.approval_repo.list_for_task(&conn, task_id)
+    }
+
+    /// Determine whether this step qualifies for batch approval.
+    /// V1.1 §8.1: batch requires (1) Skill manifest mode=batch_once,
+    /// (2) same task_id + skill_id, (3) same args_hash, (4) same same policy_bundle_hash,
+    /// (5) count < max_approval_scope.
+    /// W3b: always returns Single. W7 enables batch when Skill context is wired.
+    pub fn check_approval_scope(
+        &self,
+        _task_id: &str,
+        _skill_id: &str,
+        _args_hash: &str,
+        _policy_bundle_hash: &str,
+        _max_scope: u32,
+    ) -> ApprovalScope {
+        ApprovalScope::Single
     }
 
     // ===== Step accessors (W3b) =====

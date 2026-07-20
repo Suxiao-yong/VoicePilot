@@ -85,3 +85,48 @@ fn kernel_list_steps_for_task_returns_in_order() {
     assert_eq!(steps[0].step_id, "s1");
     assert_eq!(steps[1].step_id, "s2");
 }
+
+use trust_kernel::approval::types::{ApprovalDecision, ApprovalRecord, ApprovalScope};
+use trust_kernel::policy::types::{DLevel, ELevel};
+
+#[test]
+fn kernel_record_approval_persists_and_audits() {
+    let k = fresh_kernel();
+    k.create_task("t1", "g").unwrap();
+    k.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
+
+    let rec = ApprovalRecord {
+        approval_id: "a1".to_string(),
+        task_id: "t1".to_string(),
+        step_id: Some("s1".to_string()),
+        risk_level: "E2".to_string(),
+        args_hash: "sha256:args".to_string(),
+        user_decision: ApprovalDecision::Allow,
+        decided_at: "2026-07-20T10:00:00Z".to_string(),
+        e_level: ELevel::E2,
+        d_level: DLevel::D2,
+        destination: "local_file".to_string(),
+        egress_approved: false,
+        approval_scope: ApprovalScope::Single,
+        policy_bundle_hash: "sha256:bundle".to_string(),
+    };
+    k.record_approval(&rec).unwrap();
+
+    let loaded = k.get_approval("a1").unwrap().expect("must exist");
+    assert_eq!(loaded.user_decision, ApprovalDecision::Allow);
+
+    let list = k.list_approvals_for_task("t1").unwrap();
+    assert_eq!(list.len(), 1);
+
+    // Audit trail must include APPROVAL_RECORDED.
+    let audit_count = k.audit_count_for_task("t1").unwrap();
+    assert!(audit_count >= 2, "task + approval events expected");
+}
+
+#[test]
+fn kernel_check_approval_scope_returns_single_in_w3b() {
+    // W3b always returns Single per V1.1 §8.1 — batch lands in W7 with Skill context.
+    let k = fresh_kernel();
+    let scope = k.check_approval_scope("t1", "files.organize", "sha256:args", "sha256:bundle", 3);
+    assert_eq!(scope, ApprovalScope::Single);
+}
