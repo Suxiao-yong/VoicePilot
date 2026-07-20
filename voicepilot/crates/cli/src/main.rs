@@ -64,6 +64,8 @@ fn main() -> Result<()> {
     println!("  move <src1> [src2...] <dest>  move files via prepare→commit (W3a)");
     println!("  organize <root> <filter> <dest>  run files.organize Skill (W3b)");
     println!("  mcp-serve       start MCP server on stdio (W4)");
+    #[cfg(feature = "voice")]
+    println!("  voice list-models         List available Whisper models + download URLs");
     println!("  quit");
     println!();
 
@@ -97,6 +99,13 @@ fn main() -> Result<()> {
         if let Some(rest) = line.strip_prefix("organize ") {
             handle_organize_command(&kernel, rest);
             continue;
+        }
+        #[cfg(feature = "voice")]
+        {
+            if line == "voice list-models" {
+                handle_voice_list_models_command();
+                return Ok(());
+            }
         }
         if line == "mcp-serve" {
             // Terminal command — consumes kernel and exits.
@@ -340,4 +349,25 @@ fn handle_mcp_serve_command(kernel: TrustKernel) {
     if let Err(e) = server.run_stdio(stdin.lock(), &mut stdout) {
         eprintln!("mcp-serve error: {}", e);
     }
+}
+
+#[cfg(feature = "voice")]
+fn handle_voice_list_models_command() {
+    use trust_kernel::voice::model::ModelRegistry;
+
+    let registry = ModelRegistry::new();
+    let models = registry.all_known_models();
+
+    println!("Available Whisper models:");
+    println!();
+    for m in &models {
+        let present = if m.path.is_file() { "[installed]" } else { "[missing]  " };
+        println!("  {} {} ({} MB)", present, m.name, m.size_hint_mb);
+        println!("       path: {}", m.path.display());
+        println!("       url:  {}", m.download_url);
+        println!();
+    }
+    println!("Default model: {}", registry.default_model().name);
+    println!();
+    println!("To install: download the .bin file from the URL above and place it at the path shown.");
 }

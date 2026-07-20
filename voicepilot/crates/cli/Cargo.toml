@@ -16,3 +16,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+
+[features]
+default = []
+voice = ["trust-kernel/voice"]
