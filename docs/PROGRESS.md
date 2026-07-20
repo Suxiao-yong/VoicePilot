@@ -2,9 +2,9 @@
 
 > **最后更新:** 2026-07-20 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `e9aa5ca` Merge W3b
-> **测试状态:** 156 passing, 0 warnings
-> **规格版本:** V1.1.1 (W3b 新增 issue 27-35 待 V1.1.2 修订)
+> **最新 commit:** `1e10586` test(w4): end-to-end smoke test for MCP server
+> **测试状态:** 194 passing, 0 warnings
+> **规格版本:** V1.1.1 (W3b issue 27-35 + W4 issue 37-43 待 V1.1.2 修订)
 
 ---
 
@@ -16,13 +16,13 @@
 | W2 | Policy + Action Gateway | ✅ 已合并 | 53 | 2026-07-19 | `59a5999` |
 | W3a | Filesystem Adapter + Compensation + Verifier | ✅ 已合并 | 38 | 2026-07-19 | `d8bd4b5` |
 | W3b | files.organize Skill + 端到端审批流 | ✅ 已合并 | 39 | 2026-07-20 | `e9aa5ca` |
-| W4 | MCP Server Wrapping | ⏳ 未开始 | — | — | — |
+| W4 | MCP Server Wrapping | ✅ 已完成 | 38 | 2026-07-20 | `1e10586` (direct on master) |
 | W5 | Voice Input (Whisper.cpp) | ⏳ 未开始 | — | — | — |
 | W6 | Tauri UI Shell | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 156 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39)
+**累计测试数:** 194 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 38)
 
 ---
 
@@ -193,6 +193,81 @@ crates/trust-kernel/src/
 - §7.2 `conflict_policy=require_confirmation` 的 "confirmation" 语义未定义
 - §4.4 `fs_paths::canonicalize` 在 Unix 上剥离前导 `/`(issue #36,W3b 已在 `allowed_paths.rs` 文档注释)
 
+### W4: MCP Server Wrapping (38 tests)
+
+**实现内容:**
+- §6.1 JSON-RPC 2.0 wire 协议(`mcp/transport.rs`)— Request/Response/Error/Notification + NDJSON 行分隔帧
+- §6.1 `McpServer` 调度器(`mcp/server.rs`)— `handle_request` 分发 initialize/tools.list/tools.call
+- §6.1 MCP 2025-11-25 协议握手(`initialize` → `notifications/initialized` → `tools/list` → `tools/call`)
+- §8.1 `McpServerRepo` CRUD(`mcp/repo.rs`)— `mcp_servers` 表完整读写
+- §8.1 `load_allowed_paths` 从 `mcp_servers.allowed_paths` JSON 文本加载 → `AllowedPaths::new`(规范化的根)→ 注入 FilesystemTool(spec issue #31 解决)
+- §8.1 `seed_builtin_filesystem` 幂等种子 builtin filesystem server row
+- §6.1 `tools/list` 返回 3 个 filesystem tool schema(search_files / verify_move / move_files,后者 annotations destructiveHint=true)
+- §6.1 `tools/call` 分发:`search_files` / `verify_move` 直接执行,`move_files` 拒绝(强制走 Skill executor)
+- §6.1 `audit_append_external` 跨进程审计:每个 `tools/call` 写入 `audit_logs.details`
+- §6.1 stdio transport 循环(`run_stdio`)— 读 stdin 一行一条 NDJSON,写 stdout
+- §6.1 CLI `mcp-serve` 命令:启动 stdio MCP server,加载 allowed_paths 注入 FilesystemTool
+- `w4_e2e_smoke.rs` 端到端集成测试:4 NDJSON 消息 → 4 响应 + 审计链验证 + PathNotAllowed 验证
+
+**新增模块结构:**
+```
+crates/trust-kernel/src/
+└── mcp/
+    ├── mod.rs              # 模块导出
+    ├── transport.rs        # JsonRpcRequest/Response/Error/Notification + parse_line + write_message
+    ├── server.rs           # McpServer + OutgoingMessage + handle_request + run_stdio
+    └── repo.rs             # McpServerRepo CRUD + load_allowed_paths + seed_builtin_filesystem
+```
+
+**核心架构决策:**
+- `McpServer` 持有 `Arc<TrustKernel>`(非 by-value)— `TrustKernel` 不 `Clone`,`new()` 包装为 Arc,`with_arc()` 接受现有 Arc
+- `FilesystemTool` 字段从 `Arc<FilesystemTool>` 改为 `Arc<Mutex<FilesystemTool>>` — 支持运行时替换 `replace_filesystem_with_allowed_paths()`;`filesystem()` accessor 返回 `MutexGuard`(deref coercion 保 9 处既有调用点零修改)
+- `OutgoingMessage` 枚举(Response | Error)手写 `impl Serialize` 委托内部变体(可用 `#[serde(untagged)]` 但显式 impl 更可读)
+- `handle_tools_call` 捕获 `call_tool` 内核错误并转换为 `OutgoingMessage::Error`(InternalError -32603),而非 `?` 传播 — 确保每个 Request 都有 Response(MCP 协议要求)
+- CLI `mcp-serve` 终端命令消费 `TrustKernel` by-value,`return Ok(())` 在 stdio 循环结束后退出 main
+
+**W4 commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `f78f025` | docs(w4): add MCP Server Wrapping implementation plan |
+| `d113458` | Task 1: JSON-RPC 2.0 message types (V1.1 §6.1 wire protocol) |
+| `f4b88f0` | Task 2: NDJSON line framing for stdio transport (V1.1 §6.1) |
+| `4443364` | Task 3: McpServerRepo CRUD for mcp_servers table (V1.1 §8.1) |
+| `0685939` | Task 4: load_allowed_paths helper for FilesystemTool injection (V1.1 §8.1, issue #31) |
+| `0c7c72a` | Task 5: kernel public audit_append_external for MCP audit trail (V1.1 §6.1) |
+| `2f88719` | Task 6: McpServer struct + dispatch skeleton (V1.1 §6.1) |
+| `4c44129` | Task 7: initialize handshake with protocol 2025-11-25 (V1.1 §6.1) |
+| `396d958` | Task 8: tools/list + tools/call methods with audit logging (V1.1 §6.1, §6.3) |
+| `ed302b1` | Task 9: stdio transport loop with NDJSON framing (V1.1 §6.1) |
+| `f5c1191` | Task 10: seed_builtin_filesystem idempotent row creator (V1.1 §8.1) |
+| `69ea70e` | Task 11: CLI mcp-serve command with allowed_paths injection (V1.1 §6.1, §8.1, issue #31) |
+| `1e10586` | Task 12: end-to-end smoke test for MCP server (V1.1 §6.1, §11.1 W4 gate) |
+
+**关键修复(CRITICAL):**
+- Task 3 `row_to_record` 返回类型:plan 指定 `crate::error::Result<McpServerRecord>` 但 `query_map` 闭包要求 `rusqlite::Result<T>` → 改返回类型为 `rusqlite::Result<McpServerRecord>`(`?` 通过 `#[from]` 自动转换)
+- Task 8 `handle_tools_call` 错误处理:plan 用 `let result = self.handler.call_tool(...)?;` 把 `KernelError::Mcp` 当 Err 传播,导致测试 `unwrap()` panic → 改为 `match` 捕获内核错误并转换为 `OutgoingMessage::Error`(InternalError -32603),保证每个 Request 都产生 Response
+- Task 8 审计测试 FK 约束:plan 创建 task `t-audit` 但未创建 step `s-audit`,`audit_logs.step_id` FK 失败 → 测试设置增加 `kernel.create_step(&StepRecord::new("s-audit", "t-audit", 1))`
+- Task 11 `handle_mcp_serve_command` 签名:plan 用 `&TrustKernel` 但 `McpServer::new()` 取 by-value → 改为取 `TrustKernel` by-value(终端命令,`return Ok(())` 退出 main)
+- Task 11 `&*kernel.conn()` clippy 警告:`explicit_auto_deref` lint → 改为 `&kernel.conn()`(auto-deref 从 `&MutexGuard<Connection>` → `&Connection`)
+- Task 12 Windows temp dir 测试:`std::env::temp_dir()` 在 Windows 下位于 `C:/Users`(被白名单允许)→ 简化为只测 "after" 行为,断言错误消息含 `"not under any allowed root"`
+
+**最终代码审查(Verdict: APPROVED_WITH_NITS):**
+- **1 Important(fast-follow post-merge):** `run_stdio` 用 `?` 传播 kernel 错误,客户端发送畸形输入时会崩循环 — 应捕获并返回 error response 而非 panic loop
+- **4 minor nits:**
+  - 错误码断言过松(只检查 code 字段为负数,应精确断言 -32603)
+  - 缺少 missing `name` 字段的测试
+  - `OutgoingMessage` 可改用 `#[serde(untagged)]` 简化
+  - 几个 pre-existing clippy warnings(非 W4 引入)
+
+**已知偏离(已记录规格 issue 37-43):**
+- §6.1 `run_stdio` 错误传播行为未规定(malformed input 应返回 error response 还是断开连接?当前实现 propagate,W4 final review 标记为 fast-follow)
+- §6.1 `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`)
+- §8.1 `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array,如 `["D:/", "E:/"]`)
+- §6.1 `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本)
+- §6.1 `tools/call` 审计日志 `details` schema 未规定(W4 用 `{"server_id", "tool_name", "args", "success"}` 自定义结构)
+- §8.1 `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE)
+- §6.1 `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律映射为 -32603 InternalError,未区分 MethodNotFound/-32601 vs InvalidParams/-32602)
+
 ---
 
 ## 三、当前 master 状态确认
@@ -202,7 +277,7 @@ crates/trust-kernel/src/
 ```powershell
 cd d:\voicepilot
 cargo test --manifest-path voicepilot\Cargo.toml
-# 结果:156 passing, 0 failing, 0 warnings
+# 结果:194 passing, 0 failing, 0 warnings
 cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # 结果:0 warnings
 ```
@@ -211,8 +286,8 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ```
 当前分支: master
-最新 commit: e9aa5ca Merge W3b: files.organize Skill + End-to-End Approval Flow
-保留分支: (无,W3b feature 分支已删除)
+最新 commit: 1e10586 test(w4): end-to-end smoke test for MCP server (V1.1 §6.1, §11.1 W4 gate)
+保留分支: (无,W4 直接提交到 master,无 feature 分支)
 ```
 
 ### 关键文件清单
@@ -224,6 +299,8 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 - `d:\voicepilot\docs\superpowers\plans\2026-07-19-w1-trust-kernel-skeleton.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-19-w2-policy-action-gateway.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-19-w3a-filesystem-adapter.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-20-w3b-files-organize-skill.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-20-w4-mcp-server-wrapping.md`
 
 **进度文档(本文件):**
 - `d:\voicepilot\docs\PROGRESS.md`
@@ -231,41 +308,41 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 **核心源码:**
 - `d:\voicepilot\voicepilot\Cargo.toml`(workspace)
 - `d:\voicepilot\voicepilot\crates\trust-kernel\src\` (Trust Kernel 主体)
-- `d:\voicepilot\voicepilot\crates\cli\src\main.rs` (CLI 入口)
+- `d:\voicepilot\voicepilot\crates\cli\src\main.rs` (CLI 入口,含 `mcp-serve` 命令)
 
 ---
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W4 计划编写
+### 4.1 立即任务:W5 计划编写
 
-**W4 范围(根据 W3b §"Gaps deferred to W4+"):**
+**W5 范围(Voice Input — Whisper.cpp 集成):**
 
-1. **真实 MCP JSON-RPC transport(stdio/SSE)**
-   - W3b 已交付 `McpHandler::list_tools()` / `call_tool()` 调度骨架
-   - W4 需包一层 JSON-RPC 2.0 wire 协议(stdio + SSE)
-   - 对接外部 MCP client(Claude Desktop / Cursor 等)
+1. **Whisper.cpp 本地模型集成**
+   - 引入 `whisper-rs` crate(FFI binding)
+   - 模型文件管理(`ggml-tiny.bin` / `ggml-base.bin` 等)
+   - 录音 → 模型推理 → 文本输出
 
-2. **`mcp_servers` 表持久化 + `allowed_paths` 配置加载**
-   - §8.1 `mcp_servers.allowed_paths` 当前未在 kernel 层强制
-   - W4 从 `mcp_servers` 表加载 → 注入 `FilesystemTool::new_with_allowed_paths()`
-   - 解决 W3b spec issue #31
+2. **音频采集**
+   - `cpal` crate 跨平台音频输入
+   - VAD(Voice Activity Detection)静默检测自动停止
+   - 录音缓冲 + 流式 chunking(可选)
 
-3. **MCP tool 粒度拆分**
-   - W3b `move_files` 整体拒绝(强制走 Skill executor)
-   - W4 拆分:`filesystem.search_files` / `filesystem.verify_move` 直接暴露
-   - `filesystem.move_files` 仍需走 Skill 审批(或暴露 prepare/commit 两步)
+3. **Skill 调用桥接**
+   - 语音文本 → `SkillRouter::route()` → Skill 执行
+   - 多模态意图解析(语音可能含路径、文件名等参数)
+   - 与 W3b `FilesOrganizeSkill` 端到端打通
 
-4. **跨进程审计 + SkillRouter 暴露为 MCP tool**
-   - `skills.list` / `skills.route` 暴露给 MCP client
-   - 外部 client 可查询可用 Skill + 路由建议
+4. **CLI `voice` 命令**
+   - `voice listen` — 录音直到静默 → 转写 → 路由 Skill
+   - `voice transcribe <file>` — 转写已有音频文件
+   - `voice list-models` — 列出可用模型
 
-5. **集成测试:外部 MCP client → W3b Skill 端到端**
-   - 模拟 MCP client 调用 `filesystem.move_files`,验证被拒绝
-   - 模拟 MCP client 调用 `files.organize` Skill(经 LLM Planner 或直接)
+5. **W4 fast-follow 修复(优先级高)**
+   - `run_stdio` 错误传播行为:捕获 parse 错误并返回 error response,不崩循环
+   - spec issue #37 落地
 
-**W4 不在范围(留到 W5+):**
-- Voice Input(留 W5)
+**W5 不在范围(留到 W6+):**
 - Tauri UI(留 W6)
 - LLM Planner fallback(留 W7)
 - 真实 Stronghold 加密(留 W8)
@@ -307,9 +384,20 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 | 35 | §7.2 | `conflict_policy=require_confirmation` 的 "confirmation" 语义未定义 |
 | 36 | §4.4 | `fs_paths::canonicalize` 在 Unix 上剥离前导 `/`,导致根 `/foo` 误匹配 `/foobar`(W3b 已在 `allowed_paths.rs` 文档注释) |
 
+**W4 执行期发现的新 issue(37-43):**
+
+| # | 来源 | 问题 |
+|---|---|---|
+| 37 | §6.1 | `run_stdio` 错误传播行为未规定 — malformed input 应返回 error response 还是断开连接?当前实现 propagate,客户端畸形输入崩循环(final review Important 标记) |
+| 38 | §6.1 | `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`) |
+| 39 | §8.1 | `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array `["D:/", "E:/"]`) |
+| 40 | §6.1 | `protocolVersion=2025-11-25` 客户端协商策略未规定(W4 服务端硬编码,未校验客户端请求的版本) |
+| 41 | §6.1 | `tools/call` 审计日志 `details` schema 未规定(W4 用 `{"server_id", "tool_name", "args", "success"}` 自定义结构) |
+| 42 | §8.1 | `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE) |
+| 43 | §6.1 | `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律 -32603 InternalError,未区分 -32601 MethodNotFound / -32602 InvalidParams) |
+
 ### 4.3 后续周次计划(高层)
 
-- **W4:** MCP Server Wrapping — 把 W3b `McpHandler` 包成 JSON-RPC 2.0 server(stdio/SSE),加载 `mcp_servers` 表配置
 - **W5:** Voice Input — Whisper.cpp 集成,语音 → 文本 → Skill 调用
 - **W6:** Tauri UI Shell — 桌面应用 + 审批 UI + 设置面板
 - **W7:** LLM Planner + 8 Skills — 8 个确定性 Skill 全部实现 + LLM 编排
@@ -324,47 +412,67 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 ```powershell
 cd d:\voicepilot
 git status                          # 应为 clean,on master
-git log --oneline -3                # 应看到 e9aa5ca Merge W3b
-cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 156
+git log --oneline -3                # 应看到 1e10586 test(w4): end-to-end smoke test
+cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 194
 ```
 
-### 5.2 推荐起点:W4 计划编写
+### 5.2 推荐起点:W5 计划编写 + W4 fast-follow
 
-使用 `superpowers:writing-plans` skill 创建 W4 计划:
+**优先(同日可做):** W4 fast-follow — 修复 spec issue #37
+
+`run_stdio` 错误传播问题:当前实现用 `?` 传播 kernel 错误,客户端发送畸形 NDJSON 会导致循环退出而非返回 error response。修复方案:
+
+```rust
+// mcp/server.rs run_stdio 内
+match parse_line(&line) {
+    Ok(Some(msg)) => match self.handle_request(&msg) {
+        Ok(out) => write_message(&mut writer, &out)?,
+        Err(_) => { /* 已在 handle_request 内转换为 OutgoingMessage::Error */ }
+    },
+    Ok(None) => continue,
+    Err(e) => {
+        // 解析错误 → 返回 JSON-RPC ParseError (-32700) 而非崩循环
+        let err = OutgoingMessage::Error(/* ... */);
+        write_message(&mut writer, &err)?;
+    }
+}
+```
+
+**然后:** 使用 `superpowers:writing-plans` skill 创建 W5 计划:
 
 ```
-d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w4-mcp-server-wrapping.md
+d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w5-voice-input.md
 ```
 
-**W4 计划应包含的 TDD 任务(初步估计 8-12 个):**
+**W5 计划应包含的 TDD 任务(初步估计 10-14 个):**
 
-1. JSON-RPC 2.0 wire 协议解析器(request/response/error notification)
-2. stdio transport(读写 stdin/stdout,行分隔 NDJSON)
-3. SSE transport(可选,先做 stdio)
-4. `mcp_servers` 表 CRUD + 启动时加载 allowed_paths 配置
-5. `McpServer` 结构体:把 `McpHandler` 包成完整 MCP server
-6. `tools/list` JSON-RPC method 返回 `McpHandler::list_tools()` 结果
-7. `tools/call` JSON-RPC method 分发到 `McpHandler::call_tool()`
-8. 跨进程审计:每个 MCP 调用记录到 `audit_logs`
-9. `skills.list` / `skills.route` MCP tool 暴露
-10. 集成测试:模拟 MCP client 调用 `filesystem.move_files` 被拒绝
-11. 集成测试:模拟 MCP client 调用 `files.organize` Skill 跑通
-12. CLI `mcp-serve` 命令启动 stdio MCP server
+1. `whisper-rs` + `cpal` 依赖引入 + 模型文件路径管理
+2. 音频录制(`cpal` 输入流 + 缓冲)
+3. VAD 静默检测(简单能量阈值即可,后续可换 Silero)
+4. Whisper 推理封装(传入 PCM samples → 返回文本)
+5. 模型管理(下载/选择/路径解析)
+6. CLI `voice listen` 命令(录音 → 转写 → SkillRouter 调用)
+7. CLI `voice transcribe <file>` 命令
+8. CLI `voice list-models` 命令
+9. 语音 → `SkillRouter::route()` 集成测试
+10. 语音 → `FilesOrganizeSkill` 端到端冒烟(模拟音频 → 实际文件 move)
+11. 错误处理(模型缺失 / 麦克风权限 / 推理失败)
+12. 性能 baseline(首字延迟、RTT 测量)
 
 ### 5.3 用户偏好提醒
 
 - **不使用 worktree** — 直接在 `d:\voicepilot` git init/branch/merge
-- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-36 共 20 个,待 V1.1.2 统一处理)
+- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-43 共 27 个,待 V1.1.2 统一处理)
 - **PowerShell 限制** — 不支持 `&&`/`||`/heredoc,用 `;` 链接命令,单行 commit message
-- **Subagent-Driven Development** — W2/W3a/W3b 都用此模式,W4 大概率继续
+- **Subagent-Driven Development** — W2/W3a/W3b/W4 都用此模式,W5 大概率继续
 - **TDD 严格** — 红 → 绿 → 重构,每 task 一个 commit
 
 ### 5.4 Memory 资源
 
 明天可参考的 memory 文件:
 - `c:\Users\16567\.trae-cn\memory\user_profile.md` — 用户偏好(不使用 worktree,遇到不合理规格报告)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b 累计)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260720\topics.md` — 今日 W3b 完成记录
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4 累计)
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260720\topics.md` — 今日 W4 完成记录
 
 ---
 
@@ -373,5 +481,6 @@ d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w4-mcp-server-wrapping.md
 - **规格文档:** [voicepilot-v1.1-spec.html](file:///d:/voicepilot/voicepilot-v1.1-spec/voicepilot-v1.1-spec.html)
 - **W3a 计划:** [2026-07-19-w3a-filesystem-adapter.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-19-w3a-filesystem-adapter.md)
 - **W3b 计划:** [2026-07-20-w3b-files-organize-skill.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w3b-files-organize-skill.md)
+- **W4 计划:** [2026-07-20-w4-mcp-server-wrapping.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w4-mcp-server-wrapping.md)
 - **Trust Kernel 源码:** [crates/trust-kernel/src/](file:///d:/voicepilot/voicepilot/crates/trust-kernel/src/)
 - **CLI 入口:** [crates/cli/src/main.rs](file:///d:/voicepilot/voicepilot/crates/cli/src/main.rs)
