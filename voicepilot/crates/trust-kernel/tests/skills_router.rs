@@ -54,3 +54,27 @@ fn router_first_match_wins_when_multiple_skills_match() {
         panic!("expected Skill decision");
     }
 }
+
+#[test]
+fn router_does_not_match_unrelated_common_bigrams() {
+    let mut router = SkillRouter::new();
+    router.register(files_organize_manifest());
+
+    // Common Chinese bigrams that appear in files.organize's intent_examples
+    // but should NOT trigger routing for unrelated goals.
+    let unrelated_goals = [
+        "今天吃什么",
+        "今天天气怎么样",
+        "我要写一篇论文",
+        "请帮我写一份技术文档",
+        "项目进度怎么样",
+    ];
+    for goal in &unrelated_goals {
+        let decision = router.route(goal);
+        assert!(
+            matches!(decision, RouteDecision::Planner),
+            "goal {:?} should route to Planner, not files.organize",
+            goal
+        );
+    }
+}

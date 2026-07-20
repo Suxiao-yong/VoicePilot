@@ -1,13 +1,17 @@
 //! SkillRouter — V1.1 §5.1.
 //!
-//! W3b: deterministic keyword matching against `intent_examples`.
-//! Future W7 will add a lightweight intent classifier (BERT mini or
-//! similar), but V1.1 §5.2 explicitly says Skill routing must NOT
-//! call an LLM — so even W7's classifier runs locally.
+//! W3b: deterministic keyword matching. Two strategies, tried in order:
+//!   1. Two-way substring match against `intent_examples`
+//!      (goal contains example OR example contains goal).
+//!      Handles the "user goal literally restates an example" case.
+//!   2. Substring match against curated `keywords`.
+//!      Handles the "user goal shares a semantic keyword with the Skill"
+//!      case (e.g. "整理" appears in both).
+//! First registered Skill to match wins. No LLM.
 //!
-//! Matching rule: case-insensitive substring match. First registered
-//! Skill whose intent_examples contains a substring of the user_goal
-//! wins (first-match-wins).
+//! Future W7 will add a lightweight intent classifier (BERT mini or
+//! similar) running locally, but V1.1 §5.2 explicitly forbids LLM
+//! routing.
 
 use crate::skills::manifest::SkillManifest;
 
@@ -32,35 +36,39 @@ impl SkillRouter {
     }
 
     /// Route a user goal to a Skill or to the Planner.
-    /// Matching is case-insensitive substring over `intent_examples`.
+    ///
+    /// Tries two-way substring match against `intent_examples` first,
+    /// then substring match against curated `keywords`. First registered
+    /// Skill to match wins. All matching is case-insensitive.
     pub fn route(&self, user_goal: &str) -> RouteDecision {
         let goal_lower = user_goal.to_lowercase();
         for skill in &self.skills {
-            for example in &skill.intent_examples {
-                let example_lower = example.to_lowercase();
-                // Two-way substring match: goal contains example OR example contains goal.
-                // The two-way handles both "short goal matches long example" and
-                // "long goal contains short example keyword".
-                if goal_lower.contains(&example_lower) || example_lower.contains(&goal_lower) {
-                    return RouteDecision::Skill(skill.clone());
-                }
-                // Partial keyword match: any 2-char (non-whitespace) substring of
-                // the example also appears in the goal. This catches shared keywords
-                // like "整理" / "下载" without requiring the full example sentence to
-                // be present. Windows containing whitespace are skipped to avoid
-                // false positives like " P" or "F ".
-                let example_chars: Vec<char> = example_lower.chars().collect();
-                for window in example_chars.windows(2) {
-                    if window.iter().any(|c| c.is_whitespace()) {
-                        continue;
-                    }
-                    let window_str: String = window.iter().collect();
-                    if goal_lower.contains(&window_str) {
-                        return RouteDecision::Skill(skill.clone());
-                    }
-                }
+            if self.matches_intent_examples(&goal_lower, skill)
+                || self.matches_keywords(&goal_lower, skill)
+            {
+                return RouteDecision::Skill(skill.clone());
             }
         }
         RouteDecision::Planner
+    }
+
+    fn matches_intent_examples(&self, goal_lower: &str, skill: &SkillManifest) -> bool {
+        for example in &skill.intent_examples {
+            let example_lower = example.to_lowercase();
+            if goal_lower.contains(&example_lower) || example_lower.contains(goal_lower) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn matches_keywords(&self, goal_lower: &str, skill: &SkillManifest) -> bool {
+        for keyword in &skill.keywords {
+            let keyword_lower = keyword.to_lowercase();
+            if !keyword_lower.is_empty() && goal_lower.contains(&keyword_lower) {
+                return true;
+            }
+        }
+        false
     }
 }

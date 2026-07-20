@@ -17,6 +17,12 @@ pub struct SkillManifest {
     #[serde(default)]
     pub description: String,
     pub intent_examples: Vec<String>,
+    /// Curated routing keywords — V1.1 §5.1 Skill Router matches these
+    /// against the user goal (case-insensitive substring). Authors list
+    /// intentional, semantically meaningful keywords; intent_examples
+    /// are demonstration sentences, not matching keywords.
+    #[serde(default)]
+    pub keywords: Vec<String>,
     pub inputs: HashMap<String, SkillInput>,
     pub risk_ceiling: ELevel,
     pub data_class_ceiling: DLevel,
@@ -169,6 +175,12 @@ pub fn files_organize_manifest() -> SkillManifest {
             "把下载目录里的 PDF 移到论文文件夹".to_string(),
             "整理今天下载的文档".to_string(),
             "把下载的 PDF 整理到项目文件夹".to_string(),
+        ],
+        keywords: vec![
+            "整理".to_string(),
+            "归档".to_string(),
+            "移动文件".to_string(),
+            "下载目录".to_string(),
         ],
         inputs,
         risk_ceiling: ELevel::E2,
