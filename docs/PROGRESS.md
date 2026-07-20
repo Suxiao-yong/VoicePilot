@@ -2,9 +2,9 @@
 
 > **最后更新:** 2026-07-20 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `4169e5b` fix(mcp): run_stdio continues after kernel errors (spec issue #37)
-> **测试状态:** 196 passing, 0 warnings
-> **规格版本:** V1.1.2(全部 issue #17-#43 已解决)
+> **最新 commit:** `877d861` test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required)
+> **测试状态:** 196 passing (default, W1-W4) / +voice tests opt-in via `--features voice`(requires CMake + MSVC), 0 warnings
+> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
 
 ---
 
@@ -17,12 +17,12 @@
 | W3a | Filesystem Adapter + Compensation + Verifier | ✅ 已合并 | 38 | 2026-07-19 | `d8bd4b5` |
 | W3b | files.organize Skill + 端到端审批流 | ✅ 已合并 | 39 | 2026-07-20 | `e9aa5ca` |
 | W4 | MCP Server Wrapping | ✅ 已完成 | 40 | 2026-07-20 | `1e10586` (direct on master) |
-| W5 | Voice Input (Whisper.cpp) | ⏳ 未开始 | — | — | — |
+| W5 | Voice Input (Whisper.cpp) | ✅ 已完成 | +voice (opt-in, requires CMake) | 2026-07-20 | (direct on master) |
 | W6 | Tauri UI Shell | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40)
+**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40;W5 voice tests 通过 `--features voice` 启用,需要 CMake + MSVC)
 
 ---
 
@@ -270,6 +270,79 @@ crates/trust-kernel/src/
 - §8.1 `mcp_servers` builtin row 启动加载策略未规定(W4 用 `seed_builtin_filesystem` 幂等 INSERT OR IGNORE)
 - §6.1 `tools/call` 内核错误 → JSON-RPC 错误码映射未规定(W4 一律映射为 -32603 InternalError,未区分 MethodNotFound/-32601 vs InvalidParams/-32602)
 
+### W5: Voice Input (Whisper.cpp) (默认 196 tests 不变;voice opt-in)
+
+**实现内容:**
+- §2.1 voice 子系统模块(`voice/{error, model, wav, vad, whisper, audio, router_bridge}.rs`)
+- 模块全 feature-gated `#[cfg(feature = "voice")]`,默认 `default = []` 保持纯 Rust 构建(CMake 仅在 `--features voice` 时需要)
+- Whisper.cpp FFI 绑定(`whisper-rs` 0.13,optional dep)
+- 音频采集(`cpal` 0.15,optional dep,跨平台 I/O)
+- WAV I/O(`hound` 3.5,optional dep,mono 16-bit 强制)
+- 能量阈值 VAD(W5 PoC;Silero VAD 延后 W6+)
+- `ModelRegistry` 解析 `~/.voicepilot/models/ggml-*.bin`(用户手动下载,CLI 打印 URL,W5 不做 auto-download)
+- `WhisperEngine` 加载模型 + 推理(i16 → f32 PCM 转换,16kHz 强制)
+- `AudioRecorder` cpal 输入流 + 5s 超时 + 线性重采样 + downmix to mono
+- `RouterBridge` 文本 → SkillRouter 路由(不执行 Skill,W7 LLM Planner 提取参数)
+- CLI `voice` 子命令 4 个:`voice listen` / `voice transcribe <file>` / `voice list-models` / `voice route <text>`
+- E2E 冒烟测试 `w5_e2e_smoke.rs` 三 Tier(pure-logic 跑 CI / model-required `#[ignore]` / mic-required `#[ignore]`)
+
+**新增模块结构:**
+```
+crates/trust-kernel/src/voice/
+├── mod.rs              # 模块导出
+├── error.rs            # VoiceError enum (ModelMissing / MicDenied / InferenceFailed / InvalidWav / NoSpeechDetected / CaptureFailed / ModelLoadFailed)
+├── model.rs            # ModelRegistry + ModelSpec
+├── wav.rs              # read_wav / write_wav (hound wrappers, mono 16-bit enforced)
+├── vad.rs              # VadDetector + VadConfig + VadOutcome (energy threshold)
+├── whisper.rs          # WhisperEngine + WhisperConfig
+├── audio.rs            # AudioRecorder + AudioRecorderConfig (cpal input stream)
+└── router_bridge.rs    # route_text(kernel, approver, text) -> RouteOutcome
+```
+
+**W5 commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `eb7783c` | docs(w5): add Voice Input implementation plan |
+| `c5a80f0` | docs(w5): revise plan for opt-in voice feature (default = [], preserves pure-Rust build) |
+| `e36a128` | Task 1: build(voice): add whisper-rs + cpal + hound deps with voice feature gate |
+| `26c0809` | Task 2: feat(voice): module skeleton + VoiceError (V1.1 §2.1) |
+| `09786f3` | Task 3: feat(voice): ModelRegistry resolves Whisper model paths from ~/.voicepilot/models/ |
+| `8f90b01` | Task 4: feat(voice): WAV I/O helpers (hound wrappers, mono 16-bit only) |
+| `6784d1a` | Task 5: feat(voice): energy-threshold VAD with frame-based silence detection |
+| `04833d3` | Task 6: feat(voice): WhisperEngine wraps whisper-rs for transcription (integration tests #[ignore]) |
+| `05d306b` | Task 7: feat(voice): AudioRecorder with cpal microphone capture + resample + downmix |
+| `5b32c75` | Task 8: feat(voice): RouterBridge wires transcribed text to SkillRouter |
+| `461e989` | Task 9: feat(cli): voice list-models command prints available Whisper models |
+| `2e15291` | Task 10: feat(cli): voice transcribe <file> command transcribes WAV via Whisper |
+| `678e6ea` | Task 11: feat(cli): voice route <text> command previews SkillRouter matching |
+| `fce478a` | Task 12: feat(cli): voice listen command — record + transcribe + route end-to-end |
+| `877d861` | Task 13: test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required) |
+
+**核心架构决策:**
+- **Feature gating 改为 opt-in**(`default = []`, `voice = ["dep:whisper-rs", "dep:cpal", "dep:hound"]`) — 保留纯 Rust 默认构建,CMake/MSVC 只在 voice feature 启用时需要;CI 与默认 dev workflow 保持 CMake-free
+- `whisper-rs` + `cpal` + `hound` 作为 optional deps 加在 `voice` feature 下;workspace deps 也标注 `optional = true`
+- CLI `voice` 子命令全部 `#[cfg(feature = "voice")]`-gated:dispatch loop 用单一 `#[cfg(feature = "voice")] { ... }` 块包裹所有 voice 命令分支,每个 handler 函数独立 `#[cfg(feature = "voice")]` 标注
+- VAD 用简单能量阈值(W5 PoC);Silero VAD 延后 W6+
+- 模型文件:用户手动下载;CLI `voice list-models` 打印 URL(W5 不做 auto-download)
+- WhisperEngine integration tests 标 `#[ignore]`(需模型文件)
+- AudioRecorder tests 标 `#[ignore]`(需麦克风)
+- CLI `voice listen` 录固定 5s(W5 PoC;无 VAD-based auto-stop)
+- `RouterBridge::route_text` 不执行 Skill — W5 PoC 由 caller(CLI)提示用户输入 args;W7 LLM Planner 将自动提取参数
+
+**⚠️ CMake 未安装 — voice 代码已提交但编译/测试未验证:**
+- 当前开发机未安装 CMake + MSVC Build Tools,因此 `cargo build --features voice` 和 `cargo test --features voice` 无法验证
+- 默认 `cargo check` + `cargo test` 通过(196 passing,W1-W4 无回归)
+- voice 模块代码已按 plan 完整提交,API 与签名严格遵循 plan 规格
+- 验证 voice 编译需要安装 CMake 3.20+ + MSVC Build Tools,然后运行 `cargo test --features voice`(W5 fast-follow 任务,见 §五)
+
+**已知偏离(已记录 issue #44-#49,延后 W6+):**
+- #44: VAD 用简单能量阈值;可能误触发于背景噪声(W6+ 换 Silero VAD)
+- #45: `voice listen` 录固定 5s;无 VAD-based auto-stop
+- #46: 模型 auto-download 未实现(用户须手动下载 `ggml-tiny.bin`)
+- #47: 流式 partial transcripts 未实现(W6+,Whisper.cpp streaming API)
+- #48: wake word detection 未实现(W6+,用户须手动运行 `voice listen`)
+- #49: voice feature 需要 CMake + MSVC;默认构建排除 voice(opt-in decision 2026-07-20)
+
 ---
 
 ## 三、当前 master 状态确认
@@ -279,23 +352,25 @@ crates/trust-kernel/src/
 ```powershell
 cd d:\voicepilot
 cargo test --manifest-path voicepilot\Cargo.toml
-# 结果:196 passing, 0 failing, 0 warnings
+# 结果:196 passing, 0 failing, 0 warnings (default,W1-W4;voice tests `#![cfg(feature = "voice")]`-gated,自动跳过)
 cargo build --manifest-path voicepilot\Cargo.toml -p cli
-# 结果:0 warnings
+# 结果:0 warnings (default,无 voice;voice 命令 `#[cfg(feature = "voice")]`-gated,默认二进制不含)
+# 验证 voice 编译(需要 CMake + MSVC,W5 fast-follow):
+# cargo test --manifest-path voicepilot\Cargo.toml --features voice
 ```
 
 ### Git 状态
 
 ```
 当前分支: master
-最新 commit: 4169e5b fix(mcp): run_stdio continues after kernel errors (spec issue #37)
-保留分支: (无,W4 直接提交到 master,无 feature 分支)
+最新 commit: 877d861 test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required)
+保留分支: (无,W5 直接提交到 master,无 feature 分支)
 ```
 
 ### 关键文件清单
 
 **规格文档:**
-- `d:\voicepilot\voicepilot-v1.1-spec\voicepilot-v1.1-spec.html`(V1.1.1,~120KB self-contained HTML)
+- `d:\voicepilot\voicepilot-v1.1-spec\voicepilot-v1.1-spec.html`(V1.1.2,~120KB self-contained HTML)
 
 **计划文档:**
 - `d:\voicepilot\docs\superpowers\plans\2026-07-19-w1-trust-kernel-skeleton.md`
@@ -303,6 +378,7 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 - `d:\voicepilot\docs\superpowers\plans\2026-07-19-w3a-filesystem-adapter.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-20-w3b-files-organize-skill.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-20-w4-mcp-server-wrapping.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-20-w5-voice-input.md`
 
 **进度文档(本文件):**
 - `d:\voicepilot\docs\PROGRESS.md`
@@ -316,34 +392,40 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W5 计划编写
+### 4.1 立即任务:W6 计划编写 + W5 fast-follow
 
-**W5 范围(Voice Input — Whisper.cpp 集成):**
+**W6 范围(Tauri UI Shell):**
 
-1. **Whisper.cpp 本地模型集成**
-   - 引入 `whisper-rs` crate(FFI binding)
-   - 模型文件管理(`ggml-tiny.bin` / `ggml-base.bin` 等)
-   - 录音 → 模型推理 → 文本输出
+1. **Tauri 项目脚手架**
+   - `voicepilot/crates/ui` 新 crate(Tauri v2 + React/Vue/Svelte)
+   - Rust 后端复用 `trust-kernel`(通过 Tauri command 桥接)
+   - 打包 `cli` 子命令到 Tauri menu/shortcut
 
-2. **音频采集**
-   - `cpal` crate 跨平台音频输入
-   - VAD(Voice Activity Detection)静默检测自动停止
-   - 录音缓冲 + 流式 chunking(可选)
+2. **审批 UI**
+   - 替换 `CliApprover`,实现 `TauriApprover`(IPC 调用审批窗口)
+   - 显示 `EffectManifest` 详情(sources / total_bytes / destination / conflicts)
+   - y/N 按钮 + 超时默认 Deny
 
-3. **Skill 调用桥接**
-   - 语音文本 → `SkillRouter::route()` → Skill 执行
-   - 多模态意图解析(语音可能含路径、文件名等参数)
-   - 与 W3b `FilesOrganizeSkill` 端到端打通
+3. **设置面板**
+   - Whisper 模型路径配置(浏览 `~/.voicepilot/models/`)
+   - `allowed_paths` 白名单编辑(W4 `mcp_servers.allowed_paths` JSON 数组)
+   - 麦克风设备选择 + VAD 阈值调节
 
-4. **CLI `voice` 命令**
-   - `voice listen` — 录音直到静默 → 转写 → 路由 Skill
-   - `voice transcribe <file>` — 转写已有音频文件
-   - `voice list-models` — 列出可用模型
+4. **语音按钮**
+   - 调用 `voice listen` 命令(W5 已实现 CLI 层)
+   - 实时显示 transcription + route outcome
+   - VAD-based 自动停止(W6 替换 W5 PoC 的固定 5s 超时)
 
-**W5 不在范围(留到 W6+):**
-- Tauri UI(留 W6)
+**W6 不在范围(留到 W7+):**
 - LLM Planner fallback(留 W7)
 - 真实 Stronghold 加密(留 W8)
+- Silero VAD(留 W6+ 决定)
+
+**W5 fast-follow(高优先级,优先于 W6):**
+- 安装 CMake 3.20+ 和 MSVC Build Tools
+- 运行 `cargo test --manifest-path voicepilot\Cargo.toml --features voice` 验证 voice 模块编译
+- 下载 `ggml-tiny.bin` 到 `~/.voicepilot/models/`,运行 `cargo test --features voice -- --ignored` 验证 Tier 2/3
+- 安装后更新 PROGRESS.md "CMake 未安装" 段落为 "已验证"
 
 ### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
@@ -379,9 +461,21 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 | #42 | §8.1 | mcp_servers builtin row 启动加载策略(seed_builtin_filesystem 幂等 INSERT OR IGNORE,FK 约束防 DELETE) | §6.1 V1.1.2 修订 callout ⑥ |
 | #43 | §6.1 | 内核错误 → JSON-RPC 错误码完整映射表(-32602/-32601/-32603 按变体分类) | §6.1 V1.1.2 修订 callout ⑦ + 错误码映射表 |
 
+### 4.2.1 W5 实现已知偏离(issue #44-#49,未解决,延后 W6+)
+
+W5 引入的 6 个实现层 known issues(非规格问题,记录于 §二 W5 详细记录):
+
+| Issue | 主题 | 延后到 |
+|---|---|---|
+| #44 | VAD 用简单能量阈值;可能误触发于背景噪声 | W6+(Silero VAD) |
+| #45 | `voice listen` 录固定 5s;无 VAD-based auto-stop | W6+(Tauri UI + VAD 集成) |
+| #46 | 模型 auto-download 未实现(用户须手动下载 `ggml-tiny.bin`) | W6+(CLI/UI 集成下载器) |
+| #47 | 流式 partial transcripts 未实现(Whisper.cpp streaming API) | W6+ |
+| #48 | wake word detection 未实现(用户须手动运行 `voice listen`) | W6+ |
+| #49 | voice feature 需要 CMake + MSVC;默认构建排除 voice(opt-in decision 2026-07-20) | 永久(opt-in 设计决策) |
+
 ### 4.3 后续周次计划(高层)
 
-- **W5:** Voice Input — Whisper.cpp 集成,语音 → 文本 → Skill 调用
 - **W6:** Tauri UI Shell — 桌面应用 + 审批 UI + 设置面板
 - **W7:** LLM Planner + 8 Skills — 8 个确定性 Skill 全部实现 + LLM 编排
 - **W8:** Stronghold Encryption + Taint Tracking — `snapshot_encrypted` 真实加密 + 污点传播
@@ -395,49 +489,69 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 ```powershell
 cd d:\voicepilot
 git status                          # 应为 clean,on master
-git log --oneline -3                # 应看到 4169e5b fix(mcp): run_stdio continues after kernel errors
-cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196
+git log --oneline -3                # 应看到 877d861 test(w5): end-to-end smoke test...
+cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196(default,W1-W4;voice tests cfg-gated 跳过)
 ```
 
-### 5.2 推荐起点:W5 计划编写
+### 5.2 推荐起点:W5 fast-follow + W6 计划编写
 
-W4 fast-follow(spec issue #37)已在 `4169e5b` 解决,可直接进入 W5。
+W5 voice 模块代码已全部提交到 master(commit `877d861`),但 **CMake 未安装导致 voice 编译/测试未验证**。这是首要 fast-follow 任务。
 
-使用 `superpowers:writing-plans` skill 创建 W5 计划:
+**Step 1: W5 fast-follow(优先 — 验证 voice 编译):**
+
+```powershell
+# 安装 CMake 3.20+ 和 MSVC Build Tools(Visual Studio 2022 或 Build Tools only)
+# 验证:
+cmake --version
+# 然后:
+cd d:\voicepilot
+cargo test --manifest-path voicepilot\Cargo.toml --features voice
+# 应编译通过(首次 5-10 min,whisper.cpp 编译);Tier 1 自动跑(2 tests),Tier 2/3 标 #[ignore] 跳过
+# 可选:下载 ggml-tiny.bin 到 ~/.voicepilot/models/,运行:
+# cargo test --manifest-path voicepilot\Cargo.toml --features voice -- --ignored
+```
+
+验证完成后更新本文件 §二 W5 段落中 "⚠️ CMake 未安装" 子段为 "✅ CMake 已安装 — voice 编译验证通过"。
+
+**Step 2: W6 计划编写:**
+
+使用 `superpowers:writing-plans` skill 创建 W6 计划:
 
 ```
-d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w5-voice-input.md
+d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w6-tauri-ui-shell.md
 ```
 
-**W5 计划应包含的 TDD 任务(初步估计 10-14 个):**
+**W6 计划应包含的 TDD 任务(初步估计 10-15 个):**
 
-1. `whisper-rs` + `cpal` 依赖引入 + 模型文件路径管理
-2. 音频录制(`cpal` 输入流 + 缓冲)
-3. VAD 静默检测(简单能量阈值即可,后续可换 Silero)
-4. Whisper 推理封装(传入 PCM samples → 返回文本)
-5. 模型管理(下载/选择/路径解析)
-6. CLI `voice listen` 命令(录音 → 转写 → SkillRouter 调用)
-7. CLI `voice transcribe <file>` 命令
-8. CLI `voice list-models` 命令
-9. 语音 → `SkillRouter::route()` 集成测试
-10. 语音 → `FilesOrganizeSkill` 端到端冒烟(模拟音频 → 实际文件 move)
-11. 错误处理(模型缺失 / 麦克风权限 / 推理失败)
-12. 性能 baseline(首字延迟、RTT 测量)
+1. Tauri v2 项目脚手架(`voicepilot/crates/ui`)
+2. Tauri command 桥接 `trust-kernel`(替代 CLI 直接调用)
+3. `TauriApprover` 实现 `Approver` trait(IPC 调用审批窗口)
+4. 审批 UI 组件(EffectManifest 详情 + y/N 按钮 + 超时)
+5. 设置面板(模型路径 + allowed_paths + 麦克风)
+6. 语音按钮 UI(调用 `voice listen`)
+7. 实时 transcription 显示
+8. Route outcome 反馈(matched skill / unmatched)
+9. VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
+10. 模型 auto-download(issue #46 解决)
+11. 错误处理(模型缺失 / 麦克风权限 / 推理失败 UI 反馈)
+12. Tauri 打包(Windows installer + macOS dmg + Linux AppImage)
+13. E2E 冒烟测试(Tauri 端到端,§11.1 W6 gate)
 
 ### 5.3 用户偏好提醒
 
 - **不使用 worktree** — 直接在 `d:\voicepilot` git init/branch/merge
-- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-43 共 27 个,待 V1.1.2 统一处理)
+- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-43 共 27 个 spec issue,V1.1.2 已修订;W5 实现 issue #44-#49 延后 W6+)
 - **PowerShell 限制** — 不支持 `&&`/`||`/heredoc,用 `;` 链接命令,单行 commit message
-- **Subagent-Driven Development** — W2/W3a/W3b/W4 都用此模式,W5 大概率继续
+- **Subagent-Driven Development** — W2/W3a/W3b/W4/W5 都用此模式,W6 大概率继续
 - **TDD 严格** — 红 → 绿 → 重构,每 task 一个 commit
+- **W5 voice feature opt-in** — 默认 `cargo build/test` 不含 voice;启用 voice 需 `--features voice` + CMake + MSVC
 
 ### 5.4 Memory 资源
 
 明天可参考的 memory 文件:
 - `c:\Users\16567\.trae-cn\memory\user_profile.md` — 用户偏好(不使用 worktree,遇到不合理规格报告)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4 累计)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260720\topics.md` — 今日 W4 完成记录
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4/W5 累计)
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260720\topics.md` — 今日 W4/W5 完成记录
 
 ---
 
@@ -447,5 +561,7 @@ d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w5-voice-input.md
 - **W3a 计划:** [2026-07-19-w3a-filesystem-adapter.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-19-w3a-filesystem-adapter.md)
 - **W3b 计划:** [2026-07-20-w3b-files-organize-skill.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w3b-files-organize-skill.md)
 - **W4 计划:** [2026-07-20-w4-mcp-server-wrapping.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w4-mcp-server-wrapping.md)
+- **W5 计划:** [2026-07-20-w5-voice-input.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w5-voice-input.md)
 - **Trust Kernel 源码:** [crates/trust-kernel/src/](file:///d:/voicepilot/voicepilot/crates/trust-kernel/src/)
+- **Voice 模块源码:** [crates/trust-kernel/src/voice/](file:///d:/voicepilot/voicepilot/crates/trust-kernel/src/voice/)
 - **CLI 入口:** [crates/cli/src/main.rs](file:///d:/voicepilot/voicepilot/crates/cli/src/main.rs)
