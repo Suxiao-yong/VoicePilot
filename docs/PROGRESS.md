@@ -2,12 +2,13 @@
 
 > **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `4fd67b8` fix(clippy): resolve Rust 1.96 new lints
-> **测试状态:** 196 passing (default, W1-W4) / +12 passing via `-p voicepilot-ui --features tauri`(W6a ui crate)/ +35 passing via `-p voicepilot-ui --features voice`(W6a+W6b-1 ui crate)/ +voice tests 21 passing + 6 ignored via `--features voice`(trust-kernel, requires CMake + MSVC + libclang), 0 warnings (default + tauri + voice)
-> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45)
+> **最新 commit:** `ec904b4` test(w6b-2): E2E smoke test for Settings/Audit/Trust/Skills repos
+> **测试状态:** 196 passing (default, W1-W4) / +16 passing via `-p voicepilot-ui --features tauri`(W6a+W6b-2 ui crate)/ +45 passing via `-p voicepilot-ui --features voice`(W6a+W6b-1+W6b-2 ui crate)/ +voice tests 23 passing + 6 ignored via `--features voice`(trust-kernel, requires CMake + MSVC + libclang), 0 warnings (default + tauri + voice)
+> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
 > **W6b-1:** ✅ 已完成(2026-07-21)— Main Chat + Voice 集成 + VAD 自动停止,35 个 ui 测试通过(+23 vs W6a),详见 §二 W6b-1 段落
+> **W6b-2:** ✅ 已完成(2026-07-21)— Settings + Audit Viewer + Trust Center + Skills Manager + Partial Transcript + KillSwitchBar,4 个 w6b2_smoke E2E 测试通过,详见 §二 W6b-2 段落
 
 ---
 
@@ -23,7 +24,7 @@
 | W5 | Voice Input (Whisper.cpp) | ✅ 已完成 | +voice (opt-in, requires CMake) | 2026-07-20 | (direct on master) |
 | W6a | Tauri UI Shell + Approval 窗口 | ✅ 已完成 | +12 (ui crate, opt-in `--features tauri`) | 2026-07-21 | (direct on master) |
 | W6b-1 | Main Chat + Voice 集成 | ✅ 已完成 | +35 (ui crate, opt-in `--features voice`) | 2026-07-21 | (direct on master) |
-| W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ⏳ 未开始 | — | — | — |
+| W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ✅ 已完成 | +4 w6b2_smoke (tauri) + 2 partial (voice) + 10 ui unit (voice) | 2026-07-21 | (direct on master) |
 | W6b-3 | Diff Preview + W6a Fast-Follow + 打包 + E2E | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
@@ -555,6 +556,110 @@ voicepilot/crates/ui/web/src/
 | `cargo clippy -p voicepilot-ui --features tauri -- -D warnings` | tauri | 0 warnings |
 | `cargo clippy -p voicepilot-ui --features voice -- -D warnings` | voice | 0 warnings |
 | `cargo check -p voicepilot-ui --features voice` | voice | Finished (Tauri + frontend 编译成功) |
+| `npm.cmd run build` | — | dist/index.html + assets 生成 |
+
+---
+
+### W6b-2: Settings + Audit Viewer + Trust Center + Skills Manager + Partial Transcript + KillSwitchBar (4 w6b2_smoke + 2 partial + 10 ui unit)
+
+**实现内容:**
+- §8.3 Settings:ConfigRepo KV 表(`app_config`)+ SettingsDto + SettingsView 三组 fieldset(语音/VAD/隐私与补偿)
+- §8.3 Audit Viewer:AuditLogger trait 加 `list_recent(usize)` / `list_for_task(&str)` 查询方法 + AuditViewerView 左侧任务列表 + 右侧时间线(创世事件标 ⚡)
+- §8.3 Trust Center:McpServerRepo 加 `toggle_enabled(server_id, enabled)` + TrustCenterView 表格 + 启用/停用按钮 + status-pill
+- §8.3 Skills Manager:SkillRepo CRUD(upsert/list/get/toggle/incr_success)+ SkillsManagerView 表格 + risk-pill + 成功次数/平均延迟
+- §8.3 Kill Switch Bar:KillSwitchBar 组件(顶部红色 "停止所有" 按钮)+ App.tsx 集成
+- §8.4 Partial Transcript(issue #47):VoiceListener 加 `listen_with_cancel_and_partial` 每 2s 触发回调 + `transcription-partial` 事件发射 + MainView listening-indicator 显示 partial 文本
+- §8.2 Voice cancel(issue #57):`VoiceListen::listen` 接收 `cancel: &AtomicBool` + `cancel_voice_command` Tauri command + state.kill_switch 字段 + MainView 取消按钮
+- §8.2 Model caching(issue #61):`VoiceListenImpl::with_engine` 接收 `Arc<WhisperEngine>` + state.whisper_cache 字段(Arc<Mutex<Option<Arc<WhisperEngine>>>>)+ voice_listen_command 优先用缓存引擎
+- 多视图导航:App.tsx 加 `view` state + sidebar 切换 Main/Settings/Audit/Trust/Skills 五视图
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/
+├── migrations/002_app_config.sql (NEW)  # app_config KV 表
+├── repo/config_repo.rs (NEW)            # ConfigRepo::new() + get/set/list/delete
+├── audit.rs                              # +list_recent + list_for_task (trait + impl)
+├── mcp/repo.rs                           # +toggle_enabled
+├── skills/repo.rs (NEW)                  # SkillRepo + SkillRecord (version: i64)
+├── kernel.rs                             # +config_repo/skill_repo/list_audit_recent/list_audit_for_task/toggle_mcp_server/toggle_skill 无状态访问器
+└── voice/listener.rs                     # +listen_with_cancel_and_partial (每 2s 回调)
+
+voicepilot/crates/ui/src/
+├── settings_commands.rs (NEW)            # SettingsDto + get/update_settings_command
+├── audit_commands.rs (NEW)               # AuditEventDto + list_audit_recent/for_task_command
+├── trust_center_commands.rs (NEW)        # McpServerDto + list_mcp_servers/toggle_mcp_server_command
+├── skills_commands.rs (NEW)              # SkillDto + list_skills/toggle_skill_command
+├── voice_commands.rs                     # +TranscriptionPartialPayload + cancel_voice_command + with_engine(app) + whisper_cache + kill_switch
+├── state.rs                              # +kill_switch + whisper_cache 字段
+└── commands.rs                           # register_handlers(_with_voice) 追加 9 个新 command
+
+voicepilot/crates/ui/tests/
+├── settings_commands_unit.rs (NEW)       # 3 tests
+├── audit_commands_unit.rs (NEW)          # 2 tests
+├── trust_center_commands_unit.rs (NEW)   # 1 test
+├── skills_commands_unit.rs (NEW)         # 2 tests
+├── voice_cancel_cache_unit.rs (NEW)      # 2 tests (cancel + cache)
+└── w6b2_smoke.rs (NEW)                   # 4 E2E tests (Settings/Audit/Trust/Skills 往返)
+
+voicepilot/crates/ui/web/src/
+├── types.ts                              # +View + TranscriptionPartialPayload
+├── api.ts                                # +onTranscriptionPartial + getSettings/updateSettings/listAudit/listMcpServers/toggleMcpServer/listSkills/toggleSkill/cancelVoice
+├── styles.css                            # +.app-root/.kill-switch-bar/.sidebar/.nav-item/.main-content/.partial-text
+├── App.tsx                               # 多视图导航 + KillSwitchBar 集成
+├── components/KillSwitchBar.tsx (NEW)    # 紧急停止按钮
+├── components/SettingsView.tsx (NEW)     # 三组 fieldset 配置表单
+├── components/AuditViewerView.tsx (NEW)  # 任务列表 + 时间线
+├── components/TrustCenterView.tsx (NEW)  # MCP Server 表格 + toggle
+├── components/SkillsManagerView.tsx (NEW) # Skill 表格 + risk-pill
+└── components/MainView.tsx               # +partial transcript 监听 + 取消按钮
+```
+
+**W6b-2 commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `391e605` | Task 1: ConfigRepo + Settings commands + SettingsView (V1.1 §8.3 Settings) |
+| `a9ee383` | Task 2: Audit Viewer query methods + commands + AuditViewerView (V1.1 §8.3) |
+| `4a7bfee` | Task 3: Trust Center toggle + commands + TrustCenterView (V1.1 §8.3) |
+| `50e61a2` | Task 4: Skills Manager SkillRepo + commands + SkillsManagerView (V1.1 §8.3) |
+| `851596d` | Task 5: voice cancel #57 + model caching #61 (kill_switch + whisper_cache + cancel_voice_command) |
+| `7f84024` | Task 6: partial transcript #47 + KillSwitchBar + multi-view nav |
+| `ec904b4` | Task 7: E2E smoke test for Settings/Audit/Trust/Skills repos |
+
+**核心架构决策:**
+- **无状态 Repo 访问器模式**:`ConfigRepo::new()` / `McpServerRepo::new()` / `SkillRepo::new()` 均无参数,方法接收 `&Connection`。**不**在 `TrustKernel` 结构体加字段,访问器每次返回新实例。`kernel.config_repo()` / `kernel.skill_repo()` 是便捷包装
+- **Tauri command 返回类型模式**:逻辑函数返回 `UiResult<T>`,`#[tauri::command]` 函数返回 `Result<T, String>` + `.map_err(Into::into)`。原因:Tauri 的 `IpcResponse` trait 不接受 `UiError`
+- **WhisperEngine 缓存(Arc<WhisperEngine>)**:WhisperEngine 不 Clone(持有 `WhisperContext` FFI 资源),用 `Arc::clone` 共享。state.whisper_cache: `Arc<Mutex<Option<Arc<WhisperEngine>>>>`
+- **Voice cancel 机制**:`Arc<AtomicBool>` kill_switch,listen 循环每 chunk 前检查。VoiceListen trait 签名变更为 `listen(&self, cancel: &AtomicBool)`
+- **Partial transcript 基于累积 elapsed 判断**:不依赖 `Instant::now()` 真实时间(mock recorder 瞬间返回,wall clock 几乎不变),改用 `elapsed - last_partial_elapsed >= 2s` 判断,既测试友好又语义等价
+- **多视图导航**:App.tsx 加 `view` state + sidebar 切换,KillSwitchBar 顶部常驻,ApprovalModal 浮层保持
+- **kernel.toggle_mcp_server 重入死锁修复**:`kernel.toggle_mcp_server` 内部调 `self.conn()` 获取锁,若调用方已持有 `conn` guard 会死锁(Mutex 不可重入)。w6b2_smoke 测试用块作用域 `{}` 限定 conn guard 生命周期
+
+**关键修复:**
+1. **clippy type_complexity**:`Option<Box<dyn Fn(&[i16]) + Send + Sync>>` 触发 type_complexity lint,引入 `PartialCallback<'a>` / `PartialCbOpt` type alias 解决
+2. **clippy single_match**:`match { Ok => ..., Err => {} }` 改为 `if let Ok(text) = ...`
+3. **clippy unnecessary_map_or**:Task 5 遗留 `map_or(true, ...)` 改为 `is_none_or(...)`(Rust 1.96 新增)
+4. **FK 约束违反**:`audit_logs.task_id REFERENCES tasks(task_id)`,测试 setup 需预创建 task + step 行
+5. **version 类型转换**:`skills.version INTEGER`(i64)与 `SkillDto.version: String`(前端友好)用 `r.version.to_string()` 转换
+6. **ApprovalModal prop**:`onClose` → `onDismiss`(以实际代码为准)
+
+**已知偏离/延后到 W6b-3:**
+- **§8.3 Skills Manager schema UI 字段**:spec 未规定,本计划用现有 `success_count`/`avg_latency_ms` 列
+- **§8.3 Trust Center 禁用 MCP server 级联效应**:仅在 `mcp_servers.enabled=false` 层禁用,运行中的连接需重启 mcp-serve 才生效(简化实现)
+- **§8.4 Partial transcript 间隔**:spec 未规定,本计划取 2s(Whisper 推理延迟约 1-3s,2s 平衡实时性与性能)
+- **§8.4 TTS 语音反馈 / Chip 修改 / Push-to-talk**:延后 W6b-3
+- **Diff Preview**:延后 W6b-3
+
+**测试矩阵(W6b-2 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo test` | (default) | 196 passed, 0 failed |
+| `cargo test -p trust-kernel --features voice` | voice | W5 + W6b-1 + W6b-2 voice_listener_unit 8 tests (6 原有 + 2 partial), 6 ignored |
+| `cargo test -p voicepilot-ui --features tauri` | tauri | 16 passed (W6a 12 + w6b2_smoke 4) |
+| `cargo test -p voicepilot-ui --features voice` | voice | 45 passed (W6a 12 + W6b-1 23 + W6b-2 10: 3 settings + 2 audit + 1 trust_center + 2 skills + 2 voice_cancel_cache) |
+| `cargo clippy --all-targets -- -D warnings` | (default) | 0 warnings |
+| `cargo clippy -p voicepilot-ui --features tauri -- -D warnings` | tauri | 0 warnings |
+| `cargo clippy -p voicepilot-ui --features voice -- -D warnings` | voice | 0 warnings |
+| `cargo check -p voicepilot-ui --features "tauri voice"` | tauri+voice | Finished |
 | `npm.cmd run build` | — | dist/index.html + assets 生成 |
 
 ---
