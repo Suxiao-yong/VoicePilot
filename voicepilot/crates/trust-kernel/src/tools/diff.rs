@@ -55,13 +55,23 @@ pub fn compute_file_diff(
     dest_path: &Path,
 ) -> crate::error::Result<DiffResult> {
     let source_meta = fs::metadata(source_path)?;
+    if !source_meta.is_file() {
+        return Err(crate::error::KernelError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("source is not a regular file: {}", source_path.display()),
+        )));
+    }
     let source_size = source_meta.len();
+
+    // 路径规范化(纯字符串变换,不触碰文件系统)
+    let source_canonical = crate::tools::fs_paths::canonicalize(&source_path.to_string_lossy());
+    let dest_canonical = crate::tools::fs_paths::canonicalize(&dest_path.to_string_lossy());
 
     // 软上限检查
     if source_size > MAX_FILE_SIZE_BYTES {
         return Ok(DiffResult {
-            source_path: source_path.to_string_lossy().into_owned(),
-            dest_path: dest_path.to_string_lossy().into_owned(),
+            source_path: source_canonical,
+            dest_path: dest_canonical,
             file_kind: FileKind::Text,
             diff_text: None,
             truncated: true,
@@ -79,8 +89,8 @@ pub fn compute_file_diff(
 
     if is_binary {
         return Ok(DiffResult {
-            source_path: source_path.to_string_lossy().into_owned(),
-            dest_path: dest_path.to_string_lossy().into_owned(),
+            source_path: source_canonical,
+            dest_path: dest_canonical,
             file_kind: FileKind::Binary,
             diff_text: None,
             truncated: false,
@@ -92,12 +102,37 @@ pub fn compute_file_diff(
     if !dest_path.exists() {
         let source_text = String::from_utf8_lossy(&source_content);
         return Ok(DiffResult {
-            source_path: source_path.to_string_lossy().into_owned(),
-            dest_path: dest_path.to_string_lossy().into_owned(),
+            source_path: source_canonical,
+            dest_path: dest_canonical,
             file_kind: FileKind::NewFile,
             diff_text: Some(format_new_file_diff(&source_text)),
             truncated: false,
             truncate_reason: None,
+        });
+    }
+
+    // dest 必须是常规文件
+    let dest_meta = fs::metadata(dest_path)?;
+    if !dest_meta.is_file() {
+        return Err(crate::error::KernelError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("dest is not a regular file: {}", dest_path.display()),
+        )));
+    }
+
+    // dest 软上限检查
+    let dest_size = dest_meta.len();
+    if dest_size > MAX_FILE_SIZE_BYTES {
+        return Ok(DiffResult {
+            source_path: source_canonical,
+            dest_path: dest_canonical,
+            file_kind: FileKind::Text,
+            diff_text: None,
+            truncated: true,
+            truncate_reason: Some(format!(
+                "目标文件超过 50MB 软上限({} bytes)",
+                dest_size
+            )),
         });
     }
 
@@ -112,8 +147,8 @@ pub fn compute_file_diff(
         .to_string();
 
     Ok(DiffResult {
-        source_path: source_path.to_string_lossy().into_owned(),
-        dest_path: dest_path.to_string_lossy().into_owned(),
+        source_path: source_canonical,
+        dest_path: dest_canonical,
         file_kind: FileKind::Text,
         diff_text: Some(diff),
         truncated: false,
