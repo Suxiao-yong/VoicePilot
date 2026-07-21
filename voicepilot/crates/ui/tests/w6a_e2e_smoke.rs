@@ -10,6 +10,8 @@ use voicepilot_ui::state::AppState;
 /// + 审计链 + 补偿记录。TauriApprover 特定的事件发射在 approver_unit.rs 中覆盖。
 #[test]
 fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
+    use trust_kernel::repo::step_repo::StepStatus;
+
     // Setup:临时目录包含 2 个 .txt 文件 + 1 个 .log 文件 + 目标目录
     let tmp = TempDir::new().unwrap();
     let src = tmp.path().join("src");
@@ -47,27 +49,41 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
         "non-matching file untouched"
     );
 
-    // 验证:审计链有预期事件(TASK_CREATED + STEP_CREATED +
-    // STEP_PREPARED + APPROVAL_RECORDED + STEP_COMMITTED + COMPENSATION_CREATED)
+    // 验证:审计链有预期事件。成功路径共 8 个 audit 事件:
+    //   1. TASK_CREATED              (create_task)
+    //   2. STEP_CREATED              (create_step)
+    //   3. STEP_STATUS_CHANGED       (Running,executor step 1)
+    //   4. STEP_PREPARED             (executor step 2)
+    //   5. APPROVAL_RECORDED         (executor step 3)
+    //   6. COMPENSATION_CREATED      (executor step 6)
+    //   7. STEP_COMMITTED            (executor step 7,update_step_post_commit)
+    //   8. STEP_STATUS_CHANGED       (Succeeded,executor step 7)
+    // 精确断言(N=8)以尽早捕获回归(参考 w4_e2e_smoke.rs:87 风格)。
     let audit_count = state.kernel.audit_count_for_task("t-w6a-smoke").unwrap();
-    assert!(
-        audit_count >= 4,
-        "expected ≥4 audit events, got {}",
+    assert_eq!(
+        audit_count, 8,
+        "expected 8 audit events on success path, got {}",
         audit_count
     );
 
     // 验证:step 处于 Succeeded 状态(V1.1 §6.2 commit 完成后的终态,
     // StepStatus 枚举中无 Committed 变体,Succeeded 即表示已提交并验证通过)
     let step = state.kernel.get_step("s-w6a-smoke").unwrap().unwrap();
-    assert_eq!(
-        step.status,
-        trust_kernel::repo::step_repo::StepStatus::Succeeded
-    );
+    assert_eq!(step.status, StepStatus::Succeeded);
 
-    // 验证:补偿已记录(强 + auto_reverse 就绪)
-    assert!(
-        result.compensation_ref.is_some(),
-        "compensation_ref must be set after successful commit"
+    // 验证:补偿已记录(强 + auto_reverse 就绪)。compensation_ref 形如
+    // "comp-<uuid>",非空字符串。
+    let comp_ref = result
+        .compensation_ref
+        .as_ref()
+        .expect("compensation_ref must be set after successful commit");
+    assert!(!comp_ref.is_empty(), "compensation_ref must not be empty");
+
+    // 验证:evidence_strength(V1.1 §7.2 补偿强度语义)。
+    // 成功路径下 verify_move 返回 Strong(fs.rs:271),as_str() = "strong"。
+    assert_eq!(
+        result.evidence_strength, "strong",
+        "evidence_strength should be 'strong' for committed moves with auto_reverse"
     );
 }
 
