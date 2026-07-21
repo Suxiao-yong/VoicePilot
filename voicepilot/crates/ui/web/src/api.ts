@@ -6,6 +6,8 @@ import type {
   OrganizeInput,
   OrganizeResult,
   RouteTextResult,
+  VoiceListenResult,
+  TranscriptionFinalPayload,
 } from "./types";
 
 export async function routeText(text: string): Promise<RouteTextResult> {
@@ -32,6 +34,18 @@ export function onApprovalRequest(
   handler: (payload: ApprovalRequestPayload) => void
 ): Promise<UnlistenFn> {
   return listen<ApprovalRequestPayload>("approval-request", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function voiceListen(): Promise<VoiceListenResult> {
+  return invoke<VoiceListenResult>("voice_listen_command");
+}
+
+export function onTranscriptionFinal(
+  handler: (payload: TranscriptionFinalPayload) => void
+): Promise<UnlistenFn> {
+  return listen<TranscriptionFinalPayload>("transcription-final", (event) => {
     handler(event.payload);
   });
 }

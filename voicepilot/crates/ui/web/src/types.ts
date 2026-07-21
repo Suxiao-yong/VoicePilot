@@ -40,3 +40,24 @@ export interface OrganizeResult {
   compensation_ref: string | null;
   error: string | null;
 }
+
+export type VoiceListenResult =
+  | {
+      kind: "success";
+      transcription: string;
+      route_outcome: RouteTextResult;
+      stopped_by_vad: boolean;
+    }
+  | { kind: "no_speech" }
+  | {
+      kind: "timeout";
+      transcription: string | null;
+      route_outcome: RouteTextResult;
+    }
+  | { kind: "error"; message: string };
+
+export interface TranscriptionFinalPayload {
+  transcription: string;
+  route_outcome: RouteTextResult;
+  stopped_by_vad: boolean;
+}

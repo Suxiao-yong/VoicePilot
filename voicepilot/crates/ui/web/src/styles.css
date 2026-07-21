@@ -368,3 +368,155 @@ html, body, #root {
 .route-result.unmatched {
   border-left: 3px solid var(--accent);
 }
+
+/* Voice Input Section (W6b-1) */
+.voice-section {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  padding: 24px;
+  margin-bottom: 32px;
+}
+
+.voice-section .panel-header {
+  margin-bottom: 16px;
+}
+
+.voice-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-elev);
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 0;
+  transition: all 0.15s;
+  min-width: 200px;
+}
+
+.voice-button:hover:not(:disabled) {
+  background: var(--bg-elev2);
+  border-color: var(--accent);
+}
+
+.voice-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.voice-button.listening {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--bg-deep);
+  font-weight: 600;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.voice-button .mic-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.listening-indicator {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listening-indicator .dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.listening-indicator .dots span {
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite;
+}
+
+.listening-indicator .dots span:nth-child(2) { animation-delay: 0.2s; }
+.listening-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.transcription-display {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  min-height: 24px;
+}
+
+.transcription-display .label {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.transcription-display .text {
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.transcription-display.error {
+  border-left-color: var(--danger);
+}
+
+.transcription-display.no-speech {
+  border-left-color: var(--text-muted);
+}
+
+.route-outcome-feedback {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.route-outcome-feedback .key {
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.route-outcome-feedback .val {
+  color: var(--text-primary);
+}
+
+.route-outcome-feedback .val.success {
+  color: var(--success);
+}
+
+.route-outcome-feedback .val.warning {
+  color: var(--accent);
+}
