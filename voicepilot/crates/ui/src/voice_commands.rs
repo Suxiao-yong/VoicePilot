@@ -14,10 +14,11 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::voice::error::VoiceResult;
-use trust_kernel::voice::listener::{ListenOutcome, VoiceListener, VoiceRecorder};
+use trust_kernel::voice::listener::{AudioRecorderAdapter, ListenOutcome, VoiceListener, VoiceRecorder};
 use trust_kernel::voice::model::ModelRegistry;
 use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
 use trust_kernel::voice::vad::{VadConfig, VadDetector};
@@ -204,6 +205,89 @@ impl VoiceListen for VoiceListenImpl {
             }
         }
     }
+}
+
+// ===== transcription-final 事件 + voice_listen_command(任务 3) =====
+
+/// `transcription-final` 事件 payload,发射给 webview。
+///
+/// V1.1 §8.4 提到 "实时 partial transcript",但 W5 是一次性 transcription
+/// (无流式,issue #47 延后)。W6b-1 仅发射 `transcription-final`,不发射 partial。
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscriptionFinalPayload {
+    pub transcription: String,
+    pub route_outcome: RouteTextResult,
+    pub stopped_by_vad: bool,
+}
+
+/// 从 `VoiceListenResult` 构造 `transcription-final` 事件 payload。
+///
+/// 仅在 `Success` 或 `Timeout { transcription: Some }` 时返回 `Some`;
+/// `NoSpeech` / `Error` / `Timeout { transcription: None }` 返回 `None`
+/// (这些场景无需通知 webview 转写结果)。
+pub fn build_transcription_final_payload(
+    result: &VoiceListenResult,
+) -> Option<TranscriptionFinalPayload> {
+    match result {
+        VoiceListenResult::Success {
+            transcription,
+            route_outcome,
+            stopped_by_vad,
+        } => Some(TranscriptionFinalPayload {
+            transcription: transcription.clone(),
+            route_outcome: route_outcome.clone(),
+            stopped_by_vad: *stopped_by_vad,
+        }),
+        VoiceListenResult::Timeout {
+            transcription: Some(t),
+            route_outcome,
+        } => Some(TranscriptionFinalPayload {
+            transcription: t.clone(),
+            route_outcome: route_outcome.clone(),
+            stopped_by_vad: false,
+        }),
+        VoiceListenResult::NoSpeech
+        | VoiceListenResult::Error { .. }
+        | VoiceListenResult::Timeout {
+            transcription: None,
+            ..
+        } => None,
+    }
+}
+
+/// Tauri command:开始 voice listen,返回 `VoiceListenResult`。
+///
+/// 流程:
+/// 1. 构造 `AudioRecorderAdapter`(用默认录音配置)
+/// 2. 构造 `VoiceListenImpl`(用默认模型 ggml-tiny.bin)
+/// 3. 调用 `voice_listen`(纯函数)
+/// 4. 如果结果含 transcription,发射 `transcription-final` 事件
+/// 5. 返回结果给 webview
+///
+/// 注:此 command 是阻塞的(录音 + 转写可能耗时 5-30s)。webview 的 `invoke`
+/// 会等待返回。UI 应在调用前显示 "Listening..." 状态。
+#[tauri::command]
+pub async fn voice_listen_command(
+    state: tauri::State<'_, crate::state::AppState>,
+    app: AppHandle,
+) -> Result<VoiceListenResult, String> {
+    use trust_kernel::voice::audio::AudioRecorderConfig;
+
+    let recorder = Arc::new(
+        AudioRecorderAdapter::new(AudioRecorderConfig::default())
+            .map_err(|e| e.to_string())?,
+    );
+    let listener = VoiceListenImpl::with_default_model(recorder, state.kernel.clone())
+        .map_err(|e| e.to_string())?;
+
+    let result = voice_listen(&listener);
+
+    // 发射 transcription-final 事件(仅在有转写结果时)
+    if let Some(payload) = build_transcription_final_payload(&result) {
+        let _ = app.emit("transcription-final", payload);
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

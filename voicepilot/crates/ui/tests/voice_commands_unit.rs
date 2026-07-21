@@ -146,3 +146,84 @@ fn voice_listen_calls_listener_exactly_once() {
 
     assert_eq!(mock.call_count.load(Ordering::SeqCst), 1);
 }
+
+// ===== 任务 3: build_transcription_final_payload + TranscriptionFinalPayload 测试 =====
+
+use voicepilot_ui::voice_commands::{
+    build_transcription_final_payload, TranscriptionFinalPayload,
+};
+
+#[test]
+fn build_payload_returns_some_for_success_result() {
+    let result = VoiceListenResult::Success {
+        transcription: "整理下载目录".to_string(),
+        route_outcome: RouteTextResult::Routed {
+            skill_id: "files.organize".to_string(),
+        },
+        stopped_by_vad: true,
+    };
+
+    let payload = build_transcription_final_payload(&result);
+    assert!(payload.is_some());
+    let p = payload.unwrap();
+    assert_eq!(p.transcription, "整理下载目录");
+    assert!(matches!(
+        p.route_outcome,
+        RouteTextResult::Routed { skill_id } if skill_id == "files.organize"
+    ));
+    assert!(p.stopped_by_vad);
+}
+
+#[test]
+fn build_payload_returns_some_for_timeout_with_transcription() {
+    let result = VoiceListenResult::Timeout {
+        transcription: Some("部分文本".to_string()),
+        route_outcome: RouteTextResult::Empty,
+    };
+
+    let payload = build_transcription_final_payload(&result);
+    assert!(payload.is_some());
+    let p = payload.unwrap();
+    assert_eq!(p.transcription, "部分文本");
+    assert!(!p.stopped_by_vad);
+}
+
+#[test]
+fn build_payload_returns_none_for_no_speech() {
+    let result = VoiceListenResult::NoSpeech;
+    let payload = build_transcription_final_payload(&result);
+    assert!(payload.is_none());
+}
+
+#[test]
+fn build_payload_returns_none_for_error() {
+    let result = VoiceListenResult::Error {
+        message: "model missing".to_string(),
+    };
+    let payload = build_transcription_final_payload(&result);
+    assert!(payload.is_none());
+}
+
+#[test]
+fn build_payload_returns_none_for_timeout_without_transcription() {
+    let result = VoiceListenResult::Timeout {
+        transcription: None,
+        route_outcome: RouteTextResult::Empty,
+    };
+    let payload = build_transcription_final_payload(&result);
+    assert!(payload.is_none());
+}
+
+#[test]
+fn transcription_final_payload_is_serializable() {
+    let payload = TranscriptionFinalPayload {
+        transcription: "test".to_string(),
+        route_outcome: RouteTextResult::Routed {
+            skill_id: "files.organize".to_string(),
+        },
+        stopped_by_vad: true,
+    };
+    let json = serde_json::to_string(&payload).unwrap();
+    assert!(json.contains("\"transcription\":\"test\""));
+    assert!(json.contains("\"stopped_by_vad\":true"));
+}

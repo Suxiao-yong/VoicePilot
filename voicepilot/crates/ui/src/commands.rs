@@ -168,6 +168,22 @@ pub fn register_handlers(
     ])
 }
 
+/// Voice feature on 时的 handler 注册(包含 voice_listen_command)。
+///
+/// Tauri 2 的 `invoke_handler` 是替换语义(不是追加),所以需要单独的函数
+/// 把 voice_listen_command 加入 `generate_handler!` 列表。
+#[cfg(feature = "voice")]
+pub fn register_handlers_with_voice(
+    builder: tauri::Builder<tauri::Wry>,
+) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        route_text_command,
+        organize_files_command,
+        submit_approval_command,
+        crate::voice_commands::voice_listen_command,
+    ])
+}
+
 // ===== submit_approval command (V1.1 §8.2 one-shot decision delivery) =====
 
 use trust_kernel::approval::types::ApprovalDecision;
