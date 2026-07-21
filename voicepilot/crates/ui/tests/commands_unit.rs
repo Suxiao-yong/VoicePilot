@@ -28,3 +28,35 @@ fn route_text_returns_empty_for_whitespace() {
     let result = voicepilot_ui::commands::route_text(&state, "   ").unwrap();
     assert!(matches!(result, RouteTextResult::Empty));
 }
+
+use tempfile::TempDir;
+use trust_kernel::approval::approver::AutoApprover;
+use voicepilot_ui::commands::{organize_files, OrganizeInput};
+
+#[test]
+fn organize_files_with_auto_approver_commits_move() {
+    let tmp = TempDir::new().unwrap();
+    let src_dir = tmp.path().join("src");
+    let dest_dir = tmp.path().join("dest");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    std::fs::write(src_dir.join("a.txt"), "hello").unwrap();
+
+    let state = AppState::new_in_memory().unwrap();
+    let result = organize_files(
+        &state,
+        &AutoApprover,
+        &OrganizeInput {
+            task_id: "t-test".to_string(),
+            step_id: "s-test".to_string(),
+            source: src_dir.to_string_lossy().into_owned(),
+            filter: "*.txt".to_string(),
+            destination: dest_dir.to_string_lossy().into_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(result.committed);
+    assert_eq!(result.moved_paths.len(), 1);
+    assert!(dest_dir.join("a.txt").exists());
+}

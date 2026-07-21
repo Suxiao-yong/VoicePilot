@@ -40,3 +40,6 @@ tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio"]
 # Opt-in voice subsystem (requires whisper-rs build environment).
 # Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
 voice = ["tauri", "trust-kernel/voice"]
+
+[dev-dependencies]
+tempfile = "3"

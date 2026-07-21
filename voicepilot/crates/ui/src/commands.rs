@@ -50,3 +50,102 @@ pub async fn route_text_command(
 ) -> Result<RouteTextResult, String> {
     route_text(&state, &text).map_err(Into::into)
 }
+
+// ===== files.organize Skill command (V1.1 §5.2 + §6.2 + §8.2) =====
+
+use std::path::PathBuf;
+use trust_kernel::approval::approver::Approver;
+use trust_kernel::repo::step_repo::StepRecord;
+use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
+use trust_kernel::toolresult::ToolStatus;
+
+/// Webview → Tauri 入参,镜像 `FilesOrganizeInput` 但用 String 路径
+/// (serde 友好,跨 IPC 边界无 PathBuf 序列化问题)。
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrganizeInput {
+    pub task_id: String,
+    pub step_id: String,
+    pub source: String,
+    pub filter: String,
+    pub destination: String,
+}
+
+/// `organize_files` 返回值 —— 桥接 SkillExecution 的 ToolResult V2 字段
+/// 到 webview 可消费的扁平结构。
+#[derive(Debug, Clone, Serialize)]
+pub struct OrganizeResult {
+    pub committed: bool,
+    pub moved_paths: Vec<[String; 2]>,
+    pub evidence_strength: String,
+    pub compensation_ref: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 编排 files.organize Skill 完整管道:
+/// prepare → approve → commit → verify → compensate(V1.1 §6.2)。
+///
+/// 注入的 `approver` 决定 approve 阶段行为:
+/// - 测试用 `AutoApprover`(无条件 Allow)
+/// - 生产用 `TauriApprover`(通过 IPC 等待 Approval 窗口决定)
+///
+/// 幂等创建 task/step:若 task_id / step_id 在 kernel 中不存在,则创建
+/// (Skill executor 内部第一步就调用 `update_step_status`,要求 step 已存在)。
+pub fn organize_files(
+    state: &AppState,
+    approver: &dyn Approver,
+    input: &OrganizeInput,
+) -> UiResult<OrganizeResult> {
+    let kernel = state.kernel.clone();
+
+    // Idempotent task creation.
+    if kernel.get_task(&input.task_id)?.is_none() {
+        kernel.create_task(&input.task_id, "files.organize")?;
+    }
+
+    // Idempotent step creation.
+    if kernel.get_step(&input.step_id)?.is_none() {
+        let step = StepRecord::new(input.step_id.clone(), input.task_id.clone(), 1);
+        kernel.create_step(&step)?;
+    }
+
+    let skill_input = FilesOrganizeInput {
+        task_id: input.task_id.clone(),
+        step_id: input.step_id.clone(),
+        source: PathBuf::from(&input.source),
+        filter: input.filter.clone(),
+        destination: PathBuf::from(&input.destination),
+    };
+
+    let skill = FilesOrganizeSkill::new();
+    let execution = skill.execute(kernel.as_ref(), &skill_input, approver)?;
+
+    let moved_paths = execution
+        .moved_paths
+        .into_iter()
+        .map(|(from, to)| {
+            [
+                from.to_string_lossy().into_owned(),
+                to.to_string_lossy().into_owned(),
+            ]
+        })
+        .collect();
+
+    Ok(OrganizeResult {
+        committed: execution.tool_result.status == ToolStatus::Succeeded,
+        moved_paths,
+        evidence_strength: execution.tool_result.evidence_strength.as_str().to_string(),
+        compensation_ref: execution.tool_result.compensation_ref.clone(),
+        error: None,
+    })
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub async fn organize_files_command(
+    state: tauri::State<'_, AppState>,
+    input: OrganizeInput,
+) -> Result<OrganizeResult, String> {
+    let approver = crate::approver::TauriApprover::new(state.approval_registry.clone());
+    organize_files(&state, &approver, &input).map_err(Into::into)
+}
+
