@@ -87,14 +87,15 @@ export function MainView() {
           className={`btn voice-button ${listening ? "listening" : ""}`}
           onClick={onVoiceListen}
           disabled={listening || busy}
+          aria-pressed={listening}
         >
-          <span className="mic-icon">{listening ? "■" : "●"}</span>
+          <span className="mic-icon" aria-hidden="true">{listening ? "■" : "●"}</span>
           {listening ? "Listening..." : "Start Listening"}
         </button>
 
         {listening && (
           <div className="listening-indicator">
-            <span className="dots">
+            <span className="dots" aria-hidden="true">
               <span></span>
               <span></span>
               <span></span>
@@ -104,7 +105,7 @@ export function MainView() {
         )}
 
         {voiceError && (
-          <div className="transcription-display error">
+          <div className="transcription-display error" role="status" aria-live="polite">
             <div className="label">Error</div>
             <div className="text">{voiceError}</div>
           </div>
@@ -114,7 +115,7 @@ export function MainView() {
           <>
             {voiceResult.kind === "success" && (
               <>
-                <div className="transcription-display">
+                <div className="transcription-display" role="status" aria-live="polite">
                   <div className="label">
                     Transcription {voiceResult.stopped_by_vad ? "(VAD stopped)" : ""}
                   </div>
@@ -126,14 +127,14 @@ export function MainView() {
               </>
             )}
             {voiceResult.kind === "no_speech" && (
-              <div className="transcription-display no-speech">
+              <div className="transcription-display no-speech" role="status" aria-live="polite">
                 <div className="label">Result</div>
                 <div className="text">未检测到语音</div>
               </div>
             )}
             {voiceResult.kind === "timeout" && (
               <>
-                <div className="transcription-display">
+                <div className="transcription-display" role="status" aria-live="polite">
                   <div className="label">Transcription (timeout)</div>
                   <div className="text">
                     {voiceResult.transcription || "(无转写结果)"}
@@ -145,7 +146,7 @@ export function MainView() {
               </>
             )}
             {voiceResult.kind === "error" && (
-              <div className="transcription-display error">
+              <div className="transcription-display error" role="status" aria-live="polite">
                 <div className="label">Error</div>
                 <div className="text">{voiceResult.message}</div>
               </div>
@@ -264,7 +265,7 @@ export function MainView() {
   );
 }
 
-/// Route outcome 反馈组件 —— 显示 Skill 命中 / 未匹配 / 空输入。
+/** Route outcome 反馈组件 —— 显示 Skill 命中 / 未匹配 / 空输入。 */
 function RouteOutcomeFeedback({
   outcome,
 }: {

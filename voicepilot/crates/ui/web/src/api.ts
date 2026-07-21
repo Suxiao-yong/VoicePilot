@@ -42,6 +42,13 @@ export async function voiceListen(): Promise<VoiceListenResult> {
   return invoke<VoiceListenResult>("voice_listen_command");
 }
 
+/**
+ * Subscribe to `transcription-final` events emitted by the Rust side.
+ *
+ * TODO(W6b-2): MainView currently uses synchronous `voiceListen()` invoke to
+ * get the full result. This listener is reserved for future partial-transcript
+ * streaming support (spec issue #47, deferred to W6b-2).
+ */
 export function onTranscriptionFinal(
   handler: (payload: TranscriptionFinalPayload) => void
 ): Promise<UnlistenFn> {
