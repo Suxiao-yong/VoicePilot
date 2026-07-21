@@ -174,6 +174,9 @@ pub fn register_handlers(
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
         crate::diff_commands::compute_diff_command,
+        crate::model_download_commands::is_voice_enabled_command,
+        crate::model_download_commands::check_model_command,
+        crate::model_download_commands::download_model_command,
     ])
 }
 
@@ -200,6 +203,9 @@ pub fn register_handlers_with_voice(
         crate::diff_commands::compute_diff_command,
         crate::voice_commands::voice_listen_command,
         crate::voice_commands::cancel_voice_command,
+        crate::model_download_commands::is_voice_enabled_command,
+        crate::model_download_commands::check_model_command,
+        crate::model_download_commands::download_model_command,
     ])
 }
 
