@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { submitApproval } from "../api";
 import type { ApprovalRequestPayload } from "../types";
 
@@ -10,6 +10,8 @@ interface Props {
 export function ApprovalModal({ payload, onDismiss }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // submittedRef 短路:decide() 成功后置 true,cleanup effect 跳过冗余 deny(W6a Fast-Follow)
+  const submittedRef = useRef(false);
   const { approval_request_id, manifest } = payload;
 
   async function decide(decision: "allow" | "deny") {
@@ -17,6 +19,7 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
     setError(null);
     try {
       await submitApproval(approval_request_id, decision);
+      submittedRef.current = true;
       onDismiss();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -39,9 +42,10 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
     };
   }, [onDismiss]);
 
-  // 卸载时自动拒绝(例如用户关闭窗口)
+  // 卸载时自动拒绝(例如用户关闭窗口)—— submittedRef 短路:已提交则跳过(W6a Fast-Follow)
   useEffect(() => {
     return () => {
+      if (submittedRef.current) return;
       // 关闭时尽力发送 deny —— 但仅当尚未提交
       // Rust 端如果已消费会返回 false(一次性)
       submitApproval(approval_request_id, "deny").catch(() => {});
