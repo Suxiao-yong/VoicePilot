@@ -2,10 +2,11 @@
 
 > **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `5133c30` fix(w5): verify voice compilation + fix VAD speech_end_sample bug
-> **测试状态:** 196 passing (default, W1-W4) / +voice tests 21 passing + 6 ignored via `--features voice`(requires CMake + MSVC + libclang), 0 warnings
+> **最新 commit:** `52d016c` Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check
+> **测试状态:** 196 passing (default, W1-W4) / +12 passing via `-p voicepilot-ui --features tauri`(W6a ui crate)/ +voice tests 21 passing + 6 ignored via `--features voice`(requires CMake + MSVC + libclang), 0 warnings
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
+> **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
 
 ---
 
@@ -19,11 +20,12 @@
 | W3b | files.organize Skill + 端到端审批流 | ✅ 已合并 | 39 | 2026-07-20 | `e9aa5ca` |
 | W4 | MCP Server Wrapping | ✅ 已完成 | 40 | 2026-07-20 | `1e10586` (direct on master) |
 | W5 | Voice Input (Whisper.cpp) | ✅ 已完成 | +voice (opt-in, requires CMake) | 2026-07-20 | (direct on master) |
-| W6 | Tauri UI Shell | ⏳ 未开始 | — | — | — |
+| W6a | Tauri UI Shell + Approval 窗口 | ✅ 已完成 | +12 (ui crate, opt-in `--features tauri`) | 2026-07-21 | (direct on master) |
+| W6b | Main Chat + Settings + Audit Viewer + Trust Center | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40;W5 voice tests 通过 `--features voice` 启用,需要 CMake + MSVC)
+**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40;W5 voice tests 通过 `--features voice` 启用,需要 CMake + MSVC;W6a ui tests 通过 `-p voicepilot-ui --features tauri` 启用,需要 Node 22+ + npm 10+)
 
 ---
 
@@ -362,6 +364,106 @@ crates/trust-kernel/src/voice/
 - #48: wake word detection 未实现(W6+,用户须手动运行 `voice listen`)
 - #49: voice feature 需要 CMake + MSVC + libclang;默认构建排除 voice(opt-in decision 2026-07-20);**W5 fast-follow 已于 2026-07-21 完成验证(21 passed + 6 ignored)**
 
+### W6a: Tauri UI Shell + Approval 窗口 (12 ui tests, opt-in `--features tauri`)
+
+**实现内容:**
+- §8.2 Tauri 2 桌面应用 crate(`voicepilot/crates/ui`),`tauri` feature opt-in
+- §8.2 IPC 硬化红线:WebView 仅通过 `invoke` + `listen` 跨边界,不直接访问 FS / MCP
+- §8.2 一次性 `approval_request_id`:`ApprovalRegistry` 用 `HashMap<String, oneshot::Sender>` + `take_sender` 一次性消费
+- §8.3 Approval Modal:EffectManifest 表格(sources / size / sha256)+ 风险 badge + 冲突数 + Allow/Deny 按钮 + Esc 关闭 + 卸载自动 deny
+- §6.2 prepare→approve→commit→verify→compensate 完整管道(`organize_files` command 桥接 `FilesOrganizeSkill::execute`)
+- §5.1 `route_text` command 桥接 `SkillRouter`
+- Engineering Console 美学:深海军蓝(#0a0e1a / #111827)+ 暖琥珀(#f59e0b / #fbbf24)+ IBM Plex Mono/Sans + 锐利 4px 边角
+- WCAG A 级可访问性:`label`/`htmlFor` 全配对 + `role="dialog" aria-modal="true" aria-labelledby` + Esc 关闭
+- Tauri 2.x 事件系统:`TauriApprover::prompt` 通过 `app.emit("approval-request", payload)` 发射,前端 `listen` 接收
+- 同步 Approver trait → 异步 Tauri 事件桥接:`tokio::sync::oneshot` + current-thread runtime + 5min 超时默认 Deny
+
+**新增模块结构:**
+```
+voicepilot/crates/ui/
+├── Cargo.toml                  # tauri feature gate (default=[], tauri=[deps], voice=[tauri+trust-kernel/voice])
+├── build.rs                    # tauri_build::build() (cfg-gated)
+├── tauri.conf.json             # Tauri 2.x config (window 1024x768, CSP, bundle)
+├── icons/icon.ico              # 16x16 ICO
+├── src/
+│   ├── lib.rs                  # 模块声明 (cfg-gated)
+│   ├── main.rs                 # Tauri app 入口 (tracing_subscriber + open_file + app::run)
+│   ├── app.rs                  # Tauri Builder + register_handlers
+│   ├── approver.rs             # ApprovalRegistry + TauriApprover (dual constructor: new / with_app)
+│   ├── commands.rs             # route_text + organize_files + submit_approval + register_handlers
+│   ├── state.rs                # AppState (kernel + cfg-gated approval_registry)
+│   └── error.rs                # UiError enum
+├── tests/
+│   ├── approver_unit.rs        # 4 tests (registry + timeout + one-shot + sender dropped)
+│   ├── commands_unit.rs        # 6 tests (route_text 3 + organize 1 + submit_approval 2)
+│   └── w6a_e2e_smoke.rs        # 2 tests (success + deny paths)
+└── web/                        # React 18 + TypeScript 5 + Vite 5
+    ├── package.json            # npm deps
+    ├── vite.config.ts          # Vite config (port 5173, strictPort)
+    ├── tsconfig.json           # strict + noUnusedLocals/Parameters
+    ├── index.html              # IBM Plex Google Fonts
+    ├── src/
+    │   ├── main.tsx            # React entry
+    │   ├── App.tsx             # 根组件 + approval-request 监听
+    │   ├── styles.css          # Engineering Console 美学 (370 行)
+    │   ├── types.ts            # TS 类型镜像 Rust DTO
+    │   ├── api.ts              # Tauri invoke 包装
+    │   └── components/
+    │       ├── MainView.tsx    # Main 视图 (route + organize 表单)
+    │       └── ApprovalModal.tsx # Approval 模态框
+    └── dist/                   # 构建产物 (已提交,供 generate_context! 编译期嵌入)
+```
+
+**W6a commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `191ab5a` | docs(w6a): add Tauri UI Shell + Approval window implementation plan |
+| `cd9d4bb` | docs(w6a): translate plan to Chinese for readability |
+| `fc30037` | Task 1: ui crate scaffolding with tauri feature gate (V1.1 §8.2) |
+| `797f943` | Task 1 fix: split tauri/voice features (spec issue #49 — decouple UI from whisper-rs build env) |
+| `db0e1c7` | Task 2: TauriApprover with oneshot channel + 5min timeout (V1.1 §8.2 one-shot approval_request_id) |
+| `90650c5` | Task 3: route_text Tauri command bridges SkillRouter (V1.1 §5.1, §8.2) |
+| `f191927` | Task 4: organize_files Tauri command wires FilesOrganizeSkill + TauriApprover (V1.1 §5.2, §6.2, §8.2) |
+| `58af6a3` | Task 5: submit_approval Tauri command delivers webview decision (V1.1 §8.2 one-shot) |
+| `e1734be` | Task 6: Tauri app entry + approval-request event emission (V1.1 §8.2) |
+| `1759fa4` | Task 7: React frontend — Main view + Approval modal (Engineering Console aesthetic) |
+| `c3f680b` | Task 7 fixup: a11y — label/htmlFor, modal ARIA, Esc dismiss, error UI feedback |
+| `8e07d53` | Task 8: W6a end-to-end smoke test — organize_files + audit chain + compensation (V1.1 §11.1 W6a gate) |
+| `52d016c` | Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check |
+
+**核心架构决策:**
+- **Feature 门控拆分**(spec issue #49 修复):`tauri` feature 不依赖 voice,允许 UI shell 在无 CMake/MSVC 环境下编译;`voice` feature opt-in 启用 voice 命令
+- **TauriApprover dual constructor**:`new(registry)` 用于测试(无 AppHandle,不 emit)/ `with_app(registry, app)` 用于生产(emit 事件)— 让 Task 2 单元测试无需真实 Tauri runtime
+- **同步 → 异步桥接**:`Approver::prompt` 是同步 fn,Tauri 事件是异步;用 `tokio::sync::oneshot` + current-thread runtime + `tokio::time::timeout` 阻塞等待,5min 超时默认 Deny(与 CliApprover 约定一致)
+- **一次性 approval_request_id**:`ApprovalRegistry::take_sender` 用 `HashMap::remove`,语义上只能消费一次;`submit_approval` 返回 `bool` 表示是否首次消费
+- **register_handlers 单态化到 Wry**:`tauri::AppHandle`(= `AppHandle<Wry>`)只实现 `CommandArg<'_, Wry>`,若 R 仍是泛型,闭包类型推断无法满足 trait bound,因此 `register_handlers` 显式接收 `Builder<Wry>`
+- **dist/ 提交策略**:`tauri::generate_context!` 编译期需读取 `web/dist/index.html`,提交保证 clone 后 `cargo check` 立即可用;实际运行时 `beforeBuildCommand: npm run build` 会重新生成
+- **PowerShell ExecutionPolicy 限制**:Windows 默认 Restricted 阻塞 `npm.ps1`,改用 `npm.cmd` 隐式 PATH 解析(所有 npm 调用 exit code 仍为 0)
+
+**关键修复:**
+1. **whisper-rs bindgen 解耦**(spec issue #49):Task 1 原 `tauri` feature 包含 `"trust-kernel/voice"`,触发 whisper-rs 0.13.2 bindgen 错误(71 errors: `no field 'grammar_penalty' on type 'whisper_full_params'`)。修复:拆分为 `tauri`(无 voice dep)+ `voice`(opt-in)
+2. **SkillRouter 关键词是中文**:Task 3 测试输入 `"organize my downloads"` 不匹配 — `files_organize_manifest()` keywords 是 `["整理", "归档", "移动文件", "下载目录"]`。修复:测试输入改 `"整理下载目录"`,Task 7 MainView placeholder 同步用中文
+3. **tokio time feature 缺失**:Task 2 `tokio::time::timeout` 需要 `time` feature,workspace tokio 只有 `sync/rt/macros`。修复:ui crate tokio dep 加 `features = ["time"]`
+4. **state.rs cfg-gated field**:Rust 不允许 struct 字段 cfg-gated,但允许不同 `new()` 实现。修复:拆分为 dual `new()` — `#[cfg(feature = "tauri")]` 版本含 `approval_registry`,`#[cfg(not(feature = "tauri"))]` 版本不含
+5. **Tauri 2.x Emitter trait**:`emit` 方法在 `Emitter` trait 上,不在 `AppHandle` 直接可用。修复:`use tauri::{AppHandle, Emitter};`
+6. **Idempotent task/step 创建**:Skill executor 的 `update_step_status` 要求 step 已存在(FK 约束)。修复:`organize_files` command 用 `get_task`/`get_step` 检查后 `create_task`/`create_step`
+7. **WCAG A 级可访问性**(Task 7 fixup `c3f680b`):原 MainView/ApprovalModal 缺 `label/htmlFor` 配对、Modal ARIA、Esc 关闭、Error UI。修复:全部补齐
+8. **精确 audit_count 断言**(Task 8 fixup `52d016c`):原 `>= 4` 偏宽且与注释(6 个事件)不一致,实际是 8 个(含 2 个 STEP_STATUS_CHANGED: Running + Succeeded)。修复:`assert_eq!(audit_count, 8)` + 注释列出全部 8 个事件
+
+**W6a §11.1 gate 验证(2026-07-21):**
+- ✅ `cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` 通过
+- ✅ `cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` 通过:approver_unit 4 + commands_unit 6 + w6a_e2e_smoke 2 = 12 passed
+- ✅ `cargo test --manifest-path voicepilot\Cargo.toml`(默认)通过:196 passing,W1-W5 无回归
+- ✅ `npm.cmd run build`(在 `voicepilot/crates/ui/web/`)通过:tsc 无错误 + vite build 37 modules + dist ~156KB
+- ✅ E2E smoke 覆盖 success + deny 双路径,精确断言 audit_count=8 + evidence_strength="strong" + compensation_ref 非空
+
+**已知偏离(plan 文档描述与实际行为不符,已记录为 plan-level spec issues,非规格问题):**
+- Plan 第 2181 行引用 `StepStatus::Committed`(实际枚举无此变体,应为 `Succeeded`)
+- Plan 第 2216 行假设 deny 返回 `Err`(实际返回 `Ok` with `committed: false`,V1.1 §6.2 deny 是合法取消路径)
+- Plan 第 2170 行 audit 事件注释列出 6 个(实际 8 个,漏掉 2 个 STEP_STATUS_CHANGED: Running + Succeeded)
+- Plan 第 1813 行 MainView placeholder 写英文 `"organize my downloads"`(实际用中文 `"整理下载目录"` 因 SkillRouter 关键词是中文)
+- Plan 第 1098 行 TauriApprover 单 constructor `new(registry, app)`(实际用 dual constructor:`new(registry)` for tests / `with_app(registry, app)` for production,为兼容 Task 2 已通过的 4 个 approver_unit 测试)
+
 ---
 
 ## 三、当前 master 状态确认
@@ -371,9 +473,11 @@ crates/trust-kernel/src/voice/
 ```powershell
 cd d:\voicepilot
 cargo test --manifest-path voicepilot\Cargo.toml
-# 结果:196 passing, 0 failing, 0 warnings (default,W1-W4;voice tests `#![cfg(feature = "voice")]`-gated,自动跳过)
+# 结果:196 passing, 0 failing, 0 warnings (default,W1-W4;voice + ui tests cfg-gated,自动跳过)
 cargo build --manifest-path voicepilot\Cargo.toml -p cli
-# 结果:0 warnings (default,无 voice;voice 命令 `#[cfg(feature = "voice")]`-gated,默认二进制不含)
+# 结果:0 warnings (default,无 voice + 无 tauri;voice/tauri 命令 cfg-gated,默认二进制不含)
+# 验证 W6a UI 编译(需要 Node 22+ + npm 10+):
+# cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri
 # 验证 voice 编译(需要 CMake + MSVC,W5 fast-follow):
 # cargo test --manifest-path voicepilot\Cargo.toml --features voice
 ```
@@ -382,8 +486,8 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ```
 当前分支: master
-最新 commit: 877d861 test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required)
-保留分支: (无,W5 直接提交到 master,无 feature 分支)
+最新 commit: 52d016c Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check
+保留分支: (无,W6a 直接提交到 master,无 feature 分支)
 ```
 
 ### 关键文件清单
@@ -398,53 +502,68 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 - `d:\voicepilot\docs\superpowers\plans\2026-07-20-w3b-files-organize-skill.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-20-w4-mcp-server-wrapping.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-20-w5-voice-input.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-21-w6a-tauri-shell-approval.md`
 
 **进度文档(本文件):**
 - `d:\voicepilot\docs\PROGRESS.md`
 
 **核心源码:**
-- `d:\voicepilot\voicepilot\Cargo.toml`(workspace)
+- `d:\voicepilot\voicepilot\Cargo.toml`(workspace,含 `default-members` 排除 ui)
 - `d:\voicepilot\voicepilot\crates\trust-kernel\src\` (Trust Kernel 主体)
 - `d:\voicepilot\voicepilot\crates\cli\src\main.rs` (CLI 入口,含 `mcp-serve` 命令)
+- `d:\voicepilot\voicepilot\crates\ui\src\` (Tauri UI Shell,`--features tauri` 启用)
+- `d:\voicepilot\voicepilot\crates\ui\web\src\` (React 18 + TypeScript 5 前端)
 
 ---
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W6 计划编写 + W5 fast-follow
+### 4.1 立即任务:W6b 计划编写
 
-**W6 范围(Tauri UI Shell):**
+**W6b 范围(Main Chat + Settings + Audit Viewer + Trust Center + Diff Preview):**
 
-1. **Tauri 项目脚手架**
-   - `voicepilot/crates/ui` 新 crate(Tauri v2 + React/Vue/Svelte)
-   - Rust 后端复用 `trust-kernel`(通过 Tauri command 桥接)
-   - 打包 `cli` 子命令到 Tauri menu/shortcut
+W6a 已完成 Tauri UI Shell 骨架 + Approval 窗口,W6b 补齐 §8.2 剩余四个窗口:
 
-2. **审批 UI**
-   - 替换 `CliApprover`,实现 `TauriApprover`(IPC 调用审批窗口)
-   - 显示 `EffectManifest` 详情(sources / total_bytes / destination / conflicts)
-   - y/N 按钮 + 超时默认 Deny
+1. **Main Chat 窗口(§8.2)**
+   - 语音输入按钮(调用 `voice listen` command,W5 已实现 CLI 层)
+   - 实时 transcription 显示
+   - route 结果反馈(matched skill / unmatched)
+   - VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
 
-3. **设置面板**
+2. **Settings 面板(§8.2)**
    - Whisper 模型路径配置(浏览 `~/.voicepilot/models/`)
-   - `allowed_paths` 白名单编辑(W4 `mcp_servers.allowed_paths` JSON 数组)
+   - `allowed_paths` 白名单编辑器(W4 `mcp_servers.allowed_paths` JSON 数组)
    - 麦克风设备选择 + VAD 阈值调节
+   - 模型 auto-download(issue #46 解决)
 
-4. **语音按钮**
-   - 调用 `voice listen` 命令(W5 已实现 CLI 层)
-   - 实时显示 transcription + route outcome
-   - VAD-based 自动停止(W6 替换 W5 PoC 的固定 5s 超时)
+3. **Audit Viewer(§8.2)**
+   - 只读 audit_logs 查询 + 展示
+   - 按 task_id / 时间范围过滤
+   - 哈希链完整性可视化
 
-**W6 不在范围(留到 W7+):**
+4. **Trust Center(§8.2)**
+   - MCP server 列表(W4 `mcp_servers` 表)
+   - egress 策略展示
+   - 一键禁用 kill switch(常驻顶栏)
+
+5. **Skills Manager(§8.2)**
+   - 已保存 Skills 列表
+   - 成功率 + 延迟统计
+
+6. **Approval Modal Diff Preview(§8.3)**
+   - 文件内容读取器(读 sources 内容,diff 展示)
+   - 替代当前 sha256 截断展示
+
+7. **W6a Fast-Follow**
+   - ApprovalModal 卸载时 effect 总会 fire `submitApproval("deny")`(即使用户已点 Allow/Deny)— 加 `submittedRef` 短路,避免冗余 IPC
+   - 响应式布局(当前 1024×768 固定,窄窗口主区会挤压)
+   - CSP 增加 `object-src 'none'; frame-ancestors 'none'`
+
+**W6b 不在范围(留到 W7+):**
 - LLM Planner fallback(留 W7)
 - 真实 Stronghold 加密(留 W8)
 - Silero VAD(留 W6+ 决定)
-
-**W5 fast-follow(高优先级,优先于 W6):**
-- 安装 CMake 3.20+ 和 MSVC Build Tools
-- 运行 `cargo test --manifest-path voicepilot\Cargo.toml --features voice` 验证 voice 模块编译
-- 下载 `ggml-tiny.bin` 到 `~/.voicepilot/models/`,运行 `cargo test --features voice -- --ignored` 验证 Tier 2/3
-- 安装后更新 PROGRESS.md "CMake 未安装" 段落为 "已验证"
+- Tauri 打包 NSIS / 代码签名(留 W7+)
 
 ### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
@@ -495,7 +614,7 @@ W5 引入的 6 个实现层 known issues(非规格问题,记录于 §二 W5 详�
 
 ### 4.3 后续周次计划(高层)
 
-- **W6:** Tauri UI Shell — 桌面应用 + 审批 UI + 设置面板
+- **W6b:** Main Chat + Settings + Audit Viewer + Trust Center + Diff Preview — 补齐 §8.2 剩余四个窗口
 - **W7:** LLM Planner + 8 Skills — 8 个确定性 Skill 全部实现 + LLM 编排
 - **W8:** Stronghold Encryption + Taint Tracking — `snapshot_encrypted` 真实加密 + 污点传播
 
@@ -508,8 +627,11 @@ W5 引入的 6 个实现层 known issues(非规格问题,记录于 §二 W5 详�
 ```powershell
 cd d:\voicepilot
 git status                          # 应为 clean,on master
-git log --oneline -3                # 应看到最新 fix(w5) commit
-cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196(default,W1-W4;voice tests cfg-gated 跳过)
+git log --oneline -3                # 应看到最新 W6a Task 8 fixup commit
+cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196(default,W1-W4;voice + ui tests cfg-gated 跳过)
+# 可选(W6a UI 验证,需 Node 22+ + npm 10+):
+cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri  # 0 warnings
+cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri   # 12 passed
 # 可选(voice 验证,需 libclang + CMake + MSVC):
 $env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
 $env:WHISPER_DONT_GENERATE_BINDINGS = "1"
@@ -517,49 +639,53 @@ $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
 cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-### 5.2 推荐起点:W6 计划编写
+### 5.2 推荐起点:W6b 计划编写
 
-W5 voice 模块已全部完成并验证通过(commit `877d861` + fast-follow fix commit)。**`cargo check --features voice` + `cargo test --features voice` 全部通过(21 passed + 6 ignored,2026-07-21)**。详见 §二 W5 段落。
+W6a Tauri UI Shell + Approval 窗口已全部完成并验证通过(commit `52d016c`,12 个 ui tests passing)。**`cargo check -p voicepilot-ui --features tauri` + `cargo test -p voicepilot-ui --features tauri` 全部通过(2026-07-21)**。详见 §二 W6a 段落。
 
-**Step 1: W6 计划编写:**
+**Step 1: W6b 计划编写:**
 
-使用 `superpowers:writing-plans` skill 创建 W6 计划:
+使用 `superpowers:writing-plans` skill 创建 W6b 计划:
 
 ```
-d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w6-tauri-ui-shell.md
+d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w6b-main-chat-settings-audit-trust.md
 ```
 
-**W6 计划应包含的 TDD 任务(初步估计 10-15 个):**
+**W6b 计划应包含的 TDD 任务(初步估计 12-16 个):**
 
-1. Tauri v2 项目脚手架(`voicepilot/crates/ui`)
-2. Tauri command 桥接 `trust-kernel`(替代 CLI 直接调用)
-3. `TauriApprover` 实现 `Approver` trait(IPC 调用审批窗口)
-4. 审批 UI 组件(EffectManifest 详情 + y/N 按钮 + 超时)
-5. 设置面板(模型路径 + allowed_paths + 麦克风)
-6. 语音按钮 UI(调用 `voice listen`)
-7. 实时 transcription 显示
-8. Route outcome 反馈(matched skill / unmatched)
-9. VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
-10. 模型 auto-download(issue #46 解决)
-11. 错误处理(模型缺失 / 麦克风权限 / 推理失败 UI 反馈)
-12. Tauri 打包(Windows installer + macOS dmg + Linux AppImage)
-13. E2E 冒烟测试(Tauri 端到端,§11.1 W6 gate)
+1. Main Chat 窗口骨架(替换 MainView 占位)
+2. 语音输入按钮 Tauri command(调用 `voice listen`,需 `--features voice`)
+3. 实时 transcription 显示(订阅 `transcription-partial` 事件)
+4. Route outcome 反馈 UI(matched skill / unmatched / planner fallback)
+5. VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
+6. Settings 面板骨架
+7. Whisper 模型路径配置(浏览 `~/.voicepilot/models/`)
+8. `allowed_paths` 白名单编辑器
+9. Audit Viewer(只读 audit_logs 查询 + 哈希链可视化)
+10. Trust Center(MCP server 列表 + egress 策略 + kill switch)
+11. Skills Manager(已保存 Skills 列表 + 成功率 + 延迟)
+12. Approval Modal Diff Preview(文件内容读取器)
+13. 模型 auto-download(issue #46)
+14. W6a Fast-Follow(ApprovalModal `submittedRef` 短路 + 响应式 + CSP 加固)
+15. Tauri 打包(Windows installer,代码签名延后 W7+)
+16. E2E 冒烟测试(§11.1 W6b gate)
 
 ### 5.3 用户偏好提醒
 
 - **不使用 worktree** — 直接在 `d:\voicepilot` git init/branch/merge
-- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-43 共 27 个 spec issue,V1.1.2 已修订;W5 实现 issue #44-#49 延后 W6+)
-- **PowerShell 限制** — 不支持 `&&`/`||`/heredoc,用 `;` 链接命令,单行 commit message
-- **Subagent-Driven Development** — W2/W3a/W3b/W4/W5 都用此模式,W6 大概率继续
+- **遇到不合理/可优化的规格** — 报告给用户(已积累 17-43 共 27 个 spec issue,V1.1.2 已修订;W5 实现 issue #44-#49 延后 W6+;W6a plan-level 偏离 5 处已记录)
+- **PowerShell 限制** — 不支持 `&&`/`||`/heredoc,用 `;` 链接命令,单行 commit message;`npm.ps1` 受 ExecutionPolicy 限制,改用 `npm.cmd`
+- **Subagent-Driven Development** — W2/W3a/W3b/W4/W5/W6a 都用此模式,W6b 大概率继续
 - **TDD 严格** — 红 → 绿 → 重构,每 task 一个 commit
 - **W5 voice feature opt-in** — 默认 `cargo build/test` 不含 voice;启用 voice 需 `--features voice` + CMake + MSVC
+- **W6a tauri feature opt-in** — 默认 `cargo build/test` 不含 tauri;启用 tauri 需 `--features tauri` + Node 22+ + npm 10+
 
 ### 5.4 Memory 资源
 
 明天可参考的 memory 文件:
 - `c:\Users\16567\.trae-cn\memory\user_profile.md` — 用户偏好(不使用 worktree,遇到不合理规格报告)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4/W5 累计)
-- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260720\topics.md` — 今日 W4/W5 完成记录
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4/W5/W6a 累计)
+- `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260721\topics.md` — 今日 W6a 完成记录
 
 ---
 
@@ -570,6 +696,9 @@ d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w6-tauri-ui-shell.md
 - **W3b 计划:** [2026-07-20-w3b-files-organize-skill.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w3b-files-organize-skill.md)
 - **W4 计划:** [2026-07-20-w4-mcp-server-wrapping.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w4-mcp-server-wrapping.md)
 - **W5 计划:** [2026-07-20-w5-voice-input.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-20-w5-voice-input.md)
+- **W6a 计划:** [2026-07-21-w6a-tauri-shell-approval.md](file:///d:/voicepilot/docs/superpowers/plans/2026-07-21-w6a-tauri-shell-approval.md)
 - **Trust Kernel 源码:** [crates/trust-kernel/src/](file:///d:/voicepilot/voicepilot/crates/trust-kernel/src/)
 - **Voice 模块源码:** [crates/trust-kernel/src/voice/](file:///d:/voicepilot/voicepilot/crates/trust-kernel/src/voice/)
 - **CLI 入口:** [crates/cli/src/main.rs](file:///d:/voicepilot/voicepilot/crates/cli/src/main.rs)
+- **Tauri UI Shell 源码:** [crates/ui/src/](file:///d:/voicepilot/voicepilot/crates/ui/src/)
+- **React 前端源码:** [crates/ui/web/src/](file:///d:/voicepilot/voicepilot/crates/ui/web/src/)
