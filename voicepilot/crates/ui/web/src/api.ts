@@ -8,6 +8,7 @@ import type {
   RouteTextResult,
   VoiceListenResult,
   TranscriptionFinalPayload,
+  Settings,
 } from "./types";
 
 export async function routeText(text: string): Promise<RouteTextResult> {
@@ -55,4 +56,12 @@ export function onTranscriptionFinal(
   return listen<TranscriptionFinalPayload>("transcription-final", (event) => {
     handler(event.payload);
   });
+}
+
+export async function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings_command");
+}
+
+export async function updateSettings(settings: Settings): Promise<void> {
+  await invoke("update_settings_command", { settings });
 }

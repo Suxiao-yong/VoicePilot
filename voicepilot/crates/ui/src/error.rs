@@ -14,6 +14,8 @@ pub enum UiError {
     ApprovalNotFound(String),
     #[error("serde error: {0}")]
     Serde(#[from] serde_json::Error),
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
 }
 
 impl From<UiError> for String {

@@ -520,3 +520,18 @@ html, body, #root {
 .route-outcome-feedback .val.warning {
   color: var(--accent);
 }
+
+.settings-form { padding: 24px; max-width: 720px; }
+.settings-fieldset { border: 1px solid #1f2937; border-radius: 4px; padding: 16px; margin-bottom: 20px; }
+.settings-fieldset legend { color: #fbbf24; font-family: "IBM Plex Mono", monospace; font-size: 14px; padding: 0 8px; }
+.settings-form .form-row { display: flex; align-items: center; margin-bottom: 12px; gap: 12px; }
+.settings-form .form-row label { width: 180px; color: #f1f5f9; font-size: 14px; }
+.settings-form .form-row input[type="text"],
+.settings-form .form-row input[type="number"] { flex: 1; background: #0a0e1a; border: 1px solid #1f2937; color: #f1f5f9; padding: 6px 10px; border-radius: 4px; font-family: "IBM Plex Mono", monospace; }
+.settings-form .checkbox-row { gap: 8px; }
+.settings-form .checkbox-row label { width: auto; }
+.form-actions { margin-top: 24px; display: flex; align-items: center; gap: 12px; }
+.form-actions button { background: #f59e0b; color: #0a0e1a; border: none; padding: 8px 20px; border-radius: 4px; font-weight: 600; cursor: pointer; }
+.form-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.save-success { color: #10b981; font-size: 14px; }
+.form-error { color: #ef4444; font-size: 14px; }

@@ -165,6 +165,8 @@ pub fn register_handlers(
         route_text_command,
         organize_files_command,
         submit_approval_command,
+        crate::settings_commands::get_settings_command,
+        crate::settings_commands::update_settings_command,
     ])
 }
 
@@ -180,6 +182,8 @@ pub fn register_handlers_with_voice(
         route_text_command,
         organize_files_command,
         submit_approval_command,
+        crate::settings_commands::get_settings_command,
+        crate::settings_commands::update_settings_command,
         crate::voice_commands::voice_listen_command,
     ])
 }

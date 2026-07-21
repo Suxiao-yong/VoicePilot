@@ -408,6 +408,13 @@ impl TrustKernel {
         self.conn.lock().unwrap()
     }
 
+    /// 获取 ConfigRepo(W6b-2 Settings 持久化)。
+    /// 与 McpServerRepo 模式一致:ConfigRepo 无状态,每次返回新实例。
+    /// 调用方用 `let conn = kernel.conn(); kernel.config_repo().set(&conn, ...)`。
+    pub fn config_repo(&self) -> crate::repo::config_repo::ConfigRepo {
+        crate::repo::config_repo::ConfigRepo::new()
+    }
+
     fn audit_append(
         &self,
         task_id: &str,

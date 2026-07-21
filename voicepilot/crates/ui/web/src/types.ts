@@ -61,3 +61,18 @@ export interface TranscriptionFinalPayload {
   route_outcome: RouteTextResult;
   stopped_by_vad: boolean;
 }
+
+export interface Settings {
+  voice_model_path: string;
+  voice_language: string | null;
+  voice_threads: number;
+  vad_energy_threshold: number;
+  vad_max_silence_ms: number;
+  vad_min_speech_ms: number;
+  voice_max_duration_ms: number;
+  voice_chunk_duration_ms: number;
+  privacy_mode: boolean;
+  compensation_ttl_hours: number;
+}
+
+export type View = "main" | "settings" | "audit" | "trust" | "skills";
