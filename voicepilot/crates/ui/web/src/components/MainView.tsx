@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { routeText, organizeFiles, voiceListen, cancelVoice } from "../api";
+import { useEffect, useState } from "react";
+import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial } from "../api";
 import type {
   RouteTextResult,
   OrganizeResult,
@@ -11,6 +11,8 @@ export function MainView() {
   const [listening, setListening] = useState(false);
   const [voiceResult, setVoiceResult] = useState<VoiceListenResult | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  // W6b-2 issue #47:partial transcript 实时显示
+  const [partialText, setPartialText] = useState<string>("");
 
   // ===== route_text 状态(W6a) =====
   const [text, setText] = useState("");
@@ -25,10 +27,21 @@ export function MainView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // W6b-2 issue #47:监听 partial transcript 事件,实时更新 partialText
+  useEffect(() => {
+    const unlisten = onTranscriptionPartial((payload) => {
+      setPartialText(payload.partial);
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
   async function onVoiceListen() {
     setListening(true);
     setVoiceError(null);
     setVoiceResult(null);
+    setPartialText("");
     try {
       const r = await voiceListen();
       setVoiceResult(r);
@@ -112,6 +125,7 @@ export function MainView() {
               <span></span>
             </span>
             录音中,VAD 检测静音后自动停止
+            <div className="partial-text" aria-live="polite">{partialText || "聆听中…"}</div>
           </div>
         )}
 

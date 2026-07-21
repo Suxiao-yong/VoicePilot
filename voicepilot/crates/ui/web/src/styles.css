@@ -584,3 +584,80 @@ html, body, #root {
 
 .voice-cancel-btn { margin-left: 8px; background: #450a0a; color: #ef4444; border: 1px solid #ef4444; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
 .voice-cancel-btn:hover { background: #5a1010; }
+
+/* W6b-2 Task 6:多视图导航 + KillSwitchBar */
+.app-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.kill-switch-bar {
+  background: #450a0a;
+  border-bottom: 1px solid #7f1d1d;
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+.kill-switch-bar button {
+  background: #b91c1c;
+  color: #fef2f2;
+  border: 1px solid #fca5a5;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.kill-switch-bar button:hover { background: #dc2626; }
+.kill-switch-bar button:disabled { opacity: 0.6; cursor: not-allowed; }
+.app-body { display: flex; flex: 1; min-height: 0; }
+.sidebar {
+  width: 200px;
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+.app-title {
+  color: #f59e0b;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  padding: 0 8px;
+  letter-spacing: 0.04em;
+}
+.nav-list { list-style: none; padding: 0; margin: 0; }
+.nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: #cbd5e1;
+  border: none;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+}
+.nav-item:hover { background: #1e293b; color: #f1f5f9; }
+.nav-item.active { background: #1e293b; color: #f59e0b; }
+.main-content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  background: #0b1220;
+  color: #e2e8f0;
+}
+.partial-text {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #1e293b;
+  border-left: 2px solid #f59e0b;
+  color: #cbd5e1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  min-height: 24px;
+}

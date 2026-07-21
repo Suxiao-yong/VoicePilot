@@ -62,6 +62,11 @@ export interface TranscriptionFinalPayload {
   stopped_by_vad: boolean;
 }
 
+export interface TranscriptionPartialPayload {
+  partial: string;
+  timestamp_ms: number;
+}
+
 export interface Settings {
   voice_model_path: string;
   voice_language: string | null;

@@ -104,19 +104,23 @@ pub fn voice_listen(
 /// 生产用 `VoiceListen` 实现,编排 `VoiceListener` + `WhisperEngine` + `route_text`。
 ///
 /// W6b-2 Task 5:`cached_engine: Option<Arc<WhisperEngine>>` 用于模型缓存(issue #61)。
+/// W6b-2 Task 6:`partial_app: Option<AppHandle>` 用于发射 `transcription-partial` 事件(issue #47)。
 pub struct VoiceListenImpl {
     recorder: Arc<dyn VoiceRecorder>,
     whisper_config: WhisperConfig,
     /// 缓存的 WhisperEngine(issue #61)。Some 时 transcribe 直接用;
     /// None 时 fallback 到每次 `WhisperEngine::new(whisper_config.clone())`。
     cached_engine: Option<Arc<WhisperEngine>>,
+    /// AppHandle 用于发射 `transcription-partial` 事件(issue #47)。
+    /// Some 时 listen 期间每 2s 调 engine.transcribe 并 emit partial。
+    partial_app: Option<AppHandle>,
     kernel: Arc<TrustKernel>,
     max_duration: Duration,
     chunk_duration: Duration,
 }
 
 impl VoiceListenImpl {
-    /// 用默认 VAD + 默认录音配置创建(cached_engine = None)。
+    /// 用默认 VAD + 默认录音配置创建(cached_engine = None, partial_app = None)。
     pub fn new(
         recorder: Arc<dyn VoiceRecorder>,
         whisper_config: WhisperConfig,
@@ -126,6 +130,7 @@ impl VoiceListenImpl {
             recorder,
             whisper_config,
             cached_engine: None,
+            partial_app: None,
             kernel,
             max_duration: Duration::from_secs(30),
             chunk_duration: Duration::from_millis(500),
@@ -147,11 +152,13 @@ impl VoiceListenImpl {
         Ok(Self::new(recorder, whisper_config, kernel))
     }
 
-    /// 用缓存的 WhisperEngine 创建(issue #61)。
+    /// 用缓存的 WhisperEngine + AppHandle 创建(issue #61 + #47)。
     /// 调用方负责从 `state.whisper_cache` 取出 `Arc<WhisperEngine>` 传入。
+    /// `app` 用于 listen 期间发射 `transcription-partial` 事件。
     pub fn with_engine(
         recorder: Arc<dyn VoiceRecorder>,
         engine: Arc<WhisperEngine>,
+        app: AppHandle,
         kernel: Arc<TrustKernel>,
     ) -> Self {
         let whisper_config = engine.config().clone();
@@ -159,6 +166,7 @@ impl VoiceListenImpl {
             recorder,
             whisper_config,
             cached_engine: Some(engine),
+            partial_app: Some(app),
             kernel,
             max_duration: Duration::from_secs(30),
             chunk_duration: Duration::from_millis(500),
@@ -196,7 +204,29 @@ impl VoiceListen for VoiceListenImpl {
             self.chunk_duration,
         );
 
-        let outcome = listener.listen_with_cancel(cancel)?;
+        // W6b-2 issue #47:若 cached_engine 和 partial_app 都有,构造 partial callback
+        // 闭包,每 2s 调 engine.transcribe 并 emit `transcription-partial` 事件。
+        let partial_cb: PartialCbOpt = match (&self.cached_engine, &self.partial_app) {
+            (Some(engine), Some(app)) => {
+                let engine_clone = Arc::clone(engine);
+                let app_clone = app.clone();
+                Some(Box::new(move |samples: &[i16]| {
+                    if let Ok(text) = engine_clone.transcribe(samples) {
+                        let payload = TranscriptionPartialPayload {
+                            partial: text,
+                            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let _ = app_clone.emit("transcription-partial", payload);
+                    }
+                }))
+            }
+            _ => None,
+        };
+
+        let outcome = match partial_cb.as_ref() {
+            Some(cb) => listener.listen_with_cancel_and_partial(cancel, Some(cb))?,
+            None => listener.listen_with_cancel(cancel)?,
+        };
 
         match outcome {
             ListenOutcome::SpeechEnded { samples } => {
@@ -228,7 +258,19 @@ impl VoiceListen for VoiceListenImpl {
     }
 }
 
+/// Partial transcript callback box 类型(W6b-2 issue #47)。
+/// 用于 `VoiceListenImpl::listen` 内构造闭包传给 `listen_with_cancel_and_partial`。
+type PartialCbOpt = Option<Box<dyn Fn(&[i16]) + Send + Sync>>;
+
 // ===== transcription-final 事件 + voice_listen_command + cancel_voice_command =====
+
+/// `transcription-partial` 事件 payload(W6b-2 issue #47)。
+/// listen 期间每 2s 发射一次,webview 实时显示 partial 转写。
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscriptionPartialPayload {
+    pub partial: String,
+    pub timestamp_ms: i64,
+}
 
 /// `transcription-final` 事件 payload,发射给 webview。
 #[derive(Debug, Clone, Serialize)]
@@ -305,7 +347,7 @@ pub async fn voice_listen_command(
         let mut cache = state.whisper_cache.lock().map_err(|e| e.to_string())?;
         let needs_reload = cache
             .as_ref()
-            .map_or(true, |eng| eng.config().model_path != model_path);
+            .is_none_or(|eng| eng.config().model_path != model_path);
         if needs_reload {
             let new_engine = WhisperEngine::new(whisper_config.clone())
                 .map_err(|e| e.to_string())?;
@@ -314,12 +356,12 @@ pub async fn voice_listen_command(
         Arc::clone(cache.as_ref().expect("cache should be populated"))
     };
 
-    // 4. 构造 VoiceListenImpl(用缓存的 engine)
+    // 4. 构造 VoiceListenImpl(用缓存的 engine + AppHandle 用于 partial 事件)
     let recorder = Arc::new(
         AudioRecorderAdapter::new(AudioRecorderConfig::default())
             .map_err(|e| e.to_string())?,
     );
-    let listener = VoiceListenImpl::with_engine(recorder, engine, state.kernel.clone());
+    let listener = VoiceListenImpl::with_engine(recorder, engine, app.clone(), state.kernel.clone());
 
     // 5. 执行 listen + 发射 transcription-final
     let result = voice_listen(&listener, &state.kill_switch);

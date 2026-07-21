@@ -239,3 +239,54 @@ fn voice_listener_stops_midway_when_cancel_flag_set_after_first_chunk() {
         other => panic!("expected Timeout or SpeechEnded on cancel, got {:?}", other),
     }
 }
+
+#[test]
+fn voice_listener_invokes_partial_callback_every_2_seconds() {
+    // W6b-2 issue #47:partial transcript callback 每 2s 触发一次。
+    // 用 max_duration=2.5s + chunk 500ms,触发至少 1 次 partial callback。
+    use std::sync::Mutex;
+
+    let chunk = generate_sine_wave(500, 16000, 200.0);
+    let recorder = Arc::new(MockVoiceRecorder::new(vec![chunk; 10]));
+    let vad = VadDetector::new(VadConfig::default());
+    let listener = VoiceListener::new(
+        recorder,
+        vad,
+        Duration::from_millis(2500),
+        Duration::from_millis(500),
+    );
+    let cancel = AtomicBool::new(false);
+    let call_count = Arc::new(Mutex::new(0usize));
+    let count_clone = call_count.clone();
+    let cb = move |_samples: &[i16]| {
+        *count_clone.lock().unwrap() += 1;
+    };
+    let _outcome = listener
+        .listen_with_cancel_and_partial(&cancel, Some(&cb))
+        .expect("listen");
+    assert!(
+        *call_count.lock().unwrap() >= 1,
+        "expected at least 1 partial callback, got {}",
+        *call_count.lock().unwrap()
+    );
+}
+
+#[test]
+fn voice_listener_listen_with_cancel_still_works_without_partial() {
+    // W6b-2 Task 6:`listen_with_cancel(cancel)` 改为委托给
+    // `listen_with_cancel_and_partial(cancel, None)` 后仍可用。
+    let chunk = generate_sine_wave(750, 16000, 200.0);
+    let recorder = Arc::new(MockVoiceRecorder::new(vec![chunk]));
+    let vad = VadDetector::new(VadConfig::default());
+    let listener = VoiceListener::new(
+        recorder,
+        vad,
+        Duration::from_secs(30),
+        Duration::from_millis(750),
+    );
+    let cancel = AtomicBool::new(false);
+    let outcome = listener
+        .listen_with_cancel(&cancel)
+        .expect("listen");
+    let _ = outcome;
+}

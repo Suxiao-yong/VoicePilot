@@ -11,6 +11,7 @@ import type {
   Skill,
   VoiceListenResult,
   TranscriptionFinalPayload,
+  TranscriptionPartialPayload,
   Settings,
 } from "./types";
 
@@ -63,6 +64,18 @@ export function onTranscriptionFinal(
   return listen<TranscriptionFinalPayload>("transcription-final", (event) => {
     handler(event.payload);
   });
+}
+
+/**
+ * Subscribe to `transcription-partial` events(W6b-2 issue #47)。
+ * listen 期间每 2s 发射一次,webview 实时显示 partial 转写。
+ */
+export function onTranscriptionPartial(
+  handler: (payload: TranscriptionPartialPayload) => void
+): Promise<UnlistenFn> {
+  return listen<TranscriptionPartialPayload>("transcription-partial", (e) =>
+    handler(e.payload)
+  );
 }
 
 export async function getSettings(): Promise<Settings> {

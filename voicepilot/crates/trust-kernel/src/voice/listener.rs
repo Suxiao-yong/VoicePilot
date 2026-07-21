@@ -75,6 +75,10 @@ pub struct VoiceListener {
     chunk_duration: Duration,
 }
 
+/// Partial transcript callback 类型(W6b-2 issue #47)。
+/// listener 在 listen 期间每 2s 调一次,传入当前累积的 PCM 样本。
+pub type PartialCallback<'a> = Option<&'a dyn Fn(&[i16])>;
+
 impl VoiceListener {
     /// 创建 VoiceListener。
     ///
@@ -116,13 +120,35 @@ impl VoiceListener {
     /// 退出后用 `vad.detect()` 判断 Timeout(有语音)/ NoSpeech(无语音)。
     /// post-loop 逻辑与 `listen` 保持一致(`VadOutcome::Speech → Timeout` /
     /// `VadOutcome::NoSpeech → NoSpeech`)。
+    ///
+    /// W6b-2 Task 6:薄包装,委托给 `listen_with_cancel_and_partial(cancel, None)`。
     pub fn listen_with_cancel(
         &self,
         cancel: &std::sync::atomic::AtomicBool,
     ) -> VoiceResult<ListenOutcome> {
+        self.listen_with_cancel_and_partial(cancel, None)
+    }
+
+    /// 带 cancel flag + partial transcript callback 的 listen(W6b-2 issue #47)。
+    ///
+    /// 与 `listen_with_cancel` 相同的循环逻辑,额外:
+    /// - 维护 `last_partial_elapsed: Duration`(基于 chunk_duration 累积的"模拟时间")
+    /// - VAD 检测后,若 `elapsed - last_partial_elapsed >= 2s` 且 `partial_callback` 为 `Some(cb)`,
+    ///   调 `cb(&buffer)` 然后重置 `last_partial_elapsed = elapsed`
+    ///
+    /// 用累积 `elapsed` 而非 `Instant::now()`,便于单元测试注入 mock recorder
+    /// (mock 瞬间返回,wall clock 不增加)。
+    ///
+    /// `partial_callback: Option<&dyn Fn(&[i16])>` —— listener 同步调用,无需 `Send + Sync`。
+    pub fn listen_with_cancel_and_partial(
+        &self,
+        cancel: &std::sync::atomic::AtomicBool,
+        partial_callback: PartialCallback<'_>,
+    ) -> VoiceResult<ListenOutcome> {
         use std::sync::atomic::Ordering;
         let mut buffer: Vec<i16> = Vec::new();
         let mut elapsed = Duration::ZERO;
+        let mut last_partial_elapsed = Duration::ZERO;
 
         while elapsed < self.max_duration {
             if cancel.load(Ordering::SeqCst) {
@@ -137,6 +163,13 @@ impl VoiceListener {
             if let Some(segment) = self.vad.detect_end_of_speech(&buffer) {
                 buffer.truncate(segment.speech_end_sample);
                 return Ok(ListenOutcome::SpeechEnded { samples: buffer });
+            }
+            // W6b-2 issue #47:每 2s 发射一次 partial transcript callback
+            if let Some(cb) = partial_callback {
+                if elapsed - last_partial_elapsed >= Duration::from_secs(2) {
+                    cb(&buffer);
+                    last_partial_elapsed = elapsed;
+                }
             }
         }
 
