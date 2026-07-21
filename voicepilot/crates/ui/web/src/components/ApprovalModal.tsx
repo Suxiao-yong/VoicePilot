@@ -9,19 +9,35 @@ interface Props {
 
 export function ApprovalModal({ payload, onDismiss }: Props) {
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { approval_request_id, manifest } = payload;
 
   async function decide(decision: "allow" | "deny") {
     setSubmitting(true);
+    setError(null);
     try {
       await submitApproval(approval_request_id, decision);
       onDismiss();
     } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
       console.error(e);
     } finally {
       setSubmitting(false);
     }
   }
+
+  // Esc 键关闭 modal —— 卸载时 cleanup effect 会自动发送 deny(一次性语义)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onDismiss();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onDismiss]);
 
   // 卸载时自动拒绝(例如用户关闭窗口)
   useEffect(() => {
@@ -35,9 +51,9 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
 
   return (
     <div className="modal-backdrop">
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="approval-modal-title">
         <div className="modal-header">
-          <h2>Approve File Operation</h2>
+          <h2 id="approval-modal-title">Approve File Operation</h2>
           <span className="badge">E2 · D2 · Local</span>
         </div>
         <div className="modal-body">
@@ -78,8 +94,8 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
           </table>
 
           <div className="form-row" style={{ marginTop: 24 }}>
-            <label>Destination</label>
-            <input type="text" value={manifest.destination} readOnly />
+            <label htmlFor="approval-destination">Destination</label>
+            <input id="approval-destination" type="text" value={manifest.destination} readOnly />
           </div>
 
           {manifest.conflicts.length > 0 && (
@@ -90,6 +106,12 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
                   <li key={i}>{c}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {error && (
+            <div className="conflicts-list" style={{ marginTop: 16 }}>
+              ⨯ {error}
             </div>
           )}
         </div>
