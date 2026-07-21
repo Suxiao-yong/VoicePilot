@@ -1,5 +1,102 @@
-//! `TauriApprover` — IPC-based Approver implementation.
+//! TauriApprover —— 将同步的 `Approver::prompt` 桥接到异步的 Tauri 事件。
 //!
-//! W6a Task 1 placeholder. Implementation lands in a follow-up task;
-//! this empty module satisfies the `pub mod approver;` declaration in
-//! `lib.rs` so `cargo check --features tauri` compiles.
+//! V1.1 §8.2 + §6.2:Approval 窗口必须接受一次性 approval_request_id
+//! 并在决定后消费。本模块实现持有待处理 approval senders 的注册表
+//! + 阻塞在 recv 上的 Approver trait 实现。
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::sync::oneshot;
+use trust_kernel::approval::approver::Approver;
+use trust_kernel::approval::types::ApprovalDecision;
+use trust_kernel::policy::transaction::EffectManifest;
+use uuid::Uuid;
+
+const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+#[derive(Clone)]
+pub struct ApprovalRegistry {
+    senders: Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>,
+}
+
+impl ApprovalRegistry {
+    pub fn new() -> Self {
+        Self {
+            senders: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// 创建新的待处理 approval 请求。
+    /// 返回 (approval_request_id, receiver) —— 调用方阻塞在 receiver 上。
+    pub fn create_request(
+        &self,
+        _manifest: &EffectManifest,
+    ) -> (String, oneshot::Receiver<ApprovalDecision>) {
+        let approval_id = format!("apr_{}", Uuid::new_v4());
+        let (tx, rx) = oneshot::channel::<ApprovalDecision>();
+        self.senders
+            .lock()
+            .unwrap()
+            .insert(approval_id.clone(), tx);
+        (approval_id, rx)
+    }
+
+    /// 查找并移除给定 approval_request_id 的 sender。
+    /// 由 `submit_approval` Tauri command 调用。
+    /// 如果请求已被消费或已过期,返回 None。
+    pub fn take_sender(&self, approval_id: &str) -> Option<oneshot::Sender<ApprovalDecision>> {
+        self.senders.lock().unwrap().remove(approval_id)
+    }
+
+    /// 阻塞直到决定到达或超时。
+    /// 超时或 sender 被丢弃时:返回 Deny(更安全的默认值)。
+    pub fn wait_for_decision(
+        &self,
+        rx: oneshot::Receiver<ApprovalDecision>,
+        timeout: Duration,
+    ) -> ApprovalDecision {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("failed to build tokio runtime");
+        rt.block_on(async move {
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(decision)) => decision,
+                Ok(Err(_)) => ApprovalDecision::Deny, // sender dropped
+                Err(_) => ApprovalDecision::Deny,     // timeout
+            }
+        })
+    }
+}
+
+impl Default for ApprovalRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct TauriApprover {
+    registry: ApprovalRegistry,
+}
+
+impl TauriApprover {
+    pub fn new(registry: ApprovalRegistry) -> Self {
+        Self { registry }
+    }
+
+    pub fn registry(&self) -> &ApprovalRegistry {
+        &self.registry
+    }
+}
+
+impl Approver for TauriApprover {
+    fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision {
+        let (approval_id, rx) = self.registry.create_request(manifest);
+        // 生产环境(任务 6):在此向 webview 发射 "approval-request" 事件。
+        // 单元测试:调用方直接调用 `registry.take_sender(id).send(decision)`。
+        let _ = approval_id;
+        self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
+    }
+}
