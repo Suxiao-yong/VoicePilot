@@ -141,6 +141,16 @@ impl TrustKernel {
         Ok(count as usize)
     }
 
+    /// 列出最近的 N 条审计事件(V1.1.2 §8.3 Audit Viewer)。
+    pub fn list_audit_recent(&self, limit: usize) -> Result<Vec<crate::audit::AuditEvent>> {
+        self.audit.list_recent(limit)
+    }
+
+    /// 列出某任务的所有审计事件(V1.1.2 §8.3 Audit Viewer)。
+    pub fn list_audit_for_task(&self, task_id: &str) -> Result<Vec<crate::audit::AuditEvent>> {
+        self.audit.list_for_task(task_id)
+    }
+
     /// Public entry point for external modules (MCP server, future IPC
     /// layers) to append audit events. V1.1 §6.1 — every MCP tools/call
     /// must leave an audit trail.

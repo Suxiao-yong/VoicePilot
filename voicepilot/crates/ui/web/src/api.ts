@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ApprovalRequestPayload,
   ApprovalDecision,
+  AuditEvent,
   OrganizeInput,
   OrganizeResult,
   RouteTextResult,
@@ -64,4 +65,12 @@ export async function getSettings(): Promise<Settings> {
 
 export async function updateSettings(settings: Settings): Promise<void> {
   await invoke("update_settings_command", { settings });
+}
+
+export async function listAuditRecent(limit: number): Promise<AuditEvent[]> {
+  return invoke<AuditEvent[]>("list_audit_recent_command", { limit });
+}
+
+export async function listAuditForTask(taskId: string): Promise<AuditEvent[]> {
+  return invoke<AuditEvent[]>("list_audit_for_task_command", { taskId });
 }

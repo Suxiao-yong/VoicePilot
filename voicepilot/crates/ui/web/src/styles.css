@@ -535,3 +535,21 @@ html, body, #root {
 .form-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 .save-success { color: #10b981; font-size: 14px; }
 .form-error { color: #ef4444; font-size: 14px; }
+
+/* Audit Viewer (V1.1.2 §8.3) */
+.audit-viewer { padding: 24px; }
+.audit-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
+.audit-task-list { border-right: 1px solid #1f2937; padding-right: 16px; }
+.audit-task-list h3, .audit-timeline h3 { color: #fbbf24; font-size: 14px; margin-bottom: 12px; font-family: "IBM Plex Mono", monospace; }
+.audit-task-item { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid #1f2937; color: #f1f5f9; padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.audit-task-item:hover { background: #111827; }
+.audit-task-item.selected { border-color: #f59e0b; background: #1f2937; }
+.audit-timeline { max-height: 70vh; overflow-y: auto; }
+.timeline-list { list-style: none; padding: 0; margin: 0; }
+.timeline-item { position: relative; padding: 12px 12px 12px 32px; border-left: 2px solid #1f2937; margin-bottom: 8px; }
+.timeline-item::before { content: ""; position: absolute; left: -6px; top: 16px; width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; }
+.timeline-time { color: #94a3b8; font-size: 11px; font-family: "IBM Plex Mono", monospace; }
+.timeline-event { color: #f1f5f9; font-weight: 600; font-family: "IBM Plex Mono", monospace; }
+.timeline-step, .timeline-hash { color: #64748b; font-size: 11px; font-family: "IBM Plex Mono", monospace; }
+.timeline-genesis { color: #fbbf24; margin-left: 8px; }
+.empty-state { color: #64748b; font-style: italic; }

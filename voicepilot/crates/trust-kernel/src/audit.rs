@@ -28,6 +28,12 @@ pub struct AuditEvent {
 
 pub trait AuditLogger: Send + Sync {
     fn append(&self, event: &AuditEvent) -> Result<()>;
+
+    /// 列出最近的 N 条审计事件(按 timestamp 降序)。
+    fn list_recent(&self, limit: usize) -> Result<Vec<AuditEvent>>;
+
+    /// 列出某任务的所有审计事件(按 timestamp 升序)。
+    fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>>;
 }
 
 /// SQLite-backed audit logger. Shares its connection with the kernel via
@@ -137,5 +143,63 @@ impl AuditLogger for SqliteAuditLogger {
             ],
         )?;
         Ok(())
+    }
+
+    fn list_recent(&self, limit: usize) -> Result<Vec<AuditEvent>> {
+        let conn = self.conn.lock().expect("conn poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT log_id, task_id, step_id, event_type, details, timestamp, prev_hash, hash
+             FROM audit_logs ORDER BY timestamp DESC, log_id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let details_str: String = row.get(4)?;
+            let ts_str: String = row.get(5)?;
+            Ok(AuditEvent {
+                log_id: row.get(0)?,
+                task_id: row.get(1)?,
+                step_id: row.get(2)?,
+                event_type: row.get(3)?,
+                details: serde_json::from_str(&details_str).unwrap_or(serde_json::Value::Null),
+                timestamp: chrono::DateTime::parse_from_rfc3339(&ts_str)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                prev_hash: row.get(6)?,
+                hash: row.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>> {
+        let conn = self.conn.lock().expect("conn poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT log_id, task_id, step_id, event_type, details, timestamp, prev_hash, hash
+             FROM audit_logs WHERE task_id = ?1 ORDER BY timestamp ASC, log_id ASC",
+        )?;
+        let rows = stmt.query_map(params![task_id], |row| {
+            let details_str: String = row.get(4)?;
+            let ts_str: String = row.get(5)?;
+            Ok(AuditEvent {
+                log_id: row.get(0)?,
+                task_id: row.get(1)?,
+                step_id: row.get(2)?,
+                event_type: row.get(3)?,
+                details: serde_json::from_str(&details_str).unwrap_or(serde_json::Value::Null),
+                timestamp: chrono::DateTime::parse_from_rfc3339(&ts_str)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                prev_hash: row.get(6)?,
+                hash: row.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 }

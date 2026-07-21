@@ -76,3 +76,14 @@ export interface Settings {
 }
 
 export type View = "main" | "settings" | "audit" | "trust" | "skills";
+
+export interface AuditEvent {
+  log_id: string;
+  task_id: string;
+  step_id: string | null;
+  event_type: string;
+  details: unknown;
+  timestamp: string;
+  prev_hash: string | null;
+  hash: string;
+}

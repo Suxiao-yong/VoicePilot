@@ -167,6 +167,8 @@ pub fn register_handlers(
         submit_approval_command,
         crate::settings_commands::get_settings_command,
         crate::settings_commands::update_settings_command,
+        crate::audit_commands::list_audit_recent_command,
+        crate::audit_commands::list_audit_for_task_command,
     ])
 }
 
@@ -184,6 +186,8 @@ pub fn register_handlers_with_voice(
         submit_approval_command,
         crate::settings_commands::get_settings_command,
         crate::settings_commands::update_settings_command,
+        crate::audit_commands::list_audit_recent_command,
+        crate::audit_commands::list_audit_for_task_command,
         crate::voice_commands::voice_listen_command,
     ])
 }

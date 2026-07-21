@@ -22,6 +22,9 @@ pub mod commands;
 pub mod settings_commands;
 
 #[cfg(feature = "tauri")]
+pub mod audit_commands;
+
+#[cfg(feature = "tauri")]
 pub mod app;
 
 #[cfg(feature = "voice")]
