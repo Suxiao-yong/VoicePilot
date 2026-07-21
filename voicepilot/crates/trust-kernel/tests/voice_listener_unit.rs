@@ -3,7 +3,7 @@
 //! VoiceListener 单元测试 —— 使用 MockVoiceRecorder,不实际录音。
 //! 验证 VAD-based 自动停止逻辑(issue #45)。
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -168,4 +168,74 @@ fn voice_listener_returns_no_speech_when_recorder_immediately_exhausted() {
         "expected NoSpeech, got {:?}",
         outcome
     );
+}
+
+#[test]
+fn voice_listener_stops_immediately_when_cancel_flag_set_before_chunk() {
+    // cancel flag 在 listen 开始前就为 true,应立即返回 NoSpeech(无音频采集)。
+    let recorder = Arc::new(MockVoiceRecorder::new(vec![
+        generate_sine_wave(750, 16000, 200.0),
+    ]));
+    let vad = VadDetector::new(VadConfig::default());
+    let listener = VoiceListener::new(
+        recorder,
+        vad,
+        Duration::from_secs(30),
+        Duration::from_millis(750),
+    );
+    let cancel = AtomicBool::new(true);
+    let outcome = listener
+        .listen_with_cancel(&cancel)
+        .expect("listen should succeed");
+    assert!(
+        matches!(outcome, ListenOutcome::NoSpeech),
+        "expected NoSpeech when cancel flag set, got {:?}",
+        outcome
+    );
+}
+
+#[test]
+fn voice_listener_stops_midway_when_cancel_flag_set_after_first_chunk() {
+    // 第 1 块正常录制,之后 cancel flag 置 true,第 2 块前退出循环。
+    let cancel_arc = Arc::new(AtomicBool::new(false));
+
+    struct CancelAfterFirst {
+        inner: MockVoiceRecorder,
+        cancel: Arc<AtomicBool>,
+    }
+    impl VoiceRecorder for CancelAfterFirst {
+        fn record_chunk(&self, d: Duration) -> VoiceResult<Vec<i16>> {
+            let r = self.inner.record_chunk(d)?;
+            if !r.is_empty() {
+                self.cancel.store(true, Ordering::SeqCst);
+            }
+            Ok(r)
+        }
+    }
+
+    let wrapper = Arc::new(CancelAfterFirst {
+        inner: MockVoiceRecorder::new(vec![
+            generate_sine_wave(750, 16000, 200.0),
+            generate_sine_wave(750, 16000, 200.0),
+        ]),
+        cancel: cancel_arc.clone(),
+    });
+    let listener = VoiceListener::new(
+        wrapper,
+        VadDetector::new(VadConfig::default()),
+        Duration::from_secs(30),
+        Duration::from_millis(750),
+    );
+    let outcome = listener
+        .listen_with_cancel(&cancel_arc)
+        .expect("listen");
+    match outcome {
+        ListenOutcome::Timeout { samples } => {
+            assert!(!samples.is_empty(), "should have 1 chunk of samples");
+        }
+        ListenOutcome::SpeechEnded { .. } => {
+            // 也可能 VAD 在 1 块内就触发(边界),可接受
+        }
+        other => panic!("expected Timeout or SpeechEnded on cancel, got {:?}", other),
+    }
 }

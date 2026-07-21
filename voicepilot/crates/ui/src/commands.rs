@@ -197,6 +197,7 @@ pub fn register_handlers_with_voice(
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
         crate::voice_commands::voice_listen_command,
+        crate::voice_commands::cancel_voice_command,
     ])
 }
 

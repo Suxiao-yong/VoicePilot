@@ -581,3 +581,6 @@ html, body, #root {
 .toggle-btn.enable { border-color: #10b981; color: #10b981; }
 .toggle-btn.disable { border-color: #ef4444; color: #ef4444; }
 .toggle-btn:hover { background: #1f2937; }
+
+.voice-cancel-btn { margin-left: 8px; background: #450a0a; color: #ef4444; border: 1px solid #ef4444; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.voice-cancel-btn:hover { background: #5a1010; }

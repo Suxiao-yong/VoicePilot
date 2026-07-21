@@ -46,6 +46,10 @@ export async function voiceListen(): Promise<VoiceListenResult> {
   return invoke<VoiceListenResult>("voice_listen_command");
 }
 
+export async function cancelVoice(): Promise<void> {
+  await invoke("cancel_voice_command");
+}
+
 /**
  * Subscribe to `transcription-final` events emitted by the Rust side.
  *

@@ -3,7 +3,7 @@
 //! voice_listen 函数单元测试 —— 使用 MockVoiceListen,不实际录音/转写。
 //! 验证 VoiceListenOutcome → VoiceListenResult 转换逻辑。
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use trust_kernel::voice::error::{VoiceError, VoiceResult};
@@ -28,7 +28,7 @@ impl MockVoiceListen {
 }
 
 impl VoiceListen for MockVoiceListen {
-    fn listen(&self) -> VoiceResult<VoiceListenOutcome> {
+    fn listen(&self, _cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         let mut guard = self.outcome.lock().unwrap();
         guard.take().unwrap_or_else(|| {
@@ -49,7 +49,7 @@ fn voice_listen_returns_success_when_transcription_present() {
         stopped_by_vad: true,
     }));
 
-    let result = voice_listen(&mock);
+    let result = voice_listen(&mock, &AtomicBool::new(false));
 
     match result {
         VoiceListenResult::Success {
@@ -72,7 +72,7 @@ fn voice_listen_returns_success_when_transcription_present() {
 fn voice_listen_returns_no_speech_when_transcription_none_and_vad_stopped() {
     let mock = MockVoiceListen::with_outcome(Ok(VoiceListenOutcome::NoSpeech));
 
-    let result = voice_listen(&mock);
+    let result = voice_listen(&mock, &AtomicBool::new(false));
     assert!(
         matches!(result, VoiceListenResult::NoSpeech),
         "expected NoSpeech, got {:?}",
@@ -87,7 +87,7 @@ fn voice_listen_returns_timeout_when_transcription_none_and_not_vad_stopped() {
         route_outcome: RouteTextResult::Empty,
     }));
 
-    let result = voice_listen(&mock);
+    let result = voice_listen(&mock, &AtomicBool::new(false));
     match result {
         VoiceListenResult::Timeout {
             transcription,
@@ -109,7 +109,7 @@ fn voice_listen_returns_timeout_with_transcription_when_available() {
         },
     }));
 
-    let result = voice_listen(&mock);
+    let result = voice_listen(&mock, &AtomicBool::new(false));
     match result {
         VoiceListenResult::Timeout {
             transcription: Some(t),
@@ -128,7 +128,7 @@ fn voice_listen_returns_error_when_listener_fails() {
         "ggml-tiny.bin".to_string(),
     )));
 
-    let result = voice_listen(&mock);
+    let result = voice_listen(&mock, &AtomicBool::new(false));
     match result {
         VoiceListenResult::Error { message } => {
             assert!(message.contains("ggml-tiny.bin"));
@@ -142,7 +142,7 @@ fn voice_listen_returns_error_when_listener_fails() {
 fn voice_listen_calls_listener_exactly_once() {
     let mock = MockVoiceListen::with_outcome(Ok(VoiceListenOutcome::NoSpeech));
 
-    let _ = voice_listen(&mock);
+    let _ = voice_listen(&mock, &AtomicBool::new(false));
 
     assert_eq!(mock.call_count.load(Ordering::SeqCst), 1);
 }

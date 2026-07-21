@@ -106,30 +106,40 @@ impl VoiceListener {
     /// 4. `elapsed >= max_duration` → 退出循环
     /// 5. 退出循环后用 `detect()` 判断是 `Timeout` 还是 `NoSpeech`
     pub fn listen(&self) -> VoiceResult<ListenOutcome> {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        self.listen_with_cancel(&cancel)
+    }
+
+    /// 带 cancel flag 的 listen —— V1.1.2 issue #57 voice 取消机制。
+    ///
+    /// 循环开始前 + 每 chunk 录制前检查 cancel flag。若为 true,立即退出循环。
+    /// 退出后用 `vad.detect()` 判断 Timeout(有语音)/ NoSpeech(无语音)。
+    /// post-loop 逻辑与 `listen` 保持一致(`VadOutcome::Speech → Timeout` /
+    /// `VadOutcome::NoSpeech → NoSpeech`)。
+    pub fn listen_with_cancel(
+        &self,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> VoiceResult<ListenOutcome> {
+        use std::sync::atomic::Ordering;
         let mut buffer: Vec<i16> = Vec::new();
         let mut elapsed = Duration::ZERO;
 
         while elapsed < self.max_duration {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
             let chunk = self.recorder.record_chunk(self.chunk_duration)?;
-
-            // recorder 耗尽(如 mock 用完预设块)—— 退出循环。
             if chunk.is_empty() {
                 break;
             }
-
             buffer.extend_from_slice(&chunk);
             elapsed += self.chunk_duration;
-
-            // 检测静音超时 —— 仅在语音段已结束时返回 Some。
             if let Some(segment) = self.vad.detect_end_of_speech(&buffer) {
                 buffer.truncate(segment.speech_end_sample);
                 return Ok(ListenOutcome::SpeechEnded { samples: buffer });
             }
         }
 
-        // 退出循环后:用 detect() 判断 buffer 中是否有任何语音。
-        // detect() 在 "音频末尾仍有语音" 时也返回 Speech,这正是 Timeout 场景
-        // (用户持续说话未停顿,达到 max_duration)。
         match self.vad.detect(&buffer) {
             VadOutcome::Speech { speech_end_sample, .. } => {
                 buffer.truncate(speech_end_sample);

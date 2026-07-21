@@ -8,6 +8,16 @@ pub struct AppState {
     pub kernel: Arc<TrustKernel>,
     #[cfg(feature = "tauri")]
     pub approval_registry: ApprovalRegistry,
+    /// Voice 取消标志(issue #57)。cancel_voice_command 设为 true;
+    /// voice_listen_command 开始时重置为 false,循环中检查。
+    #[cfg(feature = "voice")]
+    pub kill_switch: Arc<std::sync::atomic::AtomicBool>,
+    /// WhisperEngine 缓存(issue #61)。miss 时加载并缓存(Arc 共享);
+    /// Settings 更新 model_path 时应 invalidate(设为 None)。
+    /// `WhisperEngine` 持有 `WhisperContext`(FFI 资源),不实现 `Clone`,
+    /// 必须用 `Arc<WhisperEngine>` 共享。
+    #[cfg(feature = "voice")]
+    pub whisper_cache: Arc<std::sync::Mutex<Option<Arc<trust_kernel::voice::whisper::WhisperEngine>>>>,
 }
 
 impl AppState {
@@ -16,6 +26,10 @@ impl AppState {
         Self {
             kernel: Arc::new(kernel),
             approval_registry: ApprovalRegistry::new(),
+            #[cfg(feature = "voice")]
+            kill_switch: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            #[cfg(feature = "voice")]
+            whisper_cache: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -23,6 +37,10 @@ impl AppState {
     pub fn new(kernel: TrustKernel) -> Self {
         Self {
             kernel: Arc::new(kernel),
+            #[cfg(feature = "voice")]
+            kill_switch: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            #[cfg(feature = "voice")]
+            whisper_cache: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 

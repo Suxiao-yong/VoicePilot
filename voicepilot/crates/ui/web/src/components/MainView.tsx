@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { routeText, organizeFiles, voiceListen } from "../api";
+import { routeText, organizeFiles, voiceListen, cancelVoice } from "../api";
 import type {
   RouteTextResult,
   OrganizeResult,
@@ -92,6 +92,17 @@ export function MainView() {
           <span className="mic-icon" aria-hidden="true">{listening ? "■" : "●"}</span>
           {listening ? "Listening..." : "Start Listening"}
         </button>
+
+        {listening && (
+          <button
+            type="button"
+            className="voice-cancel-btn"
+            onClick={() => cancelVoice().catch(console.error)}
+            aria-label="取消录音"
+          >
+            取消
+          </button>
+        )}
 
         {listening && (
           <div className="listening-indicator">

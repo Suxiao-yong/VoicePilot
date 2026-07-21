@@ -3,15 +3,14 @@
 //! 桥接 W5 voice 模块(record + vad + transcribe + route)到 Tauri webview。
 //! 整个模块用 `#[cfg(feature = "voice")]` 门控(在 lib.rs 中)。
 //!
-//! 设计:
-//! - `VoiceListen` trait 抽象 listen→transcribe→route 管道,便于注入 mock
-//! - `voice_listen` 纯函数把 `VoiceListenOutcome` 转为 `VoiceListenResult`
-//! - `VoiceListenImpl` 生产实现,用 `VoiceListener` + `WhisperEngine` + `route_text`
-//! - `voice_listen_command` Tauri command,构造 `VoiceListenImpl` + 发射事件
-//!   (在任务 3 中实现)
-//! - `build_transcription_final_payload` 纯函数构造事件 payload(任务 3)
+//! W6b-2 Task 5:
+//! - `VoiceListen::listen` 接收 `cancel: &AtomicBool`(issue #57)
+//! - `VoiceListenImpl::with_engine` 接收 `Arc<WhisperEngine>`(issue #61 缓存)
+//! - `voice_listen_command` 从 ConfigRepo 读 settings + 用 whisper_cache
+//! - `cancel_voice_command` 设 kill_switch 为 true
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -30,20 +29,16 @@ use crate::commands::RouteTextResult;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VoiceListenResult {
-    /// 成功:VAD 触发停止 + 转写成功 + 路由完成。
     Success {
         transcription: String,
         route_outcome: RouteTextResult,
         stopped_by_vad: bool,
     },
-    /// 没有检测到语音。
     NoSpeech,
-    /// 达到 max_duration 但 VAD 未触发。可能含 transcription(用户持续说话)。
     Timeout {
         transcription: Option<String>,
         route_outcome: RouteTextResult,
     },
-    /// 发生错误(如模型缺失、麦克风拒绝)。
     Error {
         message: String,
     },
@@ -52,15 +47,12 @@ pub enum VoiceListenResult {
 /// `VoiceListen` trait 的内部 outcome(不含 Error,Error 通过 `Result` 传递)。
 #[derive(Debug, Clone)]
 pub enum VoiceListenOutcome {
-    /// 成功:转写 + 路由完成。
     Success {
         transcription: String,
         route_outcome: RouteTextResult,
         stopped_by_vad: bool,
     },
-    /// 没有检测到语音。
     NoSpeech,
-    /// 达到 max_duration 但 VAD 未触发。
     Timeout {
         transcription: Option<String>,
         route_outcome: RouteTextResult,
@@ -69,16 +61,19 @@ pub enum VoiceListenOutcome {
 
 /// 抽象 voice listen 管道(listen → transcribe → route)。
 ///
-/// 生产用 `VoiceListenImpl`,测试用 mock(实现此 trait 返回预设 outcome)。
+/// W6b-2 Task 5:`listen` 接收 `cancel: &AtomicBool`(issue #57)。
 pub trait VoiceListen: Send + Sync {
-    fn listen(&self) -> VoiceResult<VoiceListenOutcome>;
+    fn listen(&self, cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome>;
 }
 
-/// 把 `VoiceListenOutcome` 转为 `VoiceListenResult`。
+/// 把 `VoiceListenOutcome` 转为 `VoiceListenResult`(纯函数,便于单元测试)。
 ///
-/// 这是纯函数,不涉及 Tauri —— 便于单元测试。
-pub fn voice_listen(listener: &dyn VoiceListen) -> VoiceListenResult {
-    match listener.listen() {
+/// W6b-2 Task 5:接收 `cancel: &AtomicBool` 透传给 listener。
+pub fn voice_listen(
+    listener: &dyn VoiceListen,
+    cancel: &AtomicBool,
+) -> VoiceListenResult {
+    match listener.listen(cancel) {
         Ok(outcome) => match outcome {
             VoiceListenOutcome::Success {
                 transcription,
@@ -104,19 +99,24 @@ pub fn voice_listen(listener: &dyn VoiceListen) -> VoiceListenResult {
     }
 }
 
-// ===== VoiceListenImpl: 生产实现(任务 3 中由 Tauri command 使用) =====
+// ===== VoiceListenImpl: 生产实现 =====
 
 /// 生产用 `VoiceListen` 实现,编排 `VoiceListener` + `WhisperEngine` + `route_text`。
+///
+/// W6b-2 Task 5:`cached_engine: Option<Arc<WhisperEngine>>` 用于模型缓存(issue #61)。
 pub struct VoiceListenImpl {
     recorder: Arc<dyn VoiceRecorder>,
     whisper_config: WhisperConfig,
+    /// 缓存的 WhisperEngine(issue #61)。Some 时 transcribe 直接用;
+    /// None 时 fallback 到每次 `WhisperEngine::new(whisper_config.clone())`。
+    cached_engine: Option<Arc<WhisperEngine>>,
     kernel: Arc<TrustKernel>,
     max_duration: Duration,
     chunk_duration: Duration,
 }
 
 impl VoiceListenImpl {
-    /// 用默认 VAD 配置 + 默认录音配置创建。
+    /// 用默认 VAD + 默认录音配置创建(cached_engine = None)。
     pub fn new(
         recorder: Arc<dyn VoiceRecorder>,
         whisper_config: WhisperConfig,
@@ -125,6 +125,7 @@ impl VoiceListenImpl {
         Self {
             recorder,
             whisper_config,
+            cached_engine: None,
             kernel,
             max_duration: Duration::from_secs(30),
             chunk_duration: Duration::from_millis(500),
@@ -140,19 +141,40 @@ impl VoiceListenImpl {
         let model_path = registry.resolve("ggml-tiny.bin")?;
         let whisper_config = WhisperConfig {
             model_path,
-            language: None, // 自动检测
+            language: None,
             ..Default::default()
         };
         Ok(Self::new(recorder, whisper_config, kernel))
     }
 
-    /// 转写样本,返回文本。空样本或无语音时返回 `NoSpeechDetected` 错误。
+    /// 用缓存的 WhisperEngine 创建(issue #61)。
+    /// 调用方负责从 `state.whisper_cache` 取出 `Arc<WhisperEngine>` 传入。
+    pub fn with_engine(
+        recorder: Arc<dyn VoiceRecorder>,
+        engine: Arc<WhisperEngine>,
+        kernel: Arc<TrustKernel>,
+    ) -> Self {
+        let whisper_config = engine.config().clone();
+        Self {
+            recorder,
+            whisper_config,
+            cached_engine: Some(engine),
+            kernel,
+            max_duration: Duration::from_secs(30),
+            chunk_duration: Duration::from_millis(500),
+        }
+    }
+
+    /// 转写样本。优先用 cached_engine,否则每次 new WhisperEngine。
     fn transcribe(&self, samples: &[i16]) -> VoiceResult<String> {
+        if let Some(engine) = &self.cached_engine {
+            return engine.transcribe(samples);
+        }
         let engine = WhisperEngine::new(self.whisper_config.clone())?;
         engine.transcribe(samples)
     }
 
-    /// 路由文本到 Skill。错误时降级为 `Empty`(避免阻塞 voice listen 流程)。
+    /// 路由文本到 Skill。错误时降级为 `Empty`。
     fn route(&self, text: &str) -> RouteTextResult {
         let outcome = route_text(&self.kernel, &AutoApprover, text);
         match outcome {
@@ -165,7 +187,7 @@ impl VoiceListenImpl {
 }
 
 impl VoiceListen for VoiceListenImpl {
-    fn listen(&self) -> VoiceResult<VoiceListenOutcome> {
+    fn listen(&self, cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome> {
         let vad = VadDetector::new(VadConfig::default());
         let listener = VoiceListener::new(
             self.recorder.clone(),
@@ -174,7 +196,7 @@ impl VoiceListen for VoiceListenImpl {
             self.chunk_duration,
         );
 
-        let outcome = listener.listen()?;
+        let outcome = listener.listen_with_cancel(cancel)?;
 
         match outcome {
             ListenOutcome::SpeechEnded { samples } => {
@@ -188,7 +210,6 @@ impl VoiceListen for VoiceListenImpl {
             }
             ListenOutcome::NoSpeech => Ok(VoiceListenOutcome::NoSpeech),
             ListenOutcome::Timeout { samples } => {
-                // 尝试转写已有的样本(可能是用户持续说话)
                 let transcription = if samples.is_empty() {
                     None
                 } else {
@@ -207,12 +228,9 @@ impl VoiceListen for VoiceListenImpl {
     }
 }
 
-// ===== transcription-final 事件 + voice_listen_command(任务 3) =====
+// ===== transcription-final 事件 + voice_listen_command + cancel_voice_command =====
 
 /// `transcription-final` 事件 payload,发射给 webview。
-///
-/// V1.1 §8.4 提到 "实时 partial transcript",但 W5 是一次性 transcription
-/// (无流式,issue #47 延后)。W6b-1 仅发射 `transcription-final`,不发射 partial。
 #[derive(Debug, Clone, Serialize)]
 pub struct TranscriptionFinalPayload {
     pub transcription: String,
@@ -221,10 +239,6 @@ pub struct TranscriptionFinalPayload {
 }
 
 /// 从 `VoiceListenResult` 构造 `transcription-final` 事件 payload。
-///
-/// 仅在 `Success` 或 `Timeout { transcription: Some }` 时返回 `Some`;
-/// `NoSpeech` / `Error` / `Timeout { transcription: None }` 返回 `None`
-/// (这些场景无需通知 webview 转写结果)。
 pub fn build_transcription_final_payload(
     result: &VoiceListenResult,
 ) -> Option<TranscriptionFinalPayload> {
@@ -257,15 +271,13 @@ pub fn build_transcription_final_payload(
 
 /// Tauri command:开始 voice listen,返回 `VoiceListenResult`。
 ///
-/// 流程:
-/// 1. 构造 `AudioRecorderAdapter`(用默认录音配置)
-/// 2. 构造 `VoiceListenImpl`(用默认模型 ggml-tiny.bin)
-/// 3. 调用 `voice_listen`(纯函数)
-/// 4. 如果结果含 transcription,发射 `transcription-final` 事件
-/// 5. 返回结果给 webview
-///
-/// 注:此 command 是阻塞的(录音 + 转写可能耗时 5-30s)。webview 的 `invoke`
-/// 会等待返回。UI 应在调用前显示 "Listening..." 状态。
+/// W6b-2 Task 5 流程:
+/// 1. 重置 kill_switch 为 false
+/// 2. 从 ConfigRepo 加载 voice settings(§8.3 Settings 持久化)
+/// 3. 检查 whisper_cache,miss 时加载(issue #61)
+/// 4. 用 `VoiceListenImpl::with_engine` 构造 listener
+/// 5. 调 `voice_listen(&listener, &state.kill_switch)`(透传 cancel)
+/// 6. 发射 `transcription-final` 事件(若有 transcription)
 #[tauri::command]
 pub async fn voice_listen_command(
     state: tauri::State<'_, crate::state::AppState>,
@@ -273,21 +285,70 @@ pub async fn voice_listen_command(
 ) -> Result<VoiceListenResult, String> {
     use trust_kernel::voice::audio::AudioRecorderConfig;
 
+    // 1. 重置 cancel flag
+    state
+        .kill_switch
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // 2. 从 Settings 加载 voice 配置(V1.1.2 §8.3 Settings 持久化)
+    let settings = load_voice_settings(&state.kernel).map_err(|e| e.to_string())?;
+    let model_path = std::path::PathBuf::from(&settings.voice_model_path);
+    let whisper_config = WhisperConfig {
+        model_path: model_path.clone(),
+        language: settings.voice_language.clone(),
+        threads: settings.voice_threads,
+        ..Default::default()
+    };
+
+    // 3. 检查 whisper_cache,miss 时加载(issue #61)
+    let engine: Arc<WhisperEngine> = {
+        let mut cache = state.whisper_cache.lock().map_err(|e| e.to_string())?;
+        let needs_reload = cache
+            .as_ref()
+            .map_or(true, |eng| eng.config().model_path != model_path);
+        if needs_reload {
+            let new_engine = WhisperEngine::new(whisper_config.clone())
+                .map_err(|e| e.to_string())?;
+            *cache = Some(Arc::new(new_engine));
+        }
+        Arc::clone(cache.as_ref().expect("cache should be populated"))
+    };
+
+    // 4. 构造 VoiceListenImpl(用缓存的 engine)
     let recorder = Arc::new(
         AudioRecorderAdapter::new(AudioRecorderConfig::default())
             .map_err(|e| e.to_string())?,
     );
-    let listener = VoiceListenImpl::with_default_model(recorder, state.kernel.clone())
-        .map_err(|e| e.to_string())?;
+    let listener = VoiceListenImpl::with_engine(recorder, engine, state.kernel.clone());
 
-    let result = voice_listen(&listener);
-
-    // 发射 transcription-final 事件(仅在有转写结果时)
+    // 5. 执行 listen + 发射 transcription-final
+    let result = voice_listen(&listener, &state.kill_switch);
     if let Some(payload) = build_transcription_final_payload(&result) {
         let _ = app.emit("transcription-final", payload);
     }
-
     Ok(result)
+}
+
+/// Tauri command:取消正在进行的 voice listen(issue #57)。
+///
+/// 设 kill_switch 为 true,循环中下一 chunk 前检查后退出。
+#[tauri::command]
+pub async fn cancel_voice_command(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<(), String> {
+    state
+        .kill_switch
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// 从 ConfigRepo 加载 voice 相关 settings(V1.1.2 §8.3 Settings 持久化)。
+fn load_voice_settings(
+    kernel: &TrustKernel,
+) -> Result<crate::settings_commands::SettingsDto, crate::error::UiError> {
+    let conn = kernel.conn();
+    let kv = kernel.config_repo().list(&conn)?;
+    crate::settings_commands::merge_from_kv(&kv)
 }
 
 #[cfg(test)]

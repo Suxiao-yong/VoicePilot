@@ -11,6 +11,7 @@
 //!
 //! 不实际录音(需麦克风 + 模型),实际录音测试标 #[ignore] 在 voice_integration.rs 中。
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 use trust_kernel::voice::error::{VoiceError, VoiceResult};
@@ -33,7 +34,7 @@ impl StubVoiceListen {
 }
 
 impl VoiceListen for StubVoiceListen {
-    fn listen(&self) -> VoiceResult<VoiceListenOutcome> {
+    fn listen(&self, _cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome> {
         self.outcome.lock().unwrap().take().unwrap_or_else(|| {
             Err(VoiceError::InferenceFailed("stub exhausted".to_string()))
         })
@@ -51,7 +52,7 @@ fn w6b1_smoke_voice_listen_success_returns_result_with_transcription() {
         stopped_by_vad: true,
     }));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     // 验证:VoiceListenResult::Success
     let transcription = match &result {
@@ -77,7 +78,7 @@ fn w6b1_smoke_voice_listen_success_returns_result_with_transcription() {
 fn w6b1_smoke_voice_listen_no_speech_returns_no_speech_result() {
     let stub = StubVoiceListen::new(Ok(VoiceListenOutcome::NoSpeech));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     assert!(
         matches!(result, VoiceListenResult::NoSpeech),
@@ -100,7 +101,7 @@ fn w6b1_smoke_voice_listen_timeout_with_transcription_returns_timeout_result() {
         },
     }));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     match &result {
         VoiceListenResult::Timeout {
@@ -129,7 +130,7 @@ fn w6b1_smoke_voice_listen_timeout_without_transcription_returns_timeout_result(
         route_outcome: RouteTextResult::Empty,
     }));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     assert!(
         matches!(
@@ -153,7 +154,7 @@ fn w6b1_smoke_voice_listen_timeout_without_transcription_returns_timeout_result(
 fn w6b1_smoke_voice_listen_model_missing_returns_error_result() {
     let stub = StubVoiceListen::new(Err(VoiceError::ModelMissing("ggml-tiny.bin".to_string())));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     match &result {
         VoiceListenResult::Error { message } => {
@@ -173,7 +174,7 @@ fn w6b1_smoke_voice_listen_model_missing_returns_error_result() {
 fn w6b1_smoke_voice_listen_mic_denied_returns_error_result() {
     let stub = StubVoiceListen::new(Err(VoiceError::MicDenied));
 
-    let result = voice_listen(&stub);
+    let result = voice_listen(&stub, &AtomicBool::new(false));
 
     match &result {
         VoiceListenResult::Error { message } => {
