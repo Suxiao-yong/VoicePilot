@@ -109,7 +109,7 @@ impl AudioRecorder {
                             let mut buf = samples_clone.lock().unwrap();
                             for &s in data {
                                 // f32 [-1.0, 1.0] → i16
-                                let clamped = s.max(-1.0).min(1.0);
+                                let clamped = s.clamp(-1.0, 1.0);
                                 buf.push((clamped * 32767.0) as i16);
                             }
                         },

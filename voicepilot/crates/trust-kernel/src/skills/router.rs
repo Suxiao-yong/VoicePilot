@@ -7,6 +7,7 @@
 //!   2. Substring match against curated `keywords`.
 //!      Handles the "user goal shares a semantic keyword with the Skill"
 //!      case (e.g. "整理" appears in both).
+//!
 //! First registered Skill to match wins. No LLM.
 //!
 //! Future W7 will add a lightweight intent classifier (BERT mini or
@@ -17,7 +18,7 @@ use crate::skills::manifest::SkillManifest;
 
 #[derive(Debug, Clone)]
 pub enum RouteDecision {
-    Skill(SkillManifest),
+    Skill(Box<SkillManifest>),
     Planner,
 }
 
@@ -46,7 +47,7 @@ impl SkillRouter {
             if self.matches_intent_examples(&goal_lower, skill)
                 || self.matches_keywords(&goal_lower, skill)
             {
-                return RouteDecision::Skill(skill.clone());
+                return RouteDecision::Skill(Box::new(skill.clone()));
             }
         }
         RouteDecision::Planner

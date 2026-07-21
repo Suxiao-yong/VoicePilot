@@ -73,12 +73,12 @@ impl TransactionManager {
         for snap in &sorted {
             hasher.update(snap.canonical_path.as_bytes());
             hasher.update(snap.file_id.as_bytes());
-            hasher.update(&snap.size.to_le_bytes());
+            hasher.update(snap.size.to_le_bytes());
             hasher.update(snap.last_write_time.as_bytes());
             hasher.update(snap.sha256.as_bytes());
         }
         hasher.update(manifest.destination.as_bytes());
-        hasher.update(&manifest.total_bytes.to_le_bytes());
+        hasher.update(manifest.total_bytes.to_le_bytes());
         format!("sha256:{:x}", hasher.finalize())
     }
 

@@ -194,7 +194,7 @@ fn vad_detects_silence_after_speech_with_correct_boundary() {
         VadOutcome::Speech { speech_end_sample, .. } => {
             // Speech ends ~4800 + 200ms silence = 4800 + 3200 = 8000
             assert!(
-                speech_end_sample >= 7000 && speech_end_sample <= 9000,
+                (7000..=9000).contains(&speech_end_sample),
                 "speech_end_sample {} should be near 8000",
                 speech_end_sample
             );

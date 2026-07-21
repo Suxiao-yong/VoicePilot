@@ -151,9 +151,8 @@ impl FilesOrganizeSkill {
             &prepared.manifest,
             kernel.transaction_manager(),
         )
-        .map_err(|e| {
+        .inspect_err(|_e| {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-            e
         })?;
 
         // Step 5: verify (Strong Verifier).

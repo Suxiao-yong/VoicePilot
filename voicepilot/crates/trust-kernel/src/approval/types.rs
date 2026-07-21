@@ -34,6 +34,7 @@ impl ApprovalDecision {
 /// Whether this approval covers a single step or a batch of N steps.
 /// V1.1 §8.1: batch requires Skill manifest `approval.mode: batch_once`
 /// + same args_hash + same policy_bundle_hash + within max_approval_scope.
+///
 /// W3b always returns Single; W7 enables batch logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -60,6 +60,6 @@ fn search_files_supports_multiple_extensions_via_star() {
     let tool = FilesystemTool::new();
     let results = tool.search_files(&dir, "*.pdf").unwrap();
     // Case-insensitive match on Windows; both a.pdf and b.PDF should match.
-    assert!(results.len() >= 1);
+    assert!(!results.is_empty());
     fs::remove_dir_all(&dir).ok();
 }
