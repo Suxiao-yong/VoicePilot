@@ -44,6 +44,16 @@ pub enum VadOutcome {
     NoSpeech,
 }
 
+/// 静音超时结束的语音段(V1.1 §2.1 + W6b-1 issue #45)。
+///
+/// 仅在 VAD 检测到 "语音段 + 静音超时" 时返回,不包含 "音频末尾仍在说话"
+/// 的情况。VoiceListener 用此方法判断是否应停止录音。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeechSegment {
+    pub speech_start_sample: usize,
+    pub speech_end_sample: usize,
+}
+
 pub struct VadDetector {
     config: VadConfig,
     frame_size: usize,
@@ -128,6 +138,67 @@ impl VadDetector {
         }
 
         VadOutcome::NoSpeech
+    }
+
+    /// 检测语音是否已通过静音超时结束(W6b-1 issue #45)。
+    ///
+    /// 返回 `Some(SpeechSegment)` 仅当:
+    ///   - 检测到 >= `min_speech_ms` 的连续语音段
+    ///   - 之后有 >= `max_silence_ms` 的连续静音(触发静音超时)
+    ///
+    /// 返回 `None` 如果:
+    ///   - 没有语音
+    ///   - 语音仍在进行中(未达到静音超时,音频末尾仍有语音)
+    ///   - 语音段长度不足 `min_speech_ms`
+    ///
+    /// 与 `detect()` 的区别:`detect()` 在 "音频末尾仍有语音" 时也返回 `Speech`,
+    /// 而 `detect_end_of_speech` 不返回这种情况(因为语音尚未结束)。
+    /// VoiceListener 在循环中调用本方法,仅在 `Some` 时停止录音。
+    pub fn detect_end_of_speech(&self, samples: &[i16]) -> Option<SpeechSegment> {
+        let n_frames = samples.len() / self.frame_size;
+        if n_frames == 0 {
+            return None;
+        }
+
+        let mut in_speech = false;
+        let mut speech_start_frame = 0usize;
+        let mut speech_frame_count = 0usize;
+        let mut silence_frame_count = 0usize;
+
+        for i in 0..n_frames {
+            let start = i * self.frame_size;
+            let end = start + self.frame_size;
+            let energy = rms_energy(&samples[start..end]);
+            let is_speech = energy >= self.config.energy_threshold;
+            if is_speech {
+                if !in_speech {
+                    speech_start_frame = i;
+                    in_speech = true;
+                    speech_frame_count = 1;
+                } else {
+                    speech_frame_count += 1;
+                }
+                silence_frame_count = 0;
+            } else if in_speech {
+                silence_frame_count += 1;
+                if silence_frame_count >= self.max_silence_frames {
+                    // 静音超时 —— 仅当语音段足够长才返回。
+                    if speech_frame_count >= self.min_speech_frames {
+                        let speech_start_sample = speech_start_frame * self.frame_size;
+                        let speech_end_sample = (i + 1) * self.frame_size;
+                        return Some(SpeechSegment {
+                            speech_start_sample,
+                            speech_end_sample,
+                        });
+                    }
+                    // 语音段太短,重置状态继续寻找。
+                    in_speech = false;
+                }
+            }
+        }
+
+        // 注:不处理 "音频末尾仍有语音" 情况 —— 这正是本方法与 detect() 的区别。
+        None
     }
 }
 

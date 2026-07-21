@@ -13,3 +13,4 @@ pub mod vad;
 pub mod whisper;
 pub mod audio;
 pub mod router_bridge;
+pub mod listener;
