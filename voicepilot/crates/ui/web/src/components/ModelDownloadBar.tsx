@@ -45,7 +45,7 @@ export function ModelDownloadBar(): JSX.Element | null {
             phase: "error",
             voiceEnabled: false,
             progress: null,
-            error: String(e),
+            error: e instanceof Error ? e.message : String(e),
           });
         }
       }
@@ -58,17 +58,13 @@ export function ModelDownloadBar(): JSX.Element | null {
   // 监听下载进度
   useEffect(() => {
     if (state.phase !== "downloading") return;
-    let unlistenFn: (() => void) | null = null;
     const promise = onModelDownloadProgress((payload) => {
       setState((s) => ({ ...s, progress: payload }));
     });
-    promise
-      .then((fn) => {
-        unlistenFn = fn;
-      })
-      .catch(() => {});
     return () => {
-      if (unlistenFn) unlistenFn();
+      promise.then((fn) => fn()).catch((e) => {
+        console.error("Failed to unlisten model-download-progress:", e);
+      });
     };
   }, [state.phase]);
 
@@ -93,13 +89,13 @@ export function ModelDownloadBar(): JSX.Element | null {
   }
 
   function handleRetry() {
-    setState((s) => ({ ...s, phase: "absent", progress: null, error: null }));
+    handleDownload();
   }
 
   // checking → 简短 loading
   if (state.phase === "checking") {
     return (
-      <div className="model-download-bar checking" role="status" aria-live="polite">
+      <div className="model-download-bar checking" role="status">
         <span>检查语音模型状态…</span>
       </div>
     );
@@ -108,7 +104,7 @@ export function ModelDownloadBar(): JSX.Element | null {
   // absent → 询问用户是否下载
   if (state.phase === "absent") {
     return (
-      <div className="model-download-bar absent" role="alertdialog" aria-labelledby="mdl-title">
+      <div className="model-download-bar absent" role="alert" aria-labelledby="mdl-title">
         <span id="mdl-title" className="mdl-message">
           ⚠ 语音模型未安装(ggml-tiny.bin,~75MB),需要下载后才能使用语音输入。
         </span>
@@ -133,7 +129,7 @@ export function ModelDownloadBar(): JSX.Element | null {
       ? (state.progress.total_bytes / 1024 / 1024).toFixed(1)
       : "?";
     return (
-      <div className="model-download-bar downloading" role="status" aria-live="polite">
+      <div className="model-download-bar downloading" role="status">
         <div className="mdl-progress-info">
           下载中…{downloadedMb} / {totalMb} MB({percent.toFixed(1)}%)
         </div>
