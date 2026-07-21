@@ -2,7 +2,7 @@
 
 > **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `715f6a4` fix(w5): verify voice compilation + fix VAD speech_end_sample bug
+> **最新 commit:** `5133c30` fix(w5): verify voice compilation + fix VAD speech_end_sample bug
 > **测试状态:** 196 passing (default, W1-W4) / +voice tests 21 passing + 6 ignored via `--features voice`(requires CMake + MSVC + libclang), 0 warnings
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
