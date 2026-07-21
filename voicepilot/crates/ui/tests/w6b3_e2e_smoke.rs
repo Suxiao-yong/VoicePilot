@@ -76,6 +76,9 @@ fn e2e_organize_files_with_auto_approver() {
     let content = std::fs::read_to_string(&moved_dst).unwrap();
     assert_eq!(content, "hello e2e");
 
+    // 负面断言:src 文件应已移动走
+    assert!(!src_file.exists(), "src file should be moved away after organize");
+
     // 审计链验证:list_audit_recent 返回全局最近 N 条(此处 fresh DB 仅含本任务事件)。
     // 成功路径 8 个事件(参考 w6a_e2e_smoke.rs:52-60):
     //   TASK_CREATED / STEP_CREATED / STEP_STATUS_CHANGED(Running) /
@@ -84,22 +87,17 @@ fn e2e_organize_files_with_auto_approver() {
     let audit = state.kernel.list_audit_recent(50).unwrap();
     assert!(!audit.is_empty(), "audit should have events");
 
-    // event_type 是大写(如 "STEP_PREPARED"),先 lowercase 再做 substring 匹配。
-    let event_types_lower: Vec<String> =
-        audit.iter().map(|e| e.event_type.to_lowercase()).collect();
+    // 精确断言关键事件类型存在(参考 kernel.rs: STEP_PREPARED / STEP_COMMITTED)。
+    let event_types: Vec<String> = audit.iter().map(|e| e.event_type.clone()).collect();
     assert!(
-        event_types_lower
-            .iter()
-            .any(|t| t.contains("prepare") || t.contains("step")),
-        "audit should contain prepare/step event, got {:?}",
-        event_types_lower
+        event_types.iter().any(|t| t == "STEP_PREPARED"),
+        "audit should contain STEP_PREPARED event, got {:?}",
+        event_types
     );
     assert!(
-        event_types_lower
-            .iter()
-            .any(|t| t.contains("commit") || t.contains("move")),
-        "audit should contain commit/move event, got {:?}",
-        event_types_lower
+        event_types.iter().any(|t| t == "STEP_COMMITTED"),
+        "audit should contain STEP_COMMITTED event, got {:?}",
+        event_types
     );
 }
 
@@ -135,10 +133,16 @@ fn e2e_compute_diff_command_allowed() {
     );
     assert!(result.is_ok(), "err = {:?}", result.err());
     let diff = result.unwrap();
-    assert!(diff.diff_text.unwrap().contains("+line2 modified"));
+    let diff_text = diff.diff_text.expect("diff_text should be Some for text files");
+    assert!(
+        diff_text.contains("+line2 modified"),
+        "diff_text should contain '+line2 modified', got: {}",
+        diff_text
+    );
 }
 
 /// is_voice_enabled_command 在非 voice build 下返回 false。
+#[cfg(not(feature = "voice"))]
 #[test]
 fn e2e_is_voice_enabled_returns_false_without_feature() {
     let result = voicepilot_ui::model_download_commands::is_voice_enabled_command();
@@ -146,6 +150,7 @@ fn e2e_is_voice_enabled_returns_false_without_feature() {
 }
 
 /// check_model_command 在非 voice build 下返回 Disabled。
+#[cfg(not(feature = "voice"))]
 #[test]
 fn e2e_check_model_returns_disabled_without_feature() {
     use voicepilot_ui::model_download_commands::{check_model_command, ModelStatus};
