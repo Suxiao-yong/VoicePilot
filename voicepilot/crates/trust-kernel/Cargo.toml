@@ -17,6 +17,7 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 cedar-policy = { workspace = true }
 walkdir = { workspace = true }
+similar = { workspace = true }
 whisper-rs = { workspace = true, optional = true }
 cpal = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
@@ -25,6 +26,7 @@ hound = { workspace = true, optional = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
+tempfile = "3"
 
 [features]
 default = []

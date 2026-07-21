@@ -6,3 +6,4 @@
 pub mod fs_paths;
 pub mod fs_snapshot;
 pub mod fs;
+pub mod diff;
