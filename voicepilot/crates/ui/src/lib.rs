@@ -21,5 +21,8 @@ pub mod commands;
 #[cfg(feature = "tauri")]
 pub mod app;
 
+#[cfg(feature = "voice")]
+pub mod voice_commands;
+
 pub use error::UiError;
 pub use state::AppState;
