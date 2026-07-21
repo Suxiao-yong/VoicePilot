@@ -1,109 +1,109 @@
-# VoicePilot W6a: Tauri UI Shell + Approval Window Implementation Plan
+# VoicePilot W6a: Tauri UI Shell + Approval 窗口实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add Tauri 2 desktop UI shell to VoicePilot — bridge `trust-kernel` via Tauri commands, implement `TauriApprover` (IPC-based Approver trait impl), build the Approval window (React + TypeScript) that displays `EffectManifest` and collects y/N decisions, and validate end-to-end with a smoke test. W6b will add Main Chat, Settings, Audit Viewer, and Trust Center windows.
+**目标:** 为 VoicePilot 增加 Tauri 2 桌面 UI shell——通过 Tauri commands 桥接 `trust-kernel`,实现 `TauriApprover`(基于 IPC 的 Approver trait 实现),构建 Approval 窗口(React + TypeScript)展示 `EffectManifest` 并收集 y/N 决定,最后用端到端冒烟测试验证全链路。W6b 将补充 Main Chat、Settings、Audit Viewer、Trust Center 四个窗口。
 
-**Architecture:** New `voicepilot/crates/ui` crate (Tauri v2 application, opt-in via `tauri` workspace feature). Tauri Rust backend depends on `trust-kernel` and exposes typed Tauri commands. Frontend lives in `crates/ui/web/` (Vite + React + TypeScript). The Approval window uses Tauri events (`tauri::Emitter`/`tauri::Listener`) to bridge the synchronous `Approver::prompt` call (Rust side) with the async React approval modal (webview side). Channel-based synchronization (`tokio::sync::oneshot`) ensures the prepare→approve→commit pipeline stays blocked until the user clicks y/N.
+**架构:** 新增 `voicepilot/crates/ui` crate(Tauri v2 应用,通过 `tauri` workspace feature 开启)。Tauri Rust 后端依赖 `trust-kernel`,暴露类型化的 Tauri commands。前端位于 `crates/ui/web/`(Vite + React + TypeScript)。Approval 窗口使用 Tauri 事件(`tauri::Emitter`/`tauri::Listener`)桥接同步的 `Approver::prompt` 调用(Rust 侧)与异步的 React 审批模态框(webview 侧)。基于 channel 的同步机制(`tokio::sync::oneshot`)确保 prepare→approve→commit 管道在用户点击 y/N 之前保持阻塞。
 
-**Spec alignment (V1.1.2 §8.2 + §8.3):**
-- §8.2 window split: W6a implements **Main** (minimal — just an "organize" button + status display) + **Approval** (full effect_manifest + Diff Preview stub + y/N buttons). Audit/Settings/Trust Center deferred to W6b.
-- §8.2 IPC hardening red lines enforced:
-  - WebView never directly accesses filesystem (all FS ops go through `FilesystemTool` Rust adapter)
-  - UI cannot invoke MCP directly (all calls route through `ActionGateway`/`FilesOrganizeSkill`)
-  - Approval Window accepts only one-time `approval_request_id` (UUID v4 per prompt, consumed on decision)
-- §8.3 Approval Modal features (W6a scope): effect_manifest display, risk level (E×D), compensability, y/N buttons. **Diff Preview deferred to W6b** (needs file content reader; not in W6a minimal viable shell).
+**Spec 对齐(V1.1.2 §8.2 + §8.3):**
+- §8.2 窗口拆分:W6a 实现 **Main**(最小化——仅一个 "organize" 按钮 + 状态展示)+ **Approval**(完整 effect_manifest + Diff Preview 占位 + y/N 按钮)。Audit/Settings/Trust Center 延后到 W6b。
+- §8.2 IPC 硬化红线强制执行:
+  - WebView 不直接访问文件系统(所有 FS 操作通过 `FilesystemTool` Rust 适配器)
+  - UI 不能直接调用 MCP(所有调用通过 `ActionGateway`/`FilesOrganizeSkill`)
+  - Approval 窗口只接受一次性 `approval_request_id`(每次 prompt 生成 UUID v4,决定后消费)
+- §8.3 Approval Modal 功能(W6a 范围):effect_manifest 展示、风险等级(E×D)、可补偿性、y/N 按钮。**Diff Preview 延后到 W6b**(需要文件内容读取器,不在 W6a 最小可行 shell 范围内)。
 
-**Feature gating (opt-in, consistent with W5 voice decision):**
-- `default = []` — pure Rust, no Tauri dependency, W1-W5 tests + CLI still work (196 + voice opt-in tests)
-- `tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "trust-kernel/voice"]` — opt-in, enables UI crate
-- The `ui` crate is **excluded from the default workspace members** via `default-members = ["crates/trust-kernel", "crates/cli"]` so `cargo test` (default) never touches Tauri
-- All Tauri commands gate voice-dependent operations behind `#[cfg(feature = "voice")]` (voice listen command etc.); pure-IPC commands (route_text, organize_files) work without voice feature
+**Feature 门控(opt-in,与 W5 voice 决策一致):**
+- `default = []` —— 纯 Rust,无 Tauri 依赖,W1-W5 测试 + CLI 仍正常工作(196 + voice opt-in 测试)
+- `tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "trust-kernel/voice"]` —— opt-in,开启 UI crate
+- `ui` crate **从默认 workspace members 中排除**,通过 `default-members = ["crates/trust-kernel", "crates/cli"]` 实现,这样 `cargo test`(默认)永远不会触碰 Tauri
+- 所有 Tauri commands 用 `#[cfg(feature = "voice")]` 门控依赖 voice 的操作(voice listen command 等);纯 IPC commands(route_text、organize_files)无需 voice feature 即可工作
 
-**Tech Stack:**
-- Tauri 2.x (stable, Oct 2024 release)
+**技术栈:**
+- Tauri 2.x(稳定版,2024 年 10 月发布)
 - React 18 + TypeScript 5
-- Vite 5 (build tooling, HMR)
-- `@tauri-apps/api` 2.x (frontend IPC bindings)
-- `@tauri-apps/plugin-shell` (optional, deferred — not in W6a)
-- `tokio` 1.x (Rust async runtime for oneshot channels)
-- `tauri::Manager` + `tauri::Emitter` + `tauri::Listener` (event system)
+- Vite 5(构建工具,HMR)
+- `@tauri-apps/api` 2.x(前端 IPC 绑定)
+- `@tauri-apps/plugin-shell`(可选,延后——不在 W6a)
+- `tokio` 1.x(Rust 异步运行时,用于 oneshot channel)
+- `tauri::Manager` + `tauri::Emitter` + `tauri::Listener`(事件系统)
 
-**Build prerequisites (only when `--features tauri` is used):**
-- Node 22+ (verified: v22.16.0)
-- npm 10+ (verified: 10.9.4)
-- Rust 1.96+ (verified: cargo 1.96.1)
-- WebView2 Runtime (pre-installed on Windows 11; Windows 10 22H2 may need manual install)
-- **If Node unavailable:** Tauri code can still be written and committed; verify with `cargo check` (default, no tauri) for W1-W5 no-regression. Tauri-specific compilation/tests require Node + npm install in `crates/ui/web/`.
+**构建前提条件(仅当使用 `--features tauri` 时):**
+- Node 22+(已验证:v22.16.0)
+- npm 10+(已验证:10.9.4)
+- Rust 1.96+(已验证:cargo 1.96.1)
+- WebView2 Runtime(Windows 11 预装;Windows 10 22H2 可能需要手动安装)
+- **如果 Node 不可用:** Tauri 代码仍可编写并提交;用 `cargo check`(默认,无 tauri)验证 W1-W5 无回归。Tauri 特定的编译/测试需要 Node + 在 `crates/ui/web/` 中执行 npm install。
 
-**Out of scope (deferred to W6b):**
-- Main Chat window (voice input button, real-time transcription, route outcome feedback)
-- Settings panel (Whisper model path config, allowed_paths editor, mic device picker, VAD threshold)
-- Audit Viewer (read-only audit_logs query + display)
-- Trust Center (MCP server list, egress policy, one-click disable)
-- Skills Manager (saved Skills list, success rate, latency)
-- Diff Preview in Approval Modal (needs file content reader)
-- Kill Switch Bar (always-on top bar)
-- VAD-based auto-stop (replaces W5 PoC 5s timeout, issue #45)
-- Model auto-download (issue #46)
-- Tauri packaging (NSIS installer, code signing — W7+)
-- Streaming partial transcripts (issue #47)
-- Wake word detection (issue #48)
-
----
-
-## File Structure
-
-### New files
-
-| File | Responsibility |
-|---|---|
-| `voicepilot/crates/ui/Cargo.toml` | Tauri app crate manifest, `tauri` feature gate, deps on `trust-kernel` + `tauri` + `tokio` |
-| `voicepilot/crates/ui/build.rs` | Tauri build script (calls `tauri_build::build()`) |
-| `voicepilot/crates/ui/tauri.conf.json` | Tauri config (productName, windows list, security CSP, bundle settings) |
-| `voicepilot/crates/ui/src/main.rs` | Tauri app entry (`tauri::Builder` + command registration + plugin setup) |
-| `voicepilot/crates/ui/src/lib.rs` | Module declarations + re-exports for tests |
-| `voicepilot/crates/ui/src/approver.rs` | `TauriApprover` — impl `Approver` trait, bridges to webview via events + oneshot channel |
-| `voicepilot/crates/ui/src/commands.rs` | Tauri `#[command]` functions: `route_text`, `organize_files`, `list_voice_models`, `submit_approval` |
-| `voicepilot/crates/ui/src/state.rs` | `AppState` — holds `Arc<TrustKernel>` + pending approval request registry |
-| `voicepilot/crates/ui/src/error.rs` | `UiError` enum → Tauri `Result<T, String>` serialization |
-| `voicepilot/crates/ui/tests/approver_unit.rs` | Unit tests for `TauriApprover` (mock event emitter, no real webview) |
-| `voicepilot/crates/ui/tests/commands_unit.rs` | Unit tests for Tauri commands (route_text, organize_files) |
-| `voicepilot/crates/ui/tests/w6a_e2e_smoke.rs` | End-to-end smoke: invoke `organize_files` command with `AutoApprover` injection, verify audit chain |
-| `voicepilot/crates/ui/web/package.json` | npm deps: React, TypeScript, Vite, @tauri-apps/api |
-| `voicepilot/crates/ui/web/vite.config.ts` | Vite config (Tauri-friendly base + port) |
-| `voicepilot/crates/ui/web/tsconfig.json` | TypeScript strict mode config |
-| `voicepilot/crates/ui/web/index.html` | Vite entry HTML |
-| `voicepilot/crates/ui/web/src/main.tsx` | React app entry |
-| `voicepilot/crates/ui/web/src/App.tsx` | Root component (tab switch: Main / Approval) |
-| `voicepilot/crates/ui/web/src/components/MainView.tsx` | Minimal Main window (organize form + status display) |
-| `voicepilot/crates/ui/web/src/components/ApprovalModal.tsx` | Approval window (EffectManifest display + y/N buttons + submit) |
-| `voicepilot/crates/ui/web/src/api.ts` | Tauri `invoke` wrappers + event listeners |
-| `voicepilot/crates/ui/web/src/types.ts` | TypeScript types mirroring Rust DTOs (EffectManifest, RouteOutcome, ApprovalDecision) |
-
-### Modified files
-
-| File | Change |
-|---|---|
-| `voicepilot/Cargo.toml` | Add `tauri`, `tauri-build`, `tokio` to workspace deps; add `default-members` excluding `crates/ui`; add `ui` to members list |
-| `voicepilot/crates/trust-kernel/Cargo.toml` | No change (already exposes needed APIs via `kernel.rs`) |
-| `voicepilot/crates/trust-kernel/src/lib.rs` | No change |
-| `voicepilot/crates/cli/Cargo.toml` | No change (CLI remains a separate headless entry point) |
-| `voicepilot/crates/trust-kernel/src/approval/approver.rs` | Add `Send + Sync` bound clarification in doc comment (already present, just document why) |
+**不在范围内(延后到 W6b):**
+- Main Chat 窗口(voice 输入按钮、实时转写、route 结果反馈)
+- Settings 面板(Whisper 模型路径配置、allowed_paths 编辑器、麦克风设备选择、VAD 阈值)
+- Audit Viewer(只读 audit_logs 查询 + 展示)
+- Trust Center(MCP server 列表、egress 策略、一键禁用)
+- Skills Manager(已保存 Skills 列表、成功率、延迟)
+- Approval Modal 中的 Diff Preview(需要文件内容读取器)
+- Kill Switch Bar(常驻顶栏)
+- 基于 VAD 的自动停止(替换 W5 PoC 的 5s 超时,issue #45)
+- 模型自动下载(issue #46)
+- Tauri 打包(NSIS 安装包、代码签名——W7+)
+- 流式部分转写(issue #47)
+- 唤醒词检测(issue #48)
 
 ---
 
-## Task 1: Add `ui` crate to workspace + Tauri feature gate
+## 文件结构
 
-**Files:**
-- Modify: `voicepilot/Cargo.toml`
-- Create: `voicepilot/crates/ui/Cargo.toml`
-- Create: `voicepilot/crates/ui/build.rs`
-- Create: `voicepilot/crates/ui/src/lib.rs`
+### 新增文件
 
-- [ ] **Step 1: Update root Cargo.toml — add `default-members` + new workspace deps + `ui` member**
+| 文件 | 职责 |
+|---|---|
+| `voicepilot/crates/ui/Cargo.toml` | Tauri app crate 清单,`tauri` feature 门控,依赖 `trust-kernel` + `tauri` + `tokio` |
+| `voicepilot/crates/ui/build.rs` | Tauri 构建脚本(调用 `tauri_build::build()`) |
+| `voicepilot/crates/ui/tauri.conf.json` | Tauri 配置(productName、窗口列表、安全 CSP、打包设置) |
+| `voicepilot/crates/ui/src/main.rs` | Tauri app 入口(`tauri::Builder` + command 注册 + 插件设置) |
+| `voicepilot/crates/ui/src/lib.rs` | 模块声明 + 测试用 re-exports |
+| `voicepilot/crates/ui/src/approver.rs` | `TauriApprover` —— 实现 `Approver` trait,通过事件 + oneshot channel 桥接到 webview |
+| `voicepilot/crates/ui/src/commands.rs` | Tauri `#[command]` 函数:`route_text`、`organize_files`、`list_voice_models`、`submit_approval` |
+| `voicepilot/crates/ui/src/state.rs` | `AppState` —— 持有 `Arc<TrustKernel>` + 待处理 approval 请求注册表 |
+| `voicepilot/crates/ui/src/error.rs` | `UiError` 枚举 → Tauri `Result<T, String>` 序列化 |
+| `voicepilot/crates/ui/tests/approver_unit.rs` | `TauriApprover` 单元测试(模拟事件发射,无真实 webview) |
+| `voicepilot/crates/ui/tests/commands_unit.rs` | Tauri commands 单元测试(route_text、organize_files) |
+| `voicepilot/crates/ui/tests/w6a_e2e_smoke.rs` | 端到端冒烟测试:注入 `AutoApprover` 调用 `organize_files` command,验证审计链 |
+| `voicepilot/crates/ui/web/package.json` | npm 依赖:React、TypeScript、Vite、@tauri-apps/api |
+| `voicepilot/crates/ui/web/vite.config.ts` | Vite 配置(Tauri 友好的 base + port) |
+| `voicepilot/crates/ui/web/tsconfig.json` | TypeScript 严格模式配置 |
+| `voicepilot/crates/ui/web/index.html` | Vite 入口 HTML |
+| `voicepilot/crates/ui/web/src/main.tsx` | React app 入口 |
+| `voicepilot/crates/ui/web/src/App.tsx` | 根组件(tab 切换:Main / Approval) |
+| `voicepilot/crates/ui/web/src/components/MainView.tsx` | 最小化 Main 窗口(organize 表单 + 状态展示) |
+| `voicepilot/crates/ui/web/src/components/ApprovalModal.tsx` | Approval 窗口(EffectManifest 展示 + y/N 按钮 + 提交) |
+| `voicepilot/crates/ui/web/src/api.ts` | Tauri `invoke` 包装 + 事件监听 |
+| `voicepilot/crates/ui/web/src/types.ts` | TypeScript 类型镜像 Rust DTO(EffectManifest、RouteOutcome、ApprovalDecision) |
 
-Edit `voicepilot/Cargo.toml`:
+### 修改的文件
+
+| 文件 | 变更 |
+|---|---|
+| `voicepilot/Cargo.toml` | 添加 `tauri`、`tauri-build`、`tokio` 到 workspace deps;添加 `default-members` 排除 `crates/ui`;添加 `ui` 到 members 列表 |
+| `voicepilot/crates/trust-kernel/Cargo.toml` | 无变更(已通过 `kernel.rs` 暴露所需 API) |
+| `voicepilot/crates/trust-kernel/src/lib.rs` | 无变更 |
+| `voicepilot/crates/cli/Cargo.toml` | 无变更(CLI 仍是独立的 headless 入口) |
+| `voicepilot/crates/trust-kernel/src/approval/approver.rs` | 在 doc comment 中添加 `Send + Sync` bound 说明(已存在,仅文档化原因) |
+
+---
+
+## 任务 1:添加 `ui` crate 到 workspace + Tauri feature 门控
+
+**文件:**
+- 修改:`voicepilot/Cargo.toml`
+- 创建:`voicepilot/crates/ui/Cargo.toml`
+- 创建:`voicepilot/crates/ui/build.rs`
+- 创建:`voicepilot/crates/ui/src/lib.rs`
+
+- [ ] **步骤 1:更新根 Cargo.toml —— 添加 `default-members` + 新 workspace deps + `ui` member**
+
+编辑 `voicepilot/Cargo.toml`:
 
 ```toml
 [workspace]
@@ -144,7 +144,7 @@ tauri-build = { version = "2" }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 ```
 
-- [ ] **Step 2: Create `voicepilot/crates/ui/Cargo.toml`**
+- [ ] **步骤 2:创建 `voicepilot/crates/ui/Cargo.toml`**
 
 ```toml
 [package]
@@ -184,7 +184,7 @@ default = []
 tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "trust-kernel/voice"]
 ```
 
-- [ ] **Step 3: Create `voicepilot/crates/ui/build.rs`**
+- [ ] **步骤 3:创建 `voicepilot/crates/ui/build.rs`**
 
 ```rust
 fn main() {
@@ -193,19 +193,19 @@ fn main() {
 }
 ```
 
-- [ ] **Step 4: Create `voicepilot/crates/ui/src/lib.rs` (skeleton)**
+- [ ] **步骤 4:创建 `voicepilot/crates/ui/src/lib.rs`(骨架)**
 
 ```rust
-//! VoicePilot UI crate — Tauri 2 desktop application.
+//! VoicePilot UI crate —— Tauri 2 桌面应用。
 //!
-//! W6a scope:
-//! - Tauri command bridge to `trust-kernel`
-//! - `TauriApprover` impl (IPC-based Approver)
-//! - Approval window (React + TypeScript)
-//! - End-to-end smoke test
+//! W6a 范围:
+//! - Tauri command 桥接到 `trust-kernel`
+//! - `TauriApprover` 实现(基于 IPC 的 Approver)
+//! - Approval 窗口(React + TypeScript)
+//! - 端到端冒烟测试
 //!
-//! Feature gating: `default = []` keeps the crate pure-Rust (compiles without
-//! Tauri). `tauri` feature enables the desktop app binary + voice feature.
+//! Feature 门控:`default = []` 保持 crate 纯 Rust(无 Tauri 也能编译)。
+//! `tauri` feature 开启桌面 app 二进制 + voice feature。
 
 pub mod error;
 pub mod state;
@@ -223,7 +223,7 @@ pub use error::UiError;
 pub use state::AppState;
 ```
 
-- [ ] **Step 5: Create empty `voicepilot/crates/ui/src/error.rs` + `state.rs` skeletons**
+- [ ] **步骤 5:创建空的 `voicepilot/crates/ui/src/error.rs` + `state.rs` 骨架**
 
 `error.rs`:
 ```rust
@@ -282,25 +282,25 @@ impl AppState {
 }
 ```
 
-- [ ] **Step 6: Verify default workspace still compiles**
+- [ ] **步骤 6:验证默认 workspace 仍可编译**
 
 ```powershell
 cd d:\voicepilot
 cargo check --manifest-path voicepilot\Cargo.toml
-# Expect: no errors, no warnings; ui crate is in members but has only stub lib.rs
+# 期望:无错误,无警告;ui crate 在 members 中但只有 stub lib.rs
 cargo test --manifest-path voicepilot\Cargo.toml
-# Expect: 196 passing (W1-W4) + voice opt-in tests still skipped
+# 期望:196 个通过(W1-W4)+ voice opt-in 测试仍跳过
 ```
 
-- [ ] **Step 7: Verify Tauri feature compiles**
+- [ ] **步骤 7:验证 Tauri feature 可编译**
 
 ```powershell
 cd d:\voicepilot
 cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri
-# Expect: compiles (Tauri deps pulled, but no commands yet — only state + error modules)
+# 期望:可编译(Tauri deps 已拉取,但还没有 commands —— 只有 state + error 模块)
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8:提交**
 
 ```powershell
 git add voicepilot/Cargo.toml voicepilot/crates/ui/
@@ -309,40 +309,36 @@ git commit -m "Task 1: ui crate scaffolding with tauri feature gate (V1.1 §8.2)
 
 ---
 
-## Task 2: `TauriApprover` skeleton — channel-based Approver impl
+## 任务 2:`TauriApprover` 骨架 —— 基于 channel 的 Approver 实现
 
-**Files:**
-- Create: `voicepilot/crates/ui/src/approver.rs`
-- Create: `voicepilot/crates/ui/tests/approver_unit.rs`
+**文件:**
+- 创建:`voicepilot/crates/ui/src/approver.rs`
+- 创建:`voicepilot/crates/ui/tests/approver_unit.rs`
 
-**Design:**
-The `Approver` trait is synchronous (`fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision`). Tauri events are async. To bridge:
-1. `TauriApprover` holds an `AppHandle` (cloned, cheap — it's an `Arc` internally)
-2. On `prompt()`:
-   - Generate `approval_request_id` (UUID v4)
-   - Create a `tokio::sync::oneshot::channel::<ApprovalDecision>()`
-   - Store the `Sender` in a `Mutex<HashMap<String, Sender>>` on `AppState`
-   - Emit `approval-request` event to the webview with `{approval_request_id, manifest}`
-   - Block on `Receiver::blocking_recv()` with a timeout (default 300s, configurable)
-   - If timeout → return `Deny` (safer default per CliApprover convention)
-   - If received → return the decision
-3. The webview's "Approve"/"Deny" button calls `submit_approval` Tauri command, which looks up the `Sender` and sends the decision.
+**设计:**
+`Approver` trait 是同步的(`fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision`)。Tauri 事件是异步的。桥接方式:
+1. `TauriApprover` 持有一个 `AppHandle`(克隆,成本低——内部是 `Arc`)
+2. 在 `prompt()` 中:
+   - 生成 `approval_request_id`(UUID v4)
+   - 创建 `tokio::sync::oneshot::channel::<ApprovalDecision>()`
+   - 将 `Sender` 存入 `AppState` 上的 `Mutex<HashMap<String, Sender>>`
+   - 向 webview 发射 `approval-request` 事件,携带 `{approval_request_id, manifest}`
+   - 阻塞在 `Receiver::blocking_recv()` 上,带超时(默认 300s,可配置)
+   - 超时 → 返回 `Deny`(更安全的默认值,与 CliApprover 约定一致)
+   - 收到 → 返回决定
+3. webview 的 "Approve"/"Deny" 按钮调用 `submit_approval` Tauri command,后者查找 `Sender` 并发送决定。
 
-- [ ] **Step 1: Write the test first (red)**
+- [ ] **步骤 1:先写测试(red)**
 
 `voicepilot/crates/ui/tests/approver_unit.rs`:
 
 ```rust
 #![cfg(feature = "tauri")]
 
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::oneshot;
-use trust_kernel::approval::approver::Approver;
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::policy::transaction::EffectManifest;
-use voicepilot_ui::approver::{ApprovalRegistry, TauriApprover};
-use voicepilot_ui::state::AppState;
+use voicepilot_ui::approver::ApprovalRegistry;
 
 fn dummy_manifest() -> EffectManifest {
     EffectManifest {
@@ -357,19 +353,16 @@ fn dummy_manifest() -> EffectManifest {
 fn approval_registry_resolves_submitted_decision() {
     let registry = ApprovalRegistry::new();
     let manifest = dummy_manifest();
-    let approval_id = registry.create_request(&manifest);
-    
-    // Simulate webview submit_approval command
-    let handle = registry.get_sender(&approval_id).expect("sender exists");
-    
-    // Spawn a thread that sends the decision after 50ms
-    let sender = handle;
+    let (approval_id, rx) = registry.create_request(&manifest);
+
+    // 模拟 webview submit_approval command:取出 sender 并发送决定
+    let sender = registry.take_sender(&approval_id).expect("sender exists");
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(50));
         let _ = sender.send(ApprovalDecision::Allow);
     });
-    
-    let decision = registry.wait_for_decision(&approval_id, Duration::from_secs(5));
+
+    let decision = registry.wait_for_decision(rx, Duration::from_secs(5));
     assert_eq!(decision, ApprovalDecision::Allow);
 }
 
@@ -377,52 +370,61 @@ fn approval_registry_resolves_submitted_decision() {
 fn approval_registry_times_out_to_deny() {
     let registry = ApprovalRegistry::new();
     let manifest = dummy_manifest();
-    let approval_id = registry.create_request(&manifest);
-    
-    // Never send a decision — should time out
-    let decision = registry.wait_for_decision(&approval_id, Duration::from_millis(100));
+    let (_approval_id, rx) = registry.create_request(&manifest);
+
+    let decision = registry.wait_for_decision(rx, Duration::from_millis(100));
     assert_eq!(decision, ApprovalDecision::Deny);
 }
 
 #[test]
-fn approval_registry_consumes_request_after_decision() {
+fn approval_registry_consumes_request_after_take() {
     let registry = ApprovalRegistry::new();
     let manifest = dummy_manifest();
-    let approval_id = registry.create_request(&manifest);
-    
-    let sender = registry.get_sender(&approval_id).expect("exists");
-    let _ = sender.send(ApprovalDecision::Deny);
-    
-    // Wait for decision
-    let _ = registry.wait_for_decision(&approval_id, Duration::from_secs(1));
-    
-    // Second lookup should fail (one-shot)
-    assert!(registry.get_sender(&approval_id).is_none());
+    let (approval_id, _rx) = registry.create_request(&manifest);
+
+    let _ = registry.take_sender(&approval_id).expect("first take succeeds");
+
+    // 第二次 take 应该失败(§8.2 一次性)
+    assert!(registry.take_sender(&approval_id).is_none());
+}
+
+#[test]
+fn approval_registry_handles_sender_dropped() {
+    let registry = ApprovalRegistry::new();
+    let manifest = dummy_manifest();
+    let (approval_id, rx) = registry.create_request(&manifest);
+
+    // 取出 sender 但从不发送——直接 drop
+    let _sender = registry.take_sender(&approval_id).expect("exists");
+    // _sender 在这里被 drop
+
+    let decision = registry.wait_for_decision(rx, Duration::from_secs(1));
+    assert_eq!(decision, ApprovalDecision::Deny);
 }
 ```
 
-- [ ] **Step 2: Run tests (red)**
+- [ ] **步骤 2:运行测试(red)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test approver_unit
-# Expect: compile error — ApprovalRegistry does not exist yet
+# 期望:编译错误 —— ApprovalRegistry 尚不存在
 ```
 
-- [ ] **Step 3: Implement `ApprovalRegistry` + `TauriApprover` (green)**
+- [ ] **步骤 3:实现 `ApprovalRegistry` + `TauriApprover`(green)**
 
-Design notes:
-- `ApprovalRegistry` stores `oneshot::Sender<ApprovalDecision>` keyed by `approval_request_id`.
-- `create_request` returns `(approval_id, receiver)` so the caller (TauriApprover::prompt) holds the receiver and blocks on it. The `take_sender` method (called by `submit_approval` Tauri command) removes the sender from the map and returns it for delivery — one-shot per §8.2.
-- `wait_for_decision` blocks on the receiver with timeout using a dedicated current-thread tokio runtime (avoids deadlock if called inside an existing Tauri async context). On timeout or sender-dropped: returns `Deny` (safer default per CliApprover convention).
+设计说明:
+- `ApprovalRegistry` 用 `approval_request_id` 作 key 存储 `oneshot::Sender<ApprovalDecision>`。
+- `create_request` 返回 `(approval_id, receiver)`,这样调用方(TauriApprover::prompt)持有 receiver 并阻塞在其上。`take_sender` 方法(由 `submit_approval` Tauri command 调用)从 map 中移除 sender 并返回用于投递——一次性,符合 §8.2。
+- `wait_for_decision` 使用专用的 current-thread tokio runtime 阻塞 receiver 并带超时(避免在已存在的 Tauri async 上下文中调用时死锁)。超时或 sender 被丢弃时:返回 `Deny`(更安全的默认值,与 CliApprover 约定一致)。
 
 `voicepilot/crates/ui/src/approver.rs`:
 
 ```rust
-//! TauriApprover — bridges synchronous `Approver::prompt` to async Tauri events.
+//! TauriApprover —— 将同步的 `Approver::prompt` 桥接到异步的 Tauri 事件。
 //!
-//! V1.1 §8.2 + §6.2: Approval window must accept a one-time approval_request_id
-//! and consume it on decision. This module implements the registry that holds
-//! pending approval senders + the Approver trait impl that blocks on recv.
+//! V1.1 §8.2 + §6.2:Approval 窗口必须接受一次性 approval_request_id
+//! 并在决定后消费。本模块实现持有待处理 approval senders 的注册表
+//! + 阻塞在 recv 上的 Approver trait 实现。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -448,10 +450,10 @@ impl ApprovalRegistry {
         }
     }
 
-    /// Create a new pending approval request.
-    /// Returns (approval_request_id, receiver) — caller blocks on receiver.
-    /// The manifest is passed so the production TauriApprover can emit it
-    /// to the webview alongside the approval_request_id.
+    /// 创建新的待处理 approval 请求。
+    /// 返回 (approval_request_id, receiver) —— 调用方阻塞在 receiver 上。
+    /// 传入 manifest 以便生产环境的 TauriApprover 能将其与 approval_request_id
+    /// 一起发射到 webview。
     pub fn create_request(
         &self,
         _manifest: &EffectManifest,
@@ -465,15 +467,15 @@ impl ApprovalRegistry {
         (approval_id, rx)
     }
 
-    /// Look up + remove the sender for the given approval_request_id.
-    /// Called by the `submit_approval` Tauri command.
-    /// Returns None if the request was already consumed or expired.
+    /// 查找并移除给定 approval_request_id 的 sender。
+    /// 由 `submit_approval` Tauri command 调用。
+    /// 如果请求已被消费或已过期,返回 None。
     pub fn take_sender(&self, approval_id: &str) -> Option<oneshot::Sender<ApprovalDecision>> {
         self.senders.lock().unwrap().remove(approval_id)
     }
 
-    /// Block until a decision arrives or timeout expires.
-    /// On timeout or sender-dropped: returns Deny (safer default).
+    /// 阻塞直到决定到达或超时。
+    /// 超时或 sender 被丢弃时:返回 Deny(更安全的默认值)。
     pub fn wait_for_decision(
         &self,
         rx: oneshot::Receiver<ApprovalDecision>,
@@ -516,22 +518,22 @@ impl TauriApprover {
 impl Approver for TauriApprover {
     fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision {
         let (approval_id, rx) = self.registry.create_request(manifest);
-        // In production (Task 6): emit "approval-request" event to webview here.
-        // For unit tests: caller directly invokes `registry.take_sender(id).send(decision)`.
-        let _ = approval_id; // emitted by TauriApprover::prompt in Task 6
+        // 生产环境(任务 6):在此向 webview 发射 "approval-request" 事件。
+        // 单元测试:调用方直接调用 `registry.take_sender(id).send(decision)`。
+        let _ = approval_id; // 由 TauriApprover::prompt 在任务 6 中发射
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 }
 ```
 
-- [ ] **Step 4: Run tests (green)**
+- [ ] **步骤 4:运行测试(green)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test approver_unit
-# Expect: 4 passing
+# 期望:4 个通过
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5:提交**
 
 ```powershell
 git add voicepilot/crates/ui/src/approver.rs voicepilot/crates/ui/tests/approver_unit.rs
@@ -540,21 +542,19 @@ git commit -m "Task 2: TauriApprover with oneshot channel + 5min timeout (V1.1 �
 
 ---
 
-## Task 3: Tauri command `route_text` — bridge to SkillRouter
+## 任务 3:Tauri command `route_text` —— 桥接到 SkillRouter
 
-**Files:**
-- Create: `voicepilot/crates/ui/src/commands.rs`
-- Create: `voicepilot/crates/ui/tests/commands_unit.rs`
+**文件:**
+- 创建:`voicepilot/crates/ui/src/commands.rs`
+- 创建:`voicepilot/crates/ui/tests/commands_unit.rs`
 
-- [ ] **Step 1: Write the test first (red)**
+- [ ] **步骤 1:先写测试(red)**
 
 `voicepilot/crates/ui/tests/commands_unit.rs`:
 
 ```rust
 #![cfg(feature = "tauri")]
 
-use serde_json::json;
-use trust_kernel::kernel::TrustKernel;
 use voicepilot_ui::commands::RouteTextResult;
 use voicepilot_ui::state::AppState;
 
@@ -580,20 +580,20 @@ fn route_text_returns_empty_for_whitespace() {
 }
 ```
 
-- [ ] **Step 2: Run tests (red)**
+- [ ] **步骤 2:运行测试(red)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test commands_unit
-# Expect: compile error — commands module + route_text don't exist
+# 期望:编译错误 —— commands 模块 + route_text 不存在
 ```
 
-- [ ] **Step 3: Implement `commands.rs` (green)**
+- [ ] **步骤 3:实现 `commands.rs`(green)**
 
 ```rust
-//! Tauri commands — V1.1 §8.2 IPC bridge between webview and trust-kernel.
+//! Tauri commands —— V1.1 §8.2 webview 与 trust-kernel 之间的 IPC 桥接。
 //!
-//! All commands are `#[cfg(feature = "tauri")]`-gated. They take `&AppState`
-//! (managed by Tauri) and return `Result<T, String>` for webview consumption.
+//! 所有 commands 都用 `#[cfg(feature = "tauri")]` 门控。它们接收 `&AppState`
+//! (由 Tauri 管理)并返回 `Result<T, String>` 供 webview 消费。
 
 use serde::{Deserialize, Serialize};
 use trust_kernel::skills::router::RouteDecision;
@@ -601,8 +601,8 @@ use trust_kernel::skills::manifest::files_organize_manifest;
 use crate::error::{UiError, UiResult};
 use crate::state::AppState;
 
-/// Mirrors `trust_kernel::voice::router_bridge::RouteOutcome` but with
-/// Serialize for Tauri command return type.
+/// 镜像 `trust_kernel::voice::router_bridge::RouteOutcome`,但带 Serialize
+/// 作为 Tauri command 返回类型。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RouteTextResult {
@@ -611,8 +611,8 @@ pub enum RouteTextResult {
     Empty,
 }
 
-/// Route transcribed text (or arbitrary text input) through SkillRouter.
-/// V1.1 §5.1 — pure keyword matching (W7 will add LLM Planner fallback).
+/// 通过 SkillRouter 路由转写文本(或任意文本输入)。
+/// V1.1 §5.1 —— 纯关键词匹配(W7 将添加 LLM Planner fallback)。
 pub fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
     use trust_kernel::skills::router::SkillRouter;
     let trimmed = text.trim();
@@ -641,18 +641,18 @@ pub async fn route_text_command(
 }
 ```
 
-- [ ] **Step 4: Update `lib.rs` to export commands module**
+- [ ] **步骤 4:更新 `lib.rs` 导出 commands 模块**
 
-Already exported via `pub mod commands;` in Task 1.
+已在任务 1 中通过 `pub mod commands;` 导出。
 
-- [ ] **Step 5: Run tests (green)**
+- [ ] **步骤 5:运行测试(green)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test commands_unit
-# Expect: 3 passing
+# 期望:3 个通过
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6:提交**
 
 ```powershell
 git add voicepilot/crates/ui/src/commands.rs voicepilot/crates/ui/tests/commands_unit.rs
@@ -661,25 +661,25 @@ git commit -m "Task 3: route_text Tauri command bridges SkillRouter (V1.1 §5.1,
 
 ---
 
-## Task 4: Tauri command `organize_files` — full Skill pipeline with TauriApprover
+## 任务 4:Tauri command `organize_files` —— 完整 Skill 管道 + TauriApprover
 
-**Files:**
-- Modify: `voicepilot/crates/ui/src/commands.rs`
-- Modify: `voicepilot/crates/ui/src/state.rs`
-- Modify: `voicepilot/crates/ui/tests/commands_unit.rs`
+**文件:**
+- 修改:`voicepilot/crates/ui/src/commands.rs`
+- 修改:`voicepilot/crates/ui/src/state.rs`
+- 修改:`voicepilot/crates/ui/tests/commands_unit.rs`
 
-**Design:**
-- `AppState` gains `approval_registry: ApprovalRegistry` field
+**设计:**
+- `AppState` 新增 `approval_registry: ApprovalRegistry` 字段
 - `organize_files` command:
-  1. Create task + step in kernel
-  2. Build `FilesOrganizeInput`
-  3. Construct `TauriApprover` from the registry
-  4. Call `FilesOrganizeSkill::execute(kernel, input, approver)`
-  5. Return `OrganizeResult { tool_result, moved_paths }` to webview
+  1. 在 kernel 中创建 task + step
+  2. 构建 `FilesOrganizeInput`
+  3. 从 registry 构造 `TauriApprover`
+  4. 调用 `FilesOrganizeSkill::execute(kernel, input, approver)`
+  5. 返回 `OrganizeResult { tool_result, moved_paths }` 给 webview
 
-- [ ] **Step 1: Write the test first (red)**
+- [ ] **步骤 1:先写测试(red)**
 
-Append to `commands_unit.rs`:
+追加到 `commands_unit.rs`:
 
 ```rust
 use std::path::PathBuf;
@@ -715,16 +715,16 @@ fn organize_files_with_auto_approver_commits_move() {
 }
 ```
 
-- [ ] **Step 2: Run tests (red)**
+- [ ] **步骤 2:运行测试(red)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test commands_unit
-# Expect: compile error — organize_files doesn't exist
+# 期望:编译错误 —— organize_files 不存在
 ```
 
-- [ ] **Step 3: Implement `organize_files` (green)**
+- [ ] **步骤 3:实现 `organize_files`(green)**
 
-Add to `commands.rs`:
+添加到 `commands.rs`:
 
 ```rust
 use std::path::PathBuf;
@@ -757,7 +757,7 @@ pub fn organize_files(
     approver: &dyn Approver,
     input: &OrganizeInput,
 ) -> UiResult<OrganizeResult> {
-    // Create task + step if not exists (idempotent for retries)
+    // 如果不存在则创建 task + step(幂等,支持重试)
     if state.kernel.get_task(&input.task_id)?.is_none() {
         state.kernel.create_task(&input.task_id, "organize files")?;
     }
@@ -768,7 +768,7 @@ pub fn organize_files(
             1,
         ))?;
     }
-    
+
     let skill_input = FilesOrganizeInput {
         task_id: input.task_id.clone(),
         step_id: input.step_id.clone(),
@@ -776,16 +776,16 @@ pub fn organize_files(
         filter: input.filter.clone(),
         destination: PathBuf::from(&input.destination),
     };
-    
+
     let skill = FilesOrganizeSkill::new();
     let execution = skill.execute(&state.kernel, &skill_input, approver)?;
-    
+
     let moved_paths = execution
         .moved_paths
         .into_iter()
         .map(|(from, to)| [from.to_string_lossy().into_owned(), to.to_string_lossy().into_owned()])
         .collect();
-    
+
     Ok(OrganizeResult {
         committed: execution.tool_result.status == trust_kernel::toolresult::ToolStatus::Succeeded,
         moved_paths,
@@ -801,13 +801,13 @@ pub async fn organize_files_command(
     state: tauri::State<'_, AppState>,
     input: OrganizeInput,
 ) -> Result<OrganizeResult, String> {
-    // Construct TauriApprover from the registry on AppState
+    // 从 AppState 上的 registry 构造 TauriApprover
     let approver = crate::approver::TauriApprover::new(state.approval_registry.clone());
     organize_files(&state, &approver, &input).map_err(Into::into)
 }
 ```
 
-Update `state.rs`:
+更新 `state.rs`:
 
 ```rust
 use std::sync::Arc;
@@ -848,9 +848,9 @@ impl AppState {
 }
 ```
 
-- [ ] **Step 4: Add `tempfile` dev-dependency to ui crate**
+- [ ] **步骤 4:添加 `tempfile` dev-dependency 到 ui crate**
 
-Edit `voicepilot/crates/ui/Cargo.toml`, add:
+编辑 `voicepilot/crates/ui/Cargo.toml`,添加:
 
 ```toml
 [dev-dependencies]
@@ -858,14 +858,14 @@ tempfile = "3"
 trust-kernel = { workspace = true }
 ```
 
-- [ ] **Step 5: Run tests (green)**
+- [ ] **步骤 5:运行测试(green)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test commands_unit
-# Expect: 4 passing (3 route_text + 1 organize_files)
+# 期望:4 个通过(3 route_text + 1 organize_files)
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6:提交**
 
 ```powershell
 git add voicepilot/crates/ui/Cargo.toml voicepilot/crates/ui/src/commands.rs voicepilot/crates/ui/src/state.rs voicepilot/crates/ui/tests/commands_unit.rs
@@ -874,15 +874,15 @@ git commit -m "Task 4: organize_files Tauri command wires FilesOrganizeSkill + T
 
 ---
 
-## Task 5: `submit_approval` command — webview decision delivery
+## 任务 5:`submit_approval` command —— webview 决定投递
 
-**Files:**
-- Modify: `voicepilot/crates/ui/src/commands.rs`
-- Modify: `voicepilot/crates/ui/tests/commands_unit.rs`
+**文件:**
+- 修改:`voicepilot/crates/ui/src/commands.rs`
+- 修改:`voicepilot/crates/ui/tests/commands_unit.rs`
 
-- [ ] **Step 1: Write the test first (red)**
+- [ ] **步骤 1:先写测试(red)**
 
-Append to `commands_unit.rs`:
+追加到 `commands_unit.rs`:
 
 ```rust
 use trust_kernel::approval::types::ApprovalDecision;
@@ -892,7 +892,7 @@ use trust_kernel::policy::transaction::EffectManifest;
 
 #[test]
 fn submit_approval_delivers_decision_to_waiting_approver() {
-    let mut state = AppState::new_in_memory().unwrap();
+    let state = AppState::new_in_memory().unwrap();
     let manifest = EffectManifest {
         sources: vec![],
         destination: "D:/test".to_string(),
@@ -900,20 +900,20 @@ fn submit_approval_delivers_decision_to_waiting_approver() {
         total_bytes: 0,
     };
     let (approval_id, rx) = state.approval_registry.create_request(&manifest);
-    
-    // Spawn a thread that waits for the decision
+
+    // 派生一个线程等待决定
     let registry = state.approval_registry.clone();
     let handle = std::thread::spawn(move || {
         registry.wait_for_decision(rx, std::time::Duration::from_secs(5))
     });
-    
-    // Give the thread a moment to start waiting
+
+    // 给线程一点时间开始等待
     std::thread::sleep(std::time::Duration::from_millis(100));
-    
-    // Submit the approval decision
+
+    // 提交 approval 决定
     let result = submit_approval(&state, &approval_id, ApprovalDecision::Allow).unwrap();
     assert!(result);
-    
+
     let decision = handle.join().unwrap();
     assert_eq!(decision, ApprovalDecision::Allow);
 }
@@ -926,18 +926,18 @@ fn submit_approval_returns_false_for_unknown_id() {
 }
 ```
 
-- [ ] **Step 2: Run tests (red)**
+- [ ] **步骤 2:运行测试(red)**
 
-- [ ] **Step 3: Implement `submit_approval` (green)**
+- [ ] **步骤 3:实现 `submit_approval`(green)**
 
-Add to `commands.rs`:
+添加到 `commands.rs`:
 
 ```rust
 use trust_kernel::approval::types::ApprovalDecision;
 
-/// Submit the user's approval decision for a pending request.
-/// Returns true if the decision was delivered, false if the request
-/// was already consumed or never existed (one-shot per §8.2).
+/// 为待处理请求提交用户的 approval 决定。
+/// 如果决定已投递返回 true,如果请求已被消费或从未存在返回 false
+/// (一次性,符合 §8.2)。
 pub fn submit_approval(
     state: &AppState,
     approval_id: &str,
@@ -962,14 +962,14 @@ pub async fn submit_approval_command(
 }
 ```
 
-- [ ] **Step 4: Run tests (green)**
+- [ ] **步骤 4:运行测试(green)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test commands_unit
-# Expect: 6 passing
+# 期望:6 个通过
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5:提交**
 
 ```powershell
 git add voicepilot/crates/ui/src/commands.rs voicepilot/crates/ui/tests/commands_unit.rs
@@ -978,19 +978,19 @@ git commit -m "Task 5: submit_approval Tauri command delivers webview decision (
 
 ---
 
-## Task 6: Tauri app entry + event emission for approval requests
+## 任务 6:Tauri app 入口 + approval 请求事件发射
 
-**Files:**
-- Create: `voicepilot/crates/ui/src/main.rs`
-- Create: `voicepilot/crates/ui/src/app.rs`
-- Create: `voicepilot/crates/ui/tauri.conf.json`
+**文件:**
+- 创建:`voicepilot/crates/ui/src/main.rs`
+- 创建:`voicepilot/crates/ui/src/app.rs`
+- 创建:`voicepilot/crates/ui/tauri.conf.json`
 
-**Design:**
-- `TauriApprover::prompt` emits `approval-request` event to all webviews with `{approval_request_id, manifest}`
-- The webview's ApprovalModal listens via `@tauri-apps/api/event`
-- On submit, webview calls `submit_approval_command`
+**设计:**
+- `TauriApprover::prompt` 向所有 webview 发射 `approval-request` 事件,携带 `{approval_request_id, manifest}`
+- webview 的 ApprovalModal 通过 `@tauri-apps/api/event` 监听
+- 提交时,webview 调用 `submit_approval_command`
 
-- [ ] **Step 1: Create `tauri.conf.json`**
+- [ ] **步骤 1:创建 `tauri.conf.json`**
 
 ```json
 {
@@ -1026,10 +1026,10 @@ git commit -m "Task 5: submit_approval Tauri command delivers webview decision (
 }
 ```
 
-- [ ] **Step 2: Create `app.rs` with Tauri builder**
+- [ ] **步骤 2:创建 `app.rs` 包含 Tauri builder**
 
 ```rust
-//! Tauri app builder + command registration.
+//! Tauri app builder + command 注册。
 
 use tauri::Manager;
 use crate::commands::{
@@ -1048,7 +1048,7 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
             submit_approval_command,
         ])
         .setup(|_app| {
-            // W6b: open Approval window on demand via app.get_webview_window("approval")
+            // W6b:按需通过 app.get_webview_window("approval") 打开 Approval 窗口
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -1057,7 +1057,7 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
 }
 ```
 
-- [ ] **Step 3: Create `main.rs`**
+- [ ] **步骤 3:创建 `main.rs`**
 
 ```rust
 use voicepilot_ui::app;
@@ -1069,19 +1069,19 @@ fn main() {
                 .add_directive("info".parse().unwrap()),
         )
         .init();
-    
+
     let db_path = std::env::var("VOICEPILOT_DB")
         .unwrap_or_else(|_| "voicepilot.db".to_string());
     let kernel = trust_kernel::kernel::TrustKernel::open_file(&db_path)
         .expect("failed to open kernel");
-    
+
     app::run(kernel).expect("failed to run Tauri app");
 }
 ```
 
-- [ ] **Step 4: Update `TauriApprover` to emit events**
+- [ ] **步骤 4:更新 `TauriApprover` 以发射事件**
 
-Modify `approver.rs` — `TauriApprover` needs an `AppHandle` to emit events. Add a new constructor and update `prompt`:
+修改 `approver.rs` —— `TauriApprover` 需要一个 `AppHandle` 来发射事件。添加新构造函数并更新 `prompt`:
 
 ```rust
 #[cfg(feature = "tauri")]
@@ -1119,14 +1119,14 @@ impl Approver for TauriApprover {
             approval_request_id: approval_id.clone(),
             manifest: manifest.clone(),
         };
-        // Emit to all webviews; the ApprovalModal listens via @tauri-apps/api/event
+        // 向所有 webview 发射;ApprovalModal 通过 @tauri-apps/api/event 监听
         let _ = self.app.emit("approval-request", payload);
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 }
 ```
 
-Update `organize_files_command` to construct TauriApprover with `AppHandle`:
+更新 `organize_files_command` 以用 `AppHandle` 构造 TauriApprover:
 
 ```rust
 #[cfg(feature = "tauri")]
@@ -1141,15 +1141,15 @@ pub async fn organize_files_command(
 }
 ```
 
-- [ ] **Step 5: Verify Tauri compiles (without webview — main.rs uses `tauri::generate_context!` which needs `tauri.conf.json`)**
+- [ ] **步骤 5:验证 Tauri 可编译(无 webview —— main.rs 使用 `tauri::generate_context!` 需要 `tauri.conf.json`)**
 
 ```powershell
 cd d:\voicepilot
 cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri
-# Expect: compiles. (Tauri context will fail at runtime without web/dist, but check passes.)
+# 期望:可编译。(Tauri context 在运行时无 web/dist 会失败,但 check 通过。)
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6:提交**
 
 ```powershell
 git add voicepilot/crates/ui/src/main.rs voicepilot/crates/ui/src/app.rs voicepilot/crates/ui/src/approver.rs voicepilot/crates/ui/src/commands.rs voicepilot/crates/ui/tauri.conf.json
@@ -1158,26 +1158,26 @@ git commit -m "Task 6: Tauri app entry + approval-request event emission (V1.1 �
 
 ---
 
-## Task 7: React frontend — Approval modal + Main view
+## 任务 7:React 前端 —— Approval 模态框 + Main 视图
 
-**Files:**
-- Create: `voicepilot/crates/ui/web/package.json`
-- Create: `voicepilot/crates/ui/web/vite.config.ts`
-- Create: `voicepilot/crates/ui/web/tsconfig.json`
-- Create: `voicepilot/crates/ui/web/index.html`
-- Create: `voicepilot/crates/ui/web/src/main.tsx`
-- Create: `voicepilot/crates/ui/web/src/App.tsx`
-- Create: `voicepilot/crates/ui/web/src/components/MainView.tsx`
-- Create: `voicepilot/crates/ui/web/src/components/ApprovalModal.tsx`
-- Create: `voicepilot/crates/ui/web/src/api.ts`
-- Create: `voicepilot/crates/ui/web/src/types.ts`
+**文件:**
+- 创建:`voicepilot/crates/ui/web/package.json`
+- 创建:`voicepilot/crates/ui/web/vite.config.ts`
+- 创建:`voicepilot/crates/ui/web/tsconfig.json`
+- 创建:`voicepilot/crates/ui/web/index.html`
+- 创建:`voicepilot/crates/ui/web/src/main.tsx`
+- 创建:`voicepilot/crates/ui/web/src/App.tsx`
+- 创建:`voicepilot/crates/ui/web/src/components/MainView.tsx`
+- 创建:`voicepilot/crates/ui/web/src/components/ApprovalModal.tsx`
+- 创建:`voicepilot/crates/ui/web/src/api.ts`
+- 创建:`voicepilot/crates/ui/web/src/types.ts`
 
-**Design:**
-The frontend uses **Trae frontend-design aesthetic guidelines** (per the loaded skill): bold typography, distinctive color palette, not generic AI slop. For VoicePilot — a local-first privacy tool — the aesthetic should be **trustworthy, technical, slightly editorial**. Think: dark theme, monospace accents, sharp typography, "engineering console" feel.
+**设计:**
+前端使用 **Trae frontend-design 美学指南**(根据已加载的 skill):大胆的字体、独特的配色,不是通用的 AI slop。对于 VoicePilot——一个本地优先的隐私工具——美学应该是**可信赖、技术感、略带编辑性**。想象一下:深色主题、等宽字体强调、锐利的字体、"工程控制台"感觉。
 
-Aesthetic direction: **"Engineering Console"** — dark navy + warm amber accents, IBM Plex Mono for code/data, IBM Plex Sans for body, generous whitespace, sharp 4px corners (not rounded), subtle grid backgrounds.
+美学方向:**"Engineering Console"** —— 深海军蓝 + 暖琥珀色强调,IBM Plex Mono 用于代码/数据,IBM Plex Sans 用于正文,大量留白,锐利的 4px 边角(不圆角),微妙的网格背景。
 
-- [ ] **Step 1: Create `web/package.json`**
+- [ ] **步骤 1:创建 `web/package.json`**
 
 ```json
 {
@@ -1205,7 +1205,7 @@ Aesthetic direction: **"Engineering Console"** — dark navy + warm amber accent
 }
 ```
 
-- [ ] **Step 2: Create `web/vite.config.ts`**
+- [ ] **步骤 2:创建 `web/vite.config.ts`**
 
 ```typescript
 import { defineConfig } from "vite";
@@ -1227,7 +1227,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 3: Create `web/tsconfig.json`**
+- [ ] **步骤 3:创建 `web/tsconfig.json`**
 
 ```json
 {
@@ -1252,7 +1252,7 @@ export default defineConfig({
 }
 ```
 
-- [ ] **Step 4: Create `web/index.html`**
+- [ ] **步骤 4:创建 `web/index.html`**
 
 ```html
 <!doctype html>
@@ -1272,7 +1272,7 @@ export default defineConfig({
 </html>
 ```
 
-- [ ] **Step 5: Create `web/src/types.ts`** (mirrors Rust DTOs)
+- [ ] **步骤 5:创建 `web/src/types.ts`**(镜像 Rust DTO)
 
 ```typescript
 export interface EffectManifest {
@@ -1319,7 +1319,7 @@ export interface OrganizeResult {
 }
 ```
 
-- [ ] **Step 6: Create `web/src/api.ts`**
+- [ ] **步骤 6:创建 `web/src/api.ts`**
 
 ```typescript
 import { invoke } from "@tauri-apps/api/core";
@@ -1361,7 +1361,7 @@ export function onApprovalRequest(
 }
 ```
 
-- [ ] **Step 7: Create `web/src/main.tsx`**
+- [ ] **步骤 7:创建 `web/src/main.tsx`**
 
 ```typescript
 import React from "react";
@@ -1376,7 +1376,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 );
 ```
 
-- [ ] **Step 8: Create `web/src/styles.css`** (Engineering Console aesthetic)
+- [ ] **步骤 8:创建 `web/src/styles.css`**(Engineering Console 美学)
 
 ```css
 :root {
@@ -1751,7 +1751,7 @@ html, body, #root {
 }
 ```
 
-- [ ] **Step 9: Create `web/src/components/MainView.tsx`**
+- [ ] **步骤 9:创建 `web/src/components/MainView.tsx`**
 
 ```typescript
 import { useState } from "react";
@@ -1896,7 +1896,7 @@ export function MainView() {
 }
 ```
 
-- [ ] **Step 10: Create `web/src/components/ApprovalModal.tsx`**
+- [ ] **步骤 10:创建 `web/src/components/ApprovalModal.tsx`**
 
 ```typescript
 import { useEffect, useState } from "react";
@@ -1924,11 +1924,11 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
     }
   }
 
-  // Auto-deny on unmount (e.g., user closes window)
+  // 卸载时自动拒绝(例如用户关闭窗口)
   useEffect(() => {
     return () => {
-      // Best-effort deny on close — but only if not already submitted
-      // The Rust side will return false if already consumed (one-shot)
+      // 关闭时尽力发送 deny —— 但仅当尚未提交
+      // Rust 端如果已消费会返回 false(一次性)
       submitApproval(approval_request_id, "deny").catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1953,7 +1953,7 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
             </div>
             <div className="summary-stat">
               <span className="label">Conflicts</span>
-              <span className={`value ${manifest.conflicts.length > 0 ? "danger" : ""}`}>
+              <span className="value danger">
                 {manifest.conflicts.length}
               </span>
             </div>
@@ -2016,7 +2016,7 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
 }
 ```
 
-- [ ] **Step 11: Create `web/src/App.tsx`**
+- [ ] **步骤 11:创建 `web/src/App.tsx`**
 
 ```typescript
 import { useEffect, useState } from "react";
@@ -2076,25 +2076,25 @@ export function App() {
 }
 ```
 
-- [ ] **Step 12: Install npm deps + build frontend**
+- [ ] **步骤 12:安装 npm deps + 构建前端**
 
 ```powershell
 cd d:\voicepilot\voicepilot\crates\ui\web
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 npm install
 npm run build
-# Expect: web/dist/ contains index.html + assets/
+# 期望:web/dist/ 包含 index.html + assets/
 ```
 
-- [ ] **Step 13: Verify Tauri app compiles with frontend**
+- [ ] **步骤 13:验证 Tauri app 与前端一起编译**
 
 ```powershell
 cd d:\voicepilot
 cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri
-# Expect: compiles. tauri::generate_context! picks up web/dist.
+# 期望:可编译。tauri::generate_context! 拾取 web/dist。
 ```
 
-- [ ] **Step 14: Commit**
+- [ ] **步骤 14:提交**
 
 ```powershell
 git add voicepilot/crates/ui/web/ voicepilot/crates/ui/src/
@@ -2103,21 +2103,21 @@ git commit -m "Task 7: React frontend — Main view + Approval modal (Engineerin
 
 ---
 
-## Task 8: End-to-end smoke test — Tauri command pipeline
+## 任务 8:端到端冒烟测试 —— Tauri command 管道
 
-**Files:**
-- Create: `voicepilot/crates/ui/tests/w6a_e2e_smoke.rs`
+**文件:**
+- 创建:`voicepilot/crates/ui/tests/w6a_e2e_smoke.rs`
 
-**Design:**
-Test the full pipeline WITHOUT launching a real Tauri webview (which requires GUI). Instead:
-1. Create `AppState` with in-memory kernel
-2. Create temp dir with test files
-3. Call `organize_files` with `AutoApprover` (bypasses Tauri event system)
-4. Verify files moved + audit chain complete + compensation recorded
+**设计:**
+测试完整管道,**不启动真实 Tauri webview**(需要 GUI)。而是:
+1. 用内存 kernel 创建 `AppState`
+2. 用测试文件创建临时目录
+3. 用 `AutoApprover` 调用 `organize_files`(绕过 Tauri 事件系统)
+4. 验证文件已移动 + 审计链完整 + 补偿已记录
 
-This validates the Rust-side pipeline. Full webview E2E (with actual button clicks) is a manual test in W6b.
+这验证 Rust 侧管道。完整 webview E2E(实际按钮点击)是 W6b 的手动测试。
 
-- [ ] **Step 1: Write the smoke test**
+- [ ] **步骤 1:编写冒烟测试**
 
 `voicepilot/crates/ui/tests/w6a_e2e_smoke.rs`:
 
@@ -2129,13 +2129,12 @@ use trust_kernel::approval::approver::AutoApprover;
 use voicepilot_ui::commands::{organize_files, OrganizeInput};
 use voicepilot_ui::state::AppState;
 
-/// W6a §11.1 gate: end-to-end organize_files with the full pipeline.
-/// Uses AutoApprover (bypasses the Tauri event system) to validate the
-/// Rust-side Skill executor + audit chain + compensation recording.
-/// TauriApprover-specific event emission is covered in approver_unit.rs.
+/// W6a §11.1 gate:端到端 organize_files 完整管道。
+/// 使用 AutoApprover(绕过 Tauri 事件系统)验证 Rust 侧 Skill executor
+/// + 审计链 + 补偿记录。TauriApprover 特定的事件发射在 approver_unit.rs 中覆盖。
 #[test]
 fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
-    // Setup: temp dir with 2 .txt files + 1 .log file + a dest dir
+    // Setup:临时目录包含 2 个 .txt 文件 + 1 个 .log 文件 + 目标目录
     let tmp = TempDir::new().unwrap();
     let src = tmp.path().join("src");
     let dest = tmp.path().join("dest");
@@ -2143,10 +2142,10 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
     std::fs::create_dir_all(&dest).unwrap();
     std::fs::write(src.join("a.txt"), "alpha").unwrap();
     std::fs::write(src.join("b.txt"), "beta").unwrap();
-    std::fs::write(src.join("c.log"), "gamma").unwrap(); // not matched
+    std::fs::write(src.join("c.log"), "gamma").unwrap(); // 不匹配
 
-    // AppState with in-memory kernel (TauriApprover's registry is on AppState
-    // but unused here since AutoApprover is injected directly)
+    // AppState 用内存 kernel(TauriApprover 的 registry 在 AppState 上,
+    // 但此处未使用,因为直接注入 AutoApprover)
     let state = AppState::new_in_memory().unwrap();
 
     let result = organize_files(
@@ -2161,14 +2160,14 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
         },
     ).unwrap();
 
-    // Verify: 2 files moved (a.txt + b.txt), c.log untouched
+    // 验证:2 个文件已移动(a.txt + b.txt),c.log 未触碰
     assert!(result.committed, "tool_result should be committed");
     assert_eq!(result.moved_paths.len(), 2);
     assert!(dest.join("a.txt").exists());
     assert!(dest.join("b.txt").exists());
     assert!(src.join("c.log").exists(), "non-matching file untouched");
 
-    // Verify: audit chain has expected events (TASK_CREATED + STEP_CREATED +
+    // 验证:审计链有预期事件(TASK_CREATED + STEP_CREATED +
     // STEP_PREPARED + APPROVAL_RECORDED + STEP_COMMITTED + COMPENSATION_CREATED)
     let audit_count = state
         .kernel
@@ -2176,21 +2175,21 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
         .unwrap();
     assert!(audit_count >= 4, "expected ≥4 audit events, got {}", audit_count);
 
-    // Verify: step is in Committed state
+    // 验证:step 处于 Committed 状态
     let step = state.kernel.get_step("s-w6a-smoke").unwrap().unwrap();
     assert_eq!(
         step.status,
         trust_kernel::repo::step_repo::StepStatus::Committed
     );
 
-    // Verify: compensation recorded (strong + auto_reverse ready)
+    // 验证:补偿已记录(强 + auto_reverse 就绪)
     assert!(
         result.compensation_ref.is_some(),
         "compensation_ref must be set after successful commit"
     );
 }
 
-/// Test that denial cancels the operation without committing.
+/// 测试拒绝会取消操作而不提交。
 #[test]
 fn end_to_end_deny_cancels_commit() {
     use trust_kernel::approval::approver::AutoDenier;
@@ -2215,37 +2214,37 @@ fn end_to_end_deny_cancels_commit() {
         },
     );
 
-    // Deny → Skill executor returns error (commit skipped)
+    // 拒绝 → Skill executor 返回错误(跳过提交)
     assert!(result.is_err(), "deny should produce an error");
 
-    // Verify: source file untouched
+    // 验证:源文件未被触碰
     assert!(src.join("a.txt").exists(), "source file must not be moved on deny");
     assert!(!dest.join("a.txt").exists(), "dest must not contain the file on deny");
 }
 ```
 
-- [ ] **Step 2: Run the smoke test**
+- [ ] **步骤 2:运行冒烟测试**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri --test w6a_e2e_smoke
-# Expect: 2 passing
+# 期望:2 个通过
 ```
 
-- [ ] **Step 3: Run the full ui test suite**
+- [ ] **步骤 3:运行完整 ui 测试套件**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri
-# Expect: approver_unit (4) + commands_unit (6) + w6a_e2e_smoke (2) = 12 passing
+# 期望:approver_unit (4) + commands_unit (6) + w6a_e2e_smoke (2) = 12 个通过
 ```
 
-- [ ] **Step 4: Run default workspace tests (no-regression check)**
+- [ ] **步骤 4:运行默认 workspace 测试(无回归检查)**
 
 ```powershell
 cargo test --manifest-path voicepilot\Cargo.toml
-# Expect: 196 passing (W1-W4) + ui crate skipped (default-members = trust-kernel + cli only)
+# 期望:196 个通过(W1-W4)+ ui crate 跳过(default-members = trust-kernel + cli only)
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5:提交**
 
 ```powershell
 git add voicepilot/crates/ui/tests/w6a_e2e_smoke.rs
@@ -2254,34 +2253,34 @@ git commit -m "Task 8: W6a end-to-end smoke test — organize_files + audit chai
 
 ---
 
-## Final Review Checklist
+## 最终审查清单
 
-After all 8 tasks complete, verify:
+所有 8 个任务完成后,验证:
 
-- [ ] `cargo test --manifest-path voicepilot\Cargo.toml` — 196 passing (W1-W4 no regression)
-- [ ] `cargo test --manifest-path voicepilot\Cargo.toml --features voice` — voice opt-in tests still pass (W5 no regression)
-- [ ] `cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` — 12 passing (W6a)
-- [ ] `cargo check --manifest-path voicepilot\Cargo.toml` — 0 warnings (default)
-- [ ] `cargo check --manifest-path voicepilot\Cargo.toml --features tauri` — 0 warnings
-- [ ] `cargo clippy --manifest-path voicepilot\Cargo.toml --features tauri -- -D warnings` — 0 warnings (W6a code only; pre-existing W1-W5 nits are out of scope)
-- [ ] `cd voicepilot/crates/ui/web && npm run build` — produces `web/dist/` with `index.html`
-- [ ] Git log shows 8 commits + 1 plan commit (9 total for W6a)
-- [ ] PROGRESS.md updated with W6a section
+- [ ] `cargo test --manifest-path voicepilot\Cargo.toml` —— 196 个通过(W1-W4 无回归)
+- [ ] `cargo test --manifest-path voicepilot\Cargo.toml --features voice` —— voice opt-in 测试仍通过(W5 无回归)
+- [ ] `cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` —— 12 个通过(W6a)
+- [ ] `cargo check --manifest-path voicepilot\Cargo.toml` —— 0 警告(默认)
+- [ ] `cargo check --manifest-path voicepilot\Cargo.toml --features tauri` —— 0 警告
+- [ ] `cargo clippy --manifest-path voicepilot\Cargo.toml --features tauri -- -D warnings` —— 0 警告(仅 W6a 代码;预先存在的 W1-W5 nits 不在范围内)
+- [ ] `cd voicepilot/crates/ui/web && npm run build` —— 生成包含 `index.html` 的 `web/dist/`
+- [ ] Git log 显示 8 个 commits + 1 个 plan commit(W6a 共 9 个)
+- [ ] PROGRESS.md 更新 W6a 部分
 
 ---
 
-## Known Spec Issues (likely to surface during W6a)
+## 已知 Spec Issues(W6a 期间可能浮现)
 
-Anticipated spec issues to log if encountered (per user instruction "遇到spec issue直接修复"):
+预期 spec issues(按用户指示"遇到spec issue直接修复"):
 
-| # | Topic | Likely Trigger |
+| # | 主题 | 可能触发点 |
 |---|---|---|
-| #50 | Tauri capability/permission schema for per-window IPC hardening not specified | Task 6 (tauri.conf.json lacks capabilities section) |
-| #51 | Approval window lifecycle (open/close/timeout) not specified | Task 6 (when to open Approval window vs. inline modal) |
-| #52 | `approval_request_id` format not specified (UUID v4 vs. sequential) | Task 2 (chose `apr_<uuid>` prefix) |
-| #53 | Approval timeout default (300s vs. configurable) not specified | Task 2 (chose 300s matching prepare_token TTL) |
-| #54 | Tauri command error → webview error mapping not specified | Task 3-5 (using `String` error, may need structured error) |
-| #55 | `web/dist` build artifacts gitignore policy not specified | Task 7 (add to .gitignore) |
-| #56 | Frontend bundle signing/integrity check not specified | Task 7 (Tauri CSP is set, but no SRI) |
+| #50 | 每窗口 IPC 硬化的 Tauri capability/permission schema 未指定 | 任务 6(tauri.conf.json 缺少 capabilities 部分) |
+| #51 | Approval 窗口生命周期(打开/关闭/超时)未指定 | 任务 6(何时打开 Approval 窗口 vs. 内联模态框) |
+| #52 | `approval_request_id` 格式未指定(UUID v4 vs. 顺序) | 任务 2(选择 `apr_<uuid>` 前缀) |
+| #53 | Approval 超时默认值(300s vs. 可配置)未指定 | 任务 2(选择 300s 匹配 prepare_token TTL) |
+| #54 | Tauri command 错误 → webview 错误映射未指定 | 任务 3-5(使用 `String` 错误,可能需要结构化错误) |
+| #55 | `web/dist` 构建产物 gitignore 策略未指定 | 任务 7(添加到 .gitignore) |
+| #56 | 前端 bundle 签名/完整性检查未指定 | 任务 7(Tauri CSP 已设置,但无 SRI) |
 
-If any of these surface, fix the spec inline (per user instruction) and document the fix in PROGRESS.md §4.2.
+如果其中任何一个浮现,直接修复 spec(按用户指示)并在 PROGRESS.md §4.2 中记录修复。
