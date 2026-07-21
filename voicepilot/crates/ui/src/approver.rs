@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 use trust_kernel::approval::approver::Approver;
 use trust_kernel::approval::types::ApprovalDecision;
@@ -15,6 +16,15 @@ use trust_kernel::policy::transaction::EffectManifest;
 use uuid::Uuid;
 
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Payload emitted to the webview on the `approval-request` event.
+/// V1.1 §8.2:Approval 窗口必须接受一次性 approval_request_id
+/// 并在决定后通过 `submit_approval` command 消费。
+#[derive(serde::Serialize, Clone)]
+struct ApprovalRequestPayload {
+    approval_request_id: String,
+    manifest: EffectManifest,
+}
 
 #[derive(Clone)]
 pub struct ApprovalRegistry {
@@ -79,11 +89,24 @@ impl Default for ApprovalRegistry {
 
 pub struct TauriApprover {
     registry: ApprovalRegistry,
+    app: Option<AppHandle>,
 }
 
 impl TauriApprover {
+    /// 测试用构造函数 —— 不发射事件,只阻塞等待决定。
     pub fn new(registry: ApprovalRegistry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            app: None,
+        }
+    }
+
+    /// 生产用构造函数 —— 在 prompt 中向 webview 发射 approval-request 事件。
+    pub fn with_app(registry: ApprovalRegistry, app: AppHandle) -> Self {
+        Self {
+            registry,
+            app: Some(app),
+        }
     }
 
     pub fn registry(&self) -> &ApprovalRegistry {
@@ -94,9 +117,17 @@ impl TauriApprover {
 impl Approver for TauriApprover {
     fn prompt(&self, manifest: &EffectManifest) -> ApprovalDecision {
         let (approval_id, rx) = self.registry.create_request(manifest);
-        // 生产环境(任务 6):在此向 webview 发射 "approval-request" 事件。
+
+        // 生产环境:向 webview 发射 "approval-request" 事件。
         // 单元测试:调用方直接调用 `registry.take_sender(id).send(decision)`。
-        let _ = approval_id;
+        if let Some(app) = &self.app {
+            let payload = ApprovalRequestPayload {
+                approval_request_id: approval_id.clone(),
+                manifest: manifest.clone(),
+            };
+            let _ = app.emit("approval-request", payload);
+        }
+
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 }

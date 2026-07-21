@@ -143,10 +143,29 @@ pub fn organize_files(
 #[tauri::command]
 pub async fn organize_files_command(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
     input: OrganizeInput,
 ) -> Result<OrganizeResult, String> {
-    let approver = crate::approver::TauriApprover::new(state.approval_registry.clone());
+    let approver = crate::approver::TauriApprover::with_app(state.approval_registry.clone(), app);
     organize_files(&state, &approver, &input).map_err(Into::into)
+}
+
+/// 在 `commands.rs` 内部调用 `tauri::generate_handler!`,使 `#[tauri::command]`
+/// 生成的 `__tauri_command_name_*` / `__cmd__*` 辅助宏在本模块作用域内可见。
+/// 在 `app.rs` 中跨模块调用 `generate_handler!` 会因为宏作用域问题报
+/// "cannot find macro" 错误。
+///
+/// 单态化到 `Wry` 运行时:`tauri::AppHandle`(= `AppHandle<Wry>`)只实现
+/// `CommandArg<'_, Wry>`,若 `R` 仍是泛型,闭包类型推断无法满足 trait bound。
+#[cfg(feature = "tauri")]
+pub fn register_handlers(
+    builder: tauri::Builder<tauri::Wry>,
+) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        route_text_command,
+        organize_files_command,
+        submit_approval_command,
+    ])
 }
 
 // ===== submit_approval command (V1.1 §8.2 one-shot decision delivery) =====

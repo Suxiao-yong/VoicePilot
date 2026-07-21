@@ -1,9 +1,16 @@
-//! VoicePilot UI binary entry point.
-//!
-//! W6a Task 1 placeholder — actual `tauri::Builder` wiring lands in
-//! follow-up tasks (app module + commands + approver). Kept minimal so
-//! `cargo check --features tauri` resolves the `[[bin]]` target.
+use voicepilot_ui::app;
 
 fn main() {
-    eprintln!("voicepilot-ui: Tauri app shell not yet wired (W6a follow-up tasks).");
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("info".parse().unwrap()),
+        )
+        .init();
+
+    let db_path = std::env::var("VOICEPILOT_DB").unwrap_or_else(|_| "voicepilot.db".to_string());
+    let kernel = trust_kernel::kernel::TrustKernel::open_file(&db_path)
+        .expect("failed to open kernel");
+
+    app::run(kernel).expect("failed to run Tauri app");
 }
