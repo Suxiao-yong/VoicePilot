@@ -89,8 +89,14 @@ where
         let _ = fs::remove_file(&part_path);
     }
 
-    // 发起 HTTP GET
-    let resp = ureq::get(&info.download_url)
+    // 发起 HTTP GET(带 timeout:30s read stall 检测 + 3600s overall cap)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(30))
+        .timeout(Duration::from_secs(3600))
+        .build();
+
+    let resp = agent
+        .get(&info.download_url)
         .call()
         .map_err(|e| VoiceError::DownloadFailed(format!("HTTP request failed: {}", e)))?;
 
@@ -109,9 +115,9 @@ where
     let mut last_progress = Instant::now();
     let progress_throttle = Duration::from_millis(100);
 
+    let mut reader = resp.into_reader();
     loop {
-        let n = resp
-            .into_reader()
+        let n = reader
             .read(&mut buf)
             .map_err(|e| VoiceError::DownloadFailed(format!("read failed: {}", e)))?;
         if n == 0 {
@@ -149,10 +155,10 @@ where
         .map_err(|e| VoiceError::DownloadFailed(format!("sync failed: {}", e)))?;
     drop(part_file);
 
-    // SHA256 校验(若提供)
+    // SHA256 校验(若提供,大小写不敏感归一化)
     if let Some(expected) = &info.expected_sha256 {
         let actual = format!("{:x}", hasher.finalize());
-        if &actual != expected {
+        if actual != expected.to_ascii_lowercase() {
             let _ = fs::remove_file(&part_path);
             return Err(VoiceError::DownloadFailed(format!(
                 "SHA256 mismatch: expected={} actual={}",
