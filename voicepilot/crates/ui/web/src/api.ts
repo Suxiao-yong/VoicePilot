@@ -8,6 +8,7 @@ import type {
   OrganizeInput,
   OrganizeResult,
   RouteTextResult,
+  Skill,
   VoiceListenResult,
   TranscriptionFinalPayload,
   Settings,
@@ -82,4 +83,12 @@ export async function listMcpServers(): Promise<McpServer[]> {
 
 export async function toggleMcpServer(serverId: string, enabled: boolean): Promise<void> {
   await invoke("toggle_mcp_server_command", { serverId, enabled });
+}
+
+export async function listSkills(): Promise<Skill[]> {
+  return invoke<Skill[]>("list_skills_command");
+}
+
+export async function toggleSkill(skillId: string, enabled: boolean): Promise<void> {
+  await invoke("toggle_skill_command", { skillId, enabled });
 }

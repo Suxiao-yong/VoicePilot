@@ -437,6 +437,23 @@ impl TrustKernel {
         crate::mcp::repo::McpServerRepo::new().list(&conn)
     }
 
+    /// Stateless `SkillRepo` 访问器(V1.1.2 §8.3 Skills Manager)。
+    pub fn skill_repo(&self) -> crate::skills::repo::SkillRepo {
+        crate::skills::repo::SkillRepo::new()
+    }
+
+    /// 列出所有 Skill(V1.1.2 §8.3 Skills Manager)。
+    pub fn list_skills(&self) -> Result<Vec<crate::skills::repo::SkillRecord>> {
+        let conn = self.conn();
+        crate::skills::repo::SkillRepo::new().list(&conn)
+    }
+
+    /// 切换 Skill 启用状态(V1.1.2 §8.3 Skills Manager)。
+    pub fn toggle_skill(&self, skill_id: &str, enabled: bool) -> Result<()> {
+        let conn = self.conn();
+        crate::skills::repo::SkillRepo::new().toggle(&conn, skill_id, enabled)
+    }
+
     fn audit_append(
         &self,
         task_id: &str,

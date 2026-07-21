@@ -99,3 +99,12 @@ export interface McpServer {
   allowed_origins: string | null;
   allowed_paths: string | null;
 }
+
+export interface Skill {
+  skill_id: string;
+  version: string;
+  enabled: boolean;
+  success_count: number;
+  avg_latency_ms: number;
+  risk_label: string;
+}

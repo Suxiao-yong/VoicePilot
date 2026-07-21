@@ -28,6 +28,9 @@ pub mod audit_commands;
 pub mod trust_center_commands;
 
 #[cfg(feature = "tauri")]
+pub mod skills_commands;
+
+#[cfg(feature = "tauri")]
 pub mod app;
 
 #[cfg(feature = "voice")]
