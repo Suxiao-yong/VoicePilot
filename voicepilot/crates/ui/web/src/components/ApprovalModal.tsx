@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { submitApproval } from "../api";
 import type { ApprovalRequestPayload } from "../types";
+import { DiffViewer } from "./DiffViewer";
 
 interface Props {
   payload: ApprovalRequestPayload;
@@ -12,7 +13,10 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
   const [error, setError] = useState<string | null>(null);
   // submittedRef 短路:decide() 成功后置 true,cleanup effect 跳过冗余 deny(W6a Fast-Follow)
   const submittedRef = useRef(false);
+  // W6b-3a Task 5:expandedDiff 跟踪当前展开 Diff 的 source path(同时间只展开一个)
+  const [expandedDiff, setExpandedDiff] = useState<string | null>(null);
   const { approval_request_id, manifest } = payload;
+  const fileCount = manifest.sources.length;
 
   async function decide(decision: "allow" | "deny") {
     setSubmitting(true);
@@ -64,7 +68,7 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
           <div className="manifest-summary">
             <div className="summary-stat">
               <span className="label">Sources</span>
-              <span className="value">{manifest.sources.length}</span>
+              <span className="value">{fileCount}</span>
             </div>
             <div className="summary-stat">
               <span className="label">Total Bytes</span>
@@ -84,16 +88,47 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
                 <th>Path</th>
                 <th>Size</th>
                 <th>SHA-256</th>
+                <th>Diff</th>
               </tr>
             </thead>
             <tbody>
-              {manifest.sources.map((s) => (
-                <tr key={s.canonical_path}>
-                  <td className="path">{s.canonical_path}</td>
-                  <td>{s.size}</td>
-                  <td>{s.sha256.slice(0, 16)}…</td>
-                </tr>
-              ))}
+              {manifest.sources.map((s) => {
+                const isExpanded = expandedDiff === s.canonical_path;
+                const destPath = `${manifest.destination}/${s.canonical_path.split(/[\\/]/).pop()}`;
+                return (
+                  <Fragment key={s.canonical_path}>
+                    <tr>
+                      <td className="path">{s.canonical_path}</td>
+                      <td>{s.size}</td>
+                      <td>{s.sha256.slice(0, 16)}…</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="diff-toggle-btn"
+                          onClick={() =>
+                            setExpandedDiff(isExpanded ? null : s.canonical_path)
+                          }
+                          aria-expanded={isExpanded}
+                          aria-label={`查看 ${s.canonical_path} 的 Diff`}
+                        >
+                          {isExpanded ? "收起" : "Diff"}
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={4}>
+                          <DiffViewer
+                            sourcePath={s.canonical_path}
+                            destPath={destPath}
+                            onClose={() => setExpandedDiff(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
 
@@ -125,14 +160,14 @@ export function ApprovalModal({ payload, onDismiss }: Props) {
             onClick={() => decide("deny")}
             disabled={submitting}
           >
-            Deny
+            拒绝所有 ({fileCount} 个文件)
           </button>
           <button
             className="btn btn-primary"
             onClick={() => decide("allow")}
             disabled={submitting}
           >
-            Allow
+            允许所有 ({fileCount} 个文件)
           </button>
         </div>
       </div>
