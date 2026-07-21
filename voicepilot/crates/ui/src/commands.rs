@@ -173,6 +173,7 @@ pub fn register_handlers(
         crate::trust_center_commands::toggle_mcp_server_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
+        crate::diff_commands::compute_diff_command,
     ])
 }
 
@@ -196,6 +197,7 @@ pub fn register_handlers_with_voice(
         crate::trust_center_commands::toggle_mcp_server_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
+        crate::diff_commands::compute_diff_command,
         crate::voice_commands::voice_listen_command,
         crate::voice_commands::cancel_voice_command,
     ])

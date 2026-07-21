@@ -19,6 +19,9 @@ pub mod approver;
 pub mod commands;
 
 #[cfg(feature = "tauri")]
+pub mod diff_commands;
+
+#[cfg(feature = "tauri")]
 pub mod settings_commands;
 
 #[cfg(feature = "tauri")]
