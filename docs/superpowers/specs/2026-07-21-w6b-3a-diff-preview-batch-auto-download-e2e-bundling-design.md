@@ -1175,7 +1175,7 @@ cargo tauri build -- --features voice
 | 项 | 偏离 | 理由 |
 |---|---|---|
 | Diff 大文件处理 | 用户选"不限制",但加 50MB 软上限 OOM 安全网 | 防止极端情况 OOM,实际 99% 文件不受影响 |
-| ApprovalScope::Batch | 不引入,用前端循环 Single | 后端 schema 不动,简化实现;Batch schema 延后 W7+ |
+| ApprovalScope::Batch | 不引入,用整批决策(单次 submit_approval,不循环) | 现有架构一个 approval_id 对应一个 manifest,一次 decision 应用于整批;Batch schema 延后 W7+ |
 | auto-download 测试 | 不写自动测试,仅手动验证 | 涉及真实 HTTPS 下载,CI 环境不稳定 |
 | Tauri 2 test 模块 | 调研后实现,可能需要调整测试代码 | Tauri 2 test API 仍在演进 |
 
