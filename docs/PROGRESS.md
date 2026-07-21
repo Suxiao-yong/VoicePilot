@@ -2,13 +2,14 @@
 
 > **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `ec904b4` test(w6b-2): E2E smoke test for Settings/Audit/Trust/Skills repos
+> **最新 commit:** `9056498` feat(w6a-fast-follow): harden CSP with object-src 'none' + frame-ancestors 'none' (anti-clickjacking)
 > **测试状态:** 196 passing (default, W1-W4) / +16 passing via `-p voicepilot-ui --features tauri`(W6a+W6b-2 ui crate)/ +45 passing via `-p voicepilot-ui --features voice`(W6a+W6b-1+W6b-2 ui crate)/ +voice tests 23 passing + 6 ignored via `--features voice`(trust-kernel, requires CMake + MSVC + libclang), 0 warnings (default + tauri + voice)
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
 > **W6b-1:** ✅ 已完成(2026-07-21)— Main Chat + Voice 集成 + VAD 自动停止,35 个 ui 测试通过(+23 vs W6a),详见 §二 W6b-1 段落
 > **W6b-2:** ✅ 已完成(2026-07-21)— Settings + Audit Viewer + Trust Center + Skills Manager + Partial Transcript + KillSwitchBar,4 个 w6b2_smoke E2E 测试通过,详见 §二 W6b-2 段落
+> **W6a Fast-Follow:** ✅ 已完成(2026-07-21)— ApprovalModal submittedRef 短路 + 响应式汉堡菜单(< 768px)+ CSP 加固(object-src / frame-ancestors),3 个 commit,详见 §二 W6a Fast-Follow 段落
 
 ---
 
@@ -661,6 +662,65 @@ voicepilot/crates/ui/web/src/
 | `cargo clippy -p voicepilot-ui --features voice -- -D warnings` | voice | 0 warnings |
 | `cargo check -p voicepilot-ui --features "tauri voice"` | tauri+voice | Finished |
 | `npm.cmd run build` | — | dist/index.html + assets 生成 |
+
+### W6a Fast-Follow: ApprovalModal submittedRef + 响应式布局 + CSP 加固 (3 commits)
+
+**背景:**
+W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
+1. ApprovalModal 在用户已决策后 cleanup effect 仍会发起冗余 deny IPC,导致内核写入 spurious approval record
+2. 窄窗口(< 768px)sidebar 占据过多空间,Main Chat 可读性差
+3. CSP 缺少 `object-src` / `frame-ancestors` 指令,存在 clickjacking 风险
+
+**实现内容:**
+
+#### Fix 1: ApprovalModal submittedRef 短路(commit `9d93264`)
+- 新增 `const submittedRef = useRef(false);`
+- `decide()` 成功后置 `submittedRef.current = true;`(在 `onDismiss()` 前)
+- cleanup effect 加 `if (submittedRef.current) return;` 短路
+- **效果**:组件 unmount 时若已决策则跳过 deny IPC,避免 spurious approval record
+
+#### Fix 2: 响应式汉堡菜单(commit `d71169d`)
+- `App.tsx` 新增 `NARROW_BREAKPOINT = 768` 常量 + `isNarrow` / `sidebarOpen` state
+- `useEffect` 监听 `resize` 事件更新 `isNarrow`,从窄变宽时自动关闭 overlay
+- `KillSwitchBar` 新增 `Props { isNarrow: boolean; onToggleSidebar: () => void }`,窄窗口渲染汉堡按钮 `☰`
+- sidebar className 动态:`sidebar ${isNarrow ? "narrow" : ""} ${sidebarOpen ? "open" : ""}`
+- sidebar 在窄窗口 + open 时 `role="dialog"` + `aria-modal="true"`
+- backdrop overlay:`{isNarrow && sidebarOpen && <div className="sidebar-backdrop" onClick={...} aria-hidden="true" />}`
+- `handleNavClick` 点击导航项后自动关闭 overlay
+- `styles.css` 追加:`.sidebar-toggle` / `.sidebar-backdrop` / `@keyframes fadeIn` / `@media (max-width: 767px)` 响应式规则
+
+#### Fix 3: CSP 加固(commit `9056498`)
+- `tauri.conf.json` CSP 字段末尾追加 `; object-src 'none'; frame-ancestors 'none'`
+- **完整 CSP**:`default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; frame-ancestors 'none'`
+- **效果**:禁止 `<object>` / `<embed>` / `<iframe>` 嵌入,消除 clickjacking 攻击面
+
+**架构决策:**
+- **CSS @media + JS isNarrow 双轨**:`@media` 处理视觉(隐藏 sidebar),JS `isNarrow` 处理交互(渲染汉堡按钮 + overlay 逻辑)— 两者解耦,避免 CSS 状态与 React state 不同步
+- **submittedRef 而非 state**:`useRef` 不触发 re-render,性能优于 state;且 ref 在组件整个生命周期内稳定,适合"已决策"标记
+- **CSP frame-ancestors 而非 X-Frame-Options**:CSP 是现代标准,IE 不支持但 Tauri 用 WebView2/WebKit 不依赖 IE
+
+**W6a Fast-Follow commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `7a00cc8` | docs(w6a-fast-follow): design spec for 3 fast-follow fixes (submittedRef + responsive + CSP) |
+| `f3a89c7` | docs(w6a-fast-follow): implementation plan for 3 fast-follow fixes (4 tasks) |
+| `9d93264` | fix(w6a-fast-follow): ApprovalModal submittedRef short-circuits redundant deny IPC |
+| `d71169d` | feat(w6a-fast-follow): responsive sidebar with hamburger menu for narrow windows (< 768px) |
+| `9056498` | feat(w6a-fast-follow): harden CSP with object-src 'none' + frame-ancestors 'none' (anti-clickjacking) |
+
+**测试矩阵(W6a Fast-Follow 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo test` | (default) | 196 passed, 0 failed(无回归) |
+| `cargo test -p voicepilot-ui --features voice` | voice | 45 passed(无回归) |
+| `cargo clippy --all-targets -- -D warnings` | (default) | 0 warnings |
+| `cargo clippy -p voicepilot-ui --features voice --all-targets -- -D warnings` | voice | 0 warnings |
+| `npm.cmd run build` | — | dist/index.html + assets 生成(无 TS 错误) |
+
+**已知偏离/延后到 W6b-3:**
+- **Vitest 单元测试**:web/ 目录无 vitest 配置(仅 vite + tsc),3 项修复仅手动验证
+- **iPad / 折叠屏适配**:断点 768px 仅覆盖手机/桌面,iPad 竖屏(768px-1024px)未单独优化
+- **CSP nonce**:style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W6b-3 探讨 nonce 方案
 
 ---
 
