@@ -720,3 +720,101 @@ html, body, #root {
     padding: 16px;
   }
 }
+
+/* ===== W6b-3a Task 4: DiffViewer ===== */
+.diff-viewer {
+  margin: 12px 0;
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.diff-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #f59e0b;
+}
+
+.diff-close-btn {
+  background: transparent;
+  border: none;
+  color: #f59e0b;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.diff-paths {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.diff-paths code {
+  color: #60a5fa;
+}
+
+.diff-loading,
+.diff-error,
+.diff-truncated,
+.diff-binary {
+  padding: 8px;
+  font-size: 13px;
+}
+
+.diff-error {
+  color: #ef4444;
+}
+
+.diff-truncated {
+  color: #f59e0b;
+}
+
+.diff-text {
+  background: #0a1628;
+  color: #e2e8f0;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre;
+}
+
+.diff-text code {
+  font-family: inherit;
+}
+
+.diff-new-file {
+  border-left: 3px solid #10b981;
+}
+
+.diff-toggle-btn {
+  background: transparent;
+  border: 1px solid #f59e0b;
+  color: #f59e0b;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.diff-toggle-btn:hover {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.diff-toggle-btn[aria-expanded="true"] {
+  background: #f59e0b;
+  color: #0a1628;
+}

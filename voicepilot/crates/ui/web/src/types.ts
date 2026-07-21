@@ -113,3 +113,16 @@ export interface Skill {
   avg_latency_ms: number;
   risk_label: string;
 }
+
+// ===== W6b-3a Task 4: Diff Preview =====
+
+export type FileKind = "new_file" | "text" | "binary";
+
+export interface DiffResult {
+  source_path: string;
+  dest_path: string;
+  file_kind: FileKind;
+  diff_text: string | null;
+  truncated: boolean;
+  truncate_reason: string | null;
+}

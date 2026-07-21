@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalDecision,
   AuditEvent,
+  DiffResult,
   McpServer,
   OrganizeInput,
   OrganizeResult,
@@ -108,4 +109,16 @@ export async function listSkills(): Promise<Skill[]> {
 
 export async function toggleSkill(skillId: string, enabled: boolean): Promise<void> {
   await invoke("toggle_skill_command", { skillId, enabled });
+}
+
+// ===== W6b-3a Task 4: Diff Preview =====
+
+export async function computeDiff(
+  sourcePath: string,
+  destPath: string
+): Promise<DiffResult> {
+  return invoke<DiffResult>("compute_diff_command", {
+    sourcePath,
+    destPath,
+  });
 }
