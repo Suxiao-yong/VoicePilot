@@ -60,3 +60,42 @@ fn organize_files_with_auto_approver_commits_move() {
     assert_eq!(result.moved_paths.len(), 1);
     assert!(dest_dir.join("a.txt").exists());
 }
+
+use trust_kernel::approval::types::ApprovalDecision;
+use trust_kernel::policy::transaction::EffectManifest;
+use voicepilot_ui::commands::submit_approval;
+
+#[test]
+fn submit_approval_delivers_decision_to_waiting_approver() {
+    let state = AppState::new_in_memory().unwrap();
+    let manifest = EffectManifest {
+        sources: vec![],
+        destination: "D:/test".to_string(),
+        conflicts: vec![],
+        total_bytes: 0,
+    };
+    let (approval_id, rx) = state.approval_registry.create_request(&manifest);
+
+    // 派生一个线程等待决定
+    let registry = state.approval_registry.clone();
+    let handle = std::thread::spawn(move || {
+        registry.wait_for_decision(rx, std::time::Duration::from_secs(5))
+    });
+
+    // 给线程一点时间开始等待
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // 提交 approval 决定
+    let result = submit_approval(&state, &approval_id, ApprovalDecision::Allow).unwrap();
+    assert!(result);
+
+    let decision = handle.join().unwrap();
+    assert_eq!(decision, ApprovalDecision::Allow);
+}
+
+#[test]
+fn submit_approval_returns_false_for_unknown_id() {
+    let state = AppState::new_in_memory().unwrap();
+    let result = submit_approval(&state, "apr_nonexistent", ApprovalDecision::Deny).unwrap();
+    assert!(!result);
+}

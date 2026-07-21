@@ -149,3 +149,33 @@ pub async fn organize_files_command(
     organize_files(&state, &approver, &input).map_err(Into::into)
 }
 
+// ===== submit_approval command (V1.1 §8.2 one-shot decision delivery) =====
+
+use trust_kernel::approval::types::ApprovalDecision;
+
+/// 为待处理请求提交用户的 approval 决定。
+/// 如果决定已投递返回 true,如果请求已被消费或从未存在返回 false
+/// (一次性,符合 §8.2)。
+pub fn submit_approval(
+    state: &AppState,
+    approval_id: &str,
+    decision: ApprovalDecision,
+) -> UiResult<bool> {
+    let sender = match state.approval_registry.take_sender(approval_id) {
+        Some(s) => s,
+        None => return Ok(false),
+    };
+    let _ = sender.send(decision);
+    Ok(true)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub async fn submit_approval_command(
+    state: tauri::State<'_, AppState>,
+    approval_id: String,
+    decision: ApprovalDecision,
+) -> Result<bool, String> {
+    submit_approval(&state, &approval_id, decision).map_err(Into::into)
+}
+
