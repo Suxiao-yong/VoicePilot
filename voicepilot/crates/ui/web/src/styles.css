@@ -661,3 +661,62 @@ html, body, #root {
   font-size: 12px;
   min-height: 24px;
 }
+
+/* W6a Fast-Follow:响应式布局(窄窗口汉堡菜单) */
+.kill-switch-bar {
+  justify-content: space-between;
+}
+.kill-switch-bar > .kill-switch-label {
+  margin-left: auto;
+}
+.sidebar-toggle {
+  background: transparent;
+  color: #fef2f2;
+  border: 1px solid #fca5a5;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 14px;
+  line-height: 1;
+}
+.sidebar-toggle:hover {
+  background: #7f1d1d;
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  animation: fadeIn 0.15s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    z-index: 50;
+    transition: transform 0.2s ease-out;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.4);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar.narrow:not(.open) {
+    display: none;
+  }
+  .main-content {
+    padding: 16px;
+  }
+}
