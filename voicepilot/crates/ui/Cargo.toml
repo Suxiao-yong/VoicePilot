@@ -1,0 +1,35 @@
+[package]
+name = "voicepilot-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "voicepilot_ui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "voicepilot-ui"
+path = "src/main.rs"
+required-features = ["tauri"]
+
+[build-dependencies]
+tauri-build = { workspace = true, optional = true }
+
+[dependencies]
+trust-kernel = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, optional = true }
+tauri = { workspace = true, optional = true }
+
+[features]
+default = []
+tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "trust-kernel/voice"]
