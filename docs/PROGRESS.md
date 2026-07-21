@@ -2,11 +2,12 @@
 
 > **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `52d016c` Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check
-> **测试状态:** 196 passing (default, W1-W4) / +12 passing via `-p voicepilot-ui --features tauri`(W6a ui crate)/ +voice tests 21 passing + 6 ignored via `--features voice`(requires CMake + MSVC + libclang), 0 warnings
-> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
+> **最新 commit:** `4fd67b8` fix(clippy): resolve Rust 1.96 new lints
+> **测试状态:** 196 passing (default, W1-W4) / +12 passing via `-p voicepilot-ui --features tauri`(W6a ui crate)/ +35 passing via `-p voicepilot-ui --features voice`(W6a+W6b-1 ui crate)/ +voice tests 21 passing + 6 ignored via `--features voice`(trust-kernel, requires CMake + MSVC + libclang), 0 warnings (default + tauri + voice)
+> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
+> **W6b-1:** ✅ 已完成(2026-07-21)— Main Chat + Voice 集成 + VAD 自动停止,35 个 ui 测试通过(+23 vs W6a),详见 §二 W6b-1 段落
 
 ---
 
@@ -21,7 +22,9 @@
 | W4 | MCP Server Wrapping | ✅ 已完成 | 40 | 2026-07-20 | `1e10586` (direct on master) |
 | W5 | Voice Input (Whisper.cpp) | ✅ 已完成 | +voice (opt-in, requires CMake) | 2026-07-20 | (direct on master) |
 | W6a | Tauri UI Shell + Approval 窗口 | ✅ 已完成 | +12 (ui crate, opt-in `--features tauri`) | 2026-07-21 | (direct on master) |
-| W6b | Main Chat + Settings + Audit Viewer + Trust Center | ⏳ 未开始 | — | — | — |
+| W6b-1 | Main Chat + Voice 集成 | ✅ 已完成 | +35 (ui crate, opt-in `--features voice`) | 2026-07-21 | (direct on master) |
+| W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ⏳ 未开始 | — | — | — |
+| W6b-3 | Diff Preview + W6a Fast-Follow + 打包 + E2E | ⏳ 未开始 | — | — | — |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
@@ -463,6 +466,96 @@ voicepilot/crates/ui/
 - Plan 第 2170 行 audit 事件注释列出 6 个(实际 8 个,漏掉 2 个 STEP_STATUS_CHANGED: Running + Succeeded)
 - Plan 第 1813 行 MainView placeholder 写英文 `"organize my downloads"`(实际用中文 `"整理下载目录"` 因 SkillRouter 关键词是中文)
 - Plan 第 1098 行 TauriApprover 单 constructor `new(registry, app)`(实际用 dual constructor:`new(registry)` for tests / `with_app(registry, app)` for production,为兼容 Task 2 已通过的 4 个 approver_unit 测试)
+
+---
+
+### W6b-1: Main Chat + Voice 集成 (35 ui tests, opt-in `--features voice`)
+
+**实现内容:**
+- §8.2 Main Chat 窗口语音输入区:麦克风按钮 + 实时 transcription 显示 + route outcome 反馈
+- §8.4 语音转写 final transcript + `transcription-final` 事件发射(partial transcript 延后 issue #47)
+- §2.1 VAD-based 自动停止(issue #45 修复):新增 `VoiceListener` 编排器循环 `record_chunk` + `detect_end_of_speech`,替换 W5 PoC 固定 5s 超时
+- `VoiceRecorder` trait(`Send + Sync`)抽象录音层,production `AudioRecorderAdapter` + mock 注入,实现无麦克风单元测试
+- `VoiceListen` trait 抽象 listen→transcribe→route 管道,`voice_listen` 纯函数无 Tauri 依赖,可单测
+- `voice_listen_command` Tauri command:`tauri::State` + `AppHandle`,emit `transcription-final` 事件
+- `register_handlers_with_voice` 函数变体:`#[cfg(feature = "voice")]` 门控,voice feature on 时注册 voice_listen_command
+- WCAG A 级 a11y:voice-button `aria-pressed`、listening-indicator dots `aria-hidden`、transcription-display `role="status" aria-live="polite"`(5 个变体)、mic-icon `aria-hidden`
+- MainView 互斥逻辑:语音 listening 时禁用 W6a 的 route_text + organize 按钮
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/voice/
+├── vad.rs                      # +SpeechSegment + detect_end_of_speech (仅静音超时结束)
+├── listener.rs (NEW)           # VoiceRecorder trait + AudioRecorderAdapter + ListenOutcome + VoiceListener
+└── tests/voice_listener_unit.rs (NEW) # 4 tests (mock recorder, no mic)
+
+voicepilot/crates/ui/src/
+├── lib.rs                      # +#[cfg(feature = "voice")] pub mod voice_commands
+├── app.rs                      # cfg 选择 register_handlers / register_handlers_with_voice
+├── commands.rs                 # +register_handlers_with_voice (含 voice_listen_command)
+└── voice_commands.rs (NEW)     # VoiceListenResult + VoiceListen trait + voice_listen fn + VoiceListenImpl + voice_listen_command + build_transcription_final_payload
+
+voicepilot/crates/ui/tests/
+├── voice_commands_unit.rs (NEW) # 12 tests (6 mock + 6 payload/serialization)
+└── w6b1_voice_smoke.rs (NEW)   # 7 E2E tests (StubVoiceListen 5 场景 + 序列化)
+
+voicepilot/crates/ui/web/src/
+├── types.ts                    # +VoiceListenResult discriminated union + TranscriptionFinalPayload
+├── api.ts                      # +voiceListen() + onTranscriptionFinal() (TODO W6b-2 for partial)
+├── styles.css                  # +.voice-section / .voice-button.listening (pulse) / .listening-indicator / .transcription-display
+└── components/MainView.tsx     # 顶部语音输入区 + 保留 W6a route_text + organize fallback
+```
+
+**W6b-1 commits (按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `829dd10` | Task 1: VoiceListener orchestrator with VAD-based auto-stop (V1.1 §2.1, issue #45) |
+| `485df47` | Task 2: VoiceListen trait + voice_listen function with mock tests (V1.1 §8.2) |
+| `2236a79` | Task 3: voice_listen_command Tauri command + transcription-final event + register_handlers_with_voice (V1.1 §8.2, §8.4) |
+| `d89c554` | Task 4: MainView chat layout with voice input button + transcription display (V1.1 §8.2 Main Chat) |
+| `31869d6` | Task 4 fixup: a11y improvements (aria-pressed/aria-live/aria-hidden) + TODO comment for onTranscriptionFinal (W6b-2 reserved) |
+| `4c6347e` | Task 5: W6b-1 end-to-end smoke test with mock VoiceListen (V1.1 §11.1 W6b-1 gate) |
+| `4fd67b8` | fix(clippy): resolve Rust 1.96 new lints (large_enum_variant, manual_inspect, manual_clamp, manual_range_contains, needless_borrows, doc_lazy_continuation, len_zero) |
+
+**核心架构决策:**
+- **VoiceListener 编排器(选项 A)**:不破坏 W5 `AudioRecorder::record_with_timeout` API,新增 `VoiceListener` 在循环中调用 `record_chunk` + `detect_end_of_speech`,实现 VAD 自动停止。`VoiceRecorder` trait 抽象录音层,production `AudioRecorderAdapter` 包装 cpal,mock 注入用于无麦克风单测
+- **`detect_end_of_speech` vs `detect` 区别**:`detect()` 在 "音频末尾仍有语音" 时返回 `Speech`(用于一次性分析);`detect_end_of_speech` 仅在 "语音段 + 静音超时" 时返回 `Some`(用于循环判断是否停止)。VoiceListener post-loop 用 `detect()` 区分 Timeout(有语音) vs NoSpeech(无语音)
+- **VoiceListen trait 抽象**:`voice_listen` 是纯函数 `fn(&dyn VoiceListen) -> VoiceListenResult`,无 Tauri 依赖,可单测。Production `VoiceListenImpl` 编排 `VoiceListener` + `WhisperEngine` + `route_text`。Mock `StubVoiceListen` 用于 E2E 冒烟测试
+- **VoiceListenResult serde tag=kind**:`#[serde(tag = "kind", rename_all = "snake_case")]` 4 变体(Success/NoSpeech/Timeout/Error),TypeScript 侧 discriminated union 镜像,前端按 `result.kind` 分支渲染
+- **build_transcription_final_payload 纯函数**:从 `VoiceListenResult` 提取 `TranscriptionFinalPayload`(transcription + route_outcome + stopped_by_vad),仅在 Success 或 Timeout-with-transcription 时返回 `Some`,单测覆盖 5 场景
+- **register_handlers_with_voice 门控**:`#[cfg(feature = "voice")]` 函数变体注册 voice_listen_command;`app::run` 用 cfg 选择 `register_handlers` 或 `register_handlers_with_voice`,保证 `--features tauri`(无 voice)仍可编译
+- **dist/ 重新构建**:Task 4 MainView 改造后 `npm.cmd run build` 重新生成 dist/(index.html + index-CFYEKHAX.css + index-ZApIzmIR.js),`tauri::generate_context!` 编译期嵌入
+
+**关键修复:**
+1. **clippy Rust 1.96 新 lint**(commit `4fd67b8`):W6b-1 验证阶段发现 8 个 clippy 错误(非 W6b-1 引入,是 Rust 1.96 升级后的新 lint):
+   - `large_enum_variant`:`RouteDecision::Skill(SkillManifest)` → `Box<SkillManifest>`(328 bytes → 8 bytes pointer)
+   - `manual_inspect`:`executor.rs` `.map_err(|e| { ...; e })` → `.inspect_err(|_e| { ... })`
+   - `manual_clamp`:`audio.rs` `s.max(-1.0).min(1.0)` → `s.clamp(-1.0, 1.0)`
+   - `manual_range_contains`:`voice_unit.rs` `x >= 7000 && x <= 9000` → `(7000..=9000).contains(&x)`
+   - `needless_borrows_for_generic_args`:`transaction.rs` `hasher.update(&x.to_le_bytes())` → `hasher.update(x.to_le_bytes())`(2 处)
+   - `doc_lazy_continuation`:`types.rs` + `router.rs` 文档列表项延续加空行(2 处)
+   - `len_zero`:`fs_search.rs` `results.len() >= 1` → `!results.is_empty()`
+2. **a11y fixup**(commit `31869d6`):Task 4 code review 发现 4 个 a11y 缺陷:voice-button 缺 `aria-pressed`、dots 缺 `aria-hidden`、transcription-display 缺 `aria-live`、mic-icon 缺 `aria-hidden`。同时 `onTranscriptionFinal` 导出但未调用(plan 延后 issue #47 partial transcript),加 JSDoc `TODO(W6b-2)` 注释避免 dead code 警告
+
+**已知偏离/延后到 W6b-2/W6b-3:**
+- **issue #47 partial transcript**:W6b-1 仅实现 final transcript,partial 流式延后 W6b-2(`onTranscriptionFinal` 已预留但未调用)
+- **issue #57 cancel mechanism**:W6b-1 无取消录音按钮,延后 W6b-2
+- **issue #61 model caching**:`VoiceListenImpl::transcribe` 每次调用 reload WhisperEngine,MVP 管道验证足够,缓存优化延后 W6b-2
+- **§8.4 TTS 语音反馈 / Chip 修改 / Push-to-talk**:延后 W6b-3
+- **Settings/Audit Viewer/Trust Center/Skills Manager/Diff Preview**:延后 W6b-2/W6b-3
+
+**测试矩阵(W6b-1 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo test` | (default) | 196 passed, 0 failed |
+| `cargo test -p trust-kernel --features voice` | voice | W5 + W6b-1 voice_listener_unit 4 tests, 6 ignored (whisper real model) |
+| `cargo test -p voicepilot-ui --features tauri` | tauri | 12 passed (W6a) |
+| `cargo test -p voicepilot-ui --features voice` | voice | 35 passed (W6a 12 + W6b-1 23: 12 voice_commands + 7 w6b1_smoke + 4 lib unittests) |
+| `cargo clippy --all-targets -- -D warnings` | (default) | 0 warnings |
+| `cargo clippy -p voicepilot-ui --features tauri -- -D warnings` | tauri | 0 warnings |
+| `cargo clippy -p voicepilot-ui --features voice -- -D warnings` | voice | 0 warnings |
+| `cargo check -p voicepilot-ui --features voice` | voice | Finished (Tauri + frontend 编译成功) |
+| `npm.cmd run build` | — | dist/index.html + assets 生成 |
 
 ---
 
