@@ -818,3 +818,62 @@ html, body, #root {
   background: #f59e0b;
   color: #0a1628;
 }
+
+/* ===== W6b-3a Task 8: ModelDownloadBar ===== */
+.model-download-bar {
+  padding: 8px 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.model-download-bar.checking {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+}
+
+.model-download-bar.absent {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.model-download-bar.downloading {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.model-download-bar.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.mdl-message {
+  flex: 1;
+}
+
+.mdl-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.mdl-progress-info {
+  font-size: 12px;
+}
+
+.mdl-progress-bar {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mdl-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #60a5fa);
+  transition: width 0.1s ease-out;
+}

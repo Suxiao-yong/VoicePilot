@@ -8,6 +8,7 @@ import { AuditViewerView } from "./components/AuditViewerView";
 import { TrustCenterView } from "./components/TrustCenterView";
 import { SkillsManagerView } from "./components/SkillsManagerView";
 import { KillSwitchBar } from "./components/KillSwitchBar";
+import { ModelDownloadBar } from "./components/ModelDownloadBar";
 
 const NAV_ITEMS: { view: View; label: string }[] = [
   { view: "main", label: "Main Chat" },
@@ -62,6 +63,7 @@ export function App(): JSX.Element {
         isNarrow={isNarrow}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
+      <ModelDownloadBar />
       <div className="app-body">
         <nav
           className={`sidebar ${isNarrow ? "narrow" : ""} ${sidebarOpen ? "open" : ""}`}

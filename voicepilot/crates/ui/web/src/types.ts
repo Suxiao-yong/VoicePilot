@@ -126,3 +126,13 @@ export interface DiffResult {
   truncated: boolean;
   truncate_reason: string | null;
 }
+
+// ===== W6b-3a Task 8: ModelDownloadBar =====
+
+export type ModelStatus = "disabled" | "present" | "absent";
+
+export interface DownloadProgressPayload {
+  downloaded_bytes: number;
+  total_bytes: number | null;
+  percent: number | null;
+}

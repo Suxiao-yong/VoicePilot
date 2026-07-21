@@ -14,6 +14,8 @@ import type {
   TranscriptionFinalPayload,
   TranscriptionPartialPayload,
   Settings,
+  ModelStatus,
+  DownloadProgressPayload,
 } from "./types";
 
 export async function routeText(text: string): Promise<RouteTextResult> {
@@ -121,4 +123,26 @@ export async function computeDiff(
     sourcePath,
     destPath,
   });
+}
+
+// ===== W6b-3a Task 8: ModelDownloadBar =====
+
+export async function isVoiceEnabled(): Promise<boolean> {
+  return invoke<boolean>("is_voice_enabled_command");
+}
+
+export async function checkModel(): Promise<ModelStatus> {
+  return invoke<ModelStatus>("check_model_command");
+}
+
+export async function downloadModel(): Promise<string> {
+  return invoke<string>("download_model_command");
+}
+
+export function onModelDownloadProgress(
+  handler: (payload: DownloadProgressPayload) => void
+): Promise<UnlistenFn> {
+  return listen<DownloadProgressPayload>("model-download-progress", (e) =>
+    handler(e.payload)
+  );
 }
