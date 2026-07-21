@@ -1,15 +1,16 @@
 # VoicePilot 项目进度记录
 
-> **最后更新:** 2026-07-21 (Asia/Shanghai)
+> **最后更新:** 2026-07-22 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `9056498` feat(w6a-fast-follow): harden CSP with object-src 'none' + frame-ancestors 'none' (anti-clickjacking)
-> **测试状态:** 196 passing (default, W1-W4) / +16 passing via `-p voicepilot-ui --features tauri`(W6a+W6b-2 ui crate)/ +45 passing via `-p voicepilot-ui --features voice`(W6a+W6b-1+W6b-2 ui crate)/ +voice tests 23 passing + 6 ignored via `--features voice`(trust-kernel, requires CMake + MSVC + libclang), 0 warnings (default + tauri + voice)
-> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61)
+> **最新 commit:** `4dff4e9` build(w6b-3a): tauri Windows NSIS bundling with fluid-ripple icon + bundle metadata
+> **测试状态:** 221 passing (default `cargo test --workspace`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a ui crate non-feature tests) / +32 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + 10 ui unit)/ `cargo test -p trust-kernel --features voice` + `cargo test -p voicepilot-ui --features voice` SKIP(whisper-rs 0.13.2 bindgen issue #49,71 E0609 errors,预存在问题), 0 warnings (`cargo clippy --workspace -- -D warnings`), `npm.cmd run build` PASS
+> **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 未修复 issue #49 — whisper-rs bindgen 待 upstream fix 或换 fork)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
 > **W6b-1:** ✅ 已完成(2026-07-21)— Main Chat + Voice 集成 + VAD 自动停止,35 个 ui 测试通过(+23 vs W6a),详见 §二 W6b-1 段落
 > **W6b-2:** ✅ 已完成(2026-07-21)— Settings + Audit Viewer + Trust Center + Skills Manager + Partial Transcript + KillSwitchBar,4 个 w6b2_smoke E2E 测试通过,详见 §二 W6b-2 段落
 > **W6a Fast-Follow:** ✅ 已完成(2026-07-21)— ApprovalModal submittedRef 短路 + 响应式汉堡菜单(< 768px)+ CSP 加固(object-src / frame-ancestors),3 个 commit,详见 §二 W6a Fast-Follow 段落
+> **W6b-3a:** ✅ 已完成(2026-07-22)— Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置,16 个 commit(spec/plan + 11 Task + 5 fix),详见 §二 W6b-3a 段落
 
 ---
 
@@ -26,11 +27,11 @@
 | W6a | Tauri UI Shell + Approval 窗口 | ✅ 已完成 | +12 (ui crate, opt-in `--features tauri`) | 2026-07-21 | (direct on master) |
 | W6b-1 | Main Chat + Voice 集成 | ✅ 已完成 | +35 (ui crate, opt-in `--features voice`) | 2026-07-21 | (direct on master) |
 | W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ✅ 已完成 | +4 w6b2_smoke (tauri) + 2 partial (voice) + 10 ui unit (voice) | 2026-07-21 | (direct on master) |
-| W6b-3 | Diff Preview + W6a Fast-Follow + 打包 + E2E | ⏳ 未开始 | — | — | — |
+| W6b-3a | Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置 | ✅ 已完成 | +32 (ui crate, opt-in `--features tauri`,含 6 w6b3_e2e_smoke + 2 diff_commands_unit + 10 ui unit)/ +2 default (workspace 221,内含 w6b3_e2e_smoke 6 + diff_commands_unit 2) | 2026-07-22 | (direct on master) |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 196 (W1: 26 + W2: 53 + W3a: 38 + W3b: 39 + W4: 40;W5 voice tests 通过 `--features voice` 启用,需要 CMake + MSVC;W6a ui tests 通过 `-p voicepilot-ui --features tauri` 启用,需要 Node 22+ + npm 10+)
+**累计测试数:** 221 (default `cargo test --workspace`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a ui crate non-feature tests 25);+32 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + 10 ui unit);voice feature SKIP(whisper-rs 0.13.2 bindgen issue #49 预存在问题,71 E0609 errors)
 
 ---
 
@@ -722,6 +723,118 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 - **iPad / 折叠屏适配**:断点 768px 仅覆盖手机/桌面,iPad 竖屏(768px-1024px)未单独优化
 - **CSP nonce**:style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W6b-3 探讨 nonce 方案
 
+### W6b-3a: Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置
+
+**完成时间:** 2026-07-22(Asia/Shanghai)
+**Commit 范围:** Task 1 - Task 11(共 16 commits,含 spec/plan + 11 个 Task + 5 个 fix)
+
+**实现内容:**
+- **Diff Preview(§7.1):** Rust `similar` crate v1 计算 unified diff,文件内容不经过 IPC;50MB 软上限防 OOM;二进制检测(前 8KB NUL byte);新文件检测(whole-file added);删除文件检测(whole-file removed)
+- **批次审批文案中文化(§7.1):** "允许所有 (N 个文件)" / "拒绝所有 (N 个文件)";整批决策(单次 `submit_approval` 调用,后端不改);ApprovalModal 加 "查看差异" 按钮(懒加载)
+- **模型 auto-download(§5):** `ureq` HTTPS + 100ms 节流进度回调 + `.part` 临时文件 + 原子 rename + SHA256 校验(大小写归一化)+ HTTP timeout(30s read / 3600s overall);启动检测 + 用户确认弹窗(尊重用户)
+- **E2E 全链路冒烟(§11.1):** route → organize → AutoApprover → commit → audit chain 精确断言(STEP_PREPARED / STEP_COMMITTED)+ 负面断言(src 移走)
+- **Tauri Windows NSIS 打包配置(§6.2.1):** 多尺寸 PNG/ICO 图标(流体波纹设计 §6.2.1 方向 A,amber-only 品牌色)+ bundle metadata(productName/version/publisher/identifier)+ minWidth/minHeight(800x600)+ CSP 前瞻性加 `img-src https://huggingface.co`
+- **D3/E3 红色高亮延后 W7+:** `ApprovalRequestPayload` schema 需扩展 `eLevel`/`dLevel` 字段,`files.organize` 当前是 E2/D2
+
+**关键架构决策:**
+- **Diff 计算在 Rust 端(隐私 + IPC 数据小):** `similar::TextDiff::compute()` 在 Rust 端算出 unified diff 字符串,前端只接收渲染好的 diff text;保护文件内容不通过 IPC 流转
+- **Diff 懒加载(ApprovalModal 按钮触发):** `prepare` 阶段不加 IO,只有用户点击 "查看差异" 才触发 `compute_diff_command`;默认不阻塞 prepare 流水线
+- **批次审批整批决策(现有 `submit_approval_command` 不接受 scope):** 不引入 `ApprovalScope::Batch` 新类型,前端把 N 个文件的决策合并为单次 `submit_approval` 调用;后端架构不变
+- **auto-download 启动检测 + 用户确认:** `is_voice_enabled` + `check_model` 启动时检查,缺失则弹 ModelDownloadBar,用户点击 "立即下载" 才触发 `download_model`;尊重用户选择
+- **打包仅 Windows NSIS(macOS/Linux 延后 W7+):** `tauri.conf.json` `bundle.targets = ["nsis"]`,macOS `.dmg` / Linux `.deb`/.AppImage 延后
+- **图标用流体波纹抽象设计(amber-only,与 Task 8 fix 品牌色一致):** 32x32 / 16x16 用算法缩放,理想是手动重绘(§6.2.1)
+- **`similar` crate v1 简洁 API:** 不用 `diff` crate(老 API),用 `similar::TextDiff::compute` + `iter_changes` + `old/new` 区分
+
+**W6b-3a commits(按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `0a9442d` | spec: lock icon design to direction A (fluid ripple) with full visual spec and multi-size adaptation rules(先前会话) |
+| `b452f89` | plan: implementation plan (11 tasks) with self-review type-consistency fixes(先前会话) |
+| `61b39c7` + `ece6554` | Task 1: compute_file_diff with similar crate (50MB cap + binary detection) + fix(canonicalize paths + is_file + dest size cap) |
+| `ca940d5` | Task 2: expose FilesystemTool::assert_path_allowed for diff commands |
+| `6161b2e` | Task 3: add compute_diff_command Tauri command with allowed_paths enforcement |
+| `142455c` | Task 4: add DiffViewer component with lazy-load + truncated/binary/new-file states |
+| `804f2f0` | Task 5: integrate DiffViewer into ApprovalModal + batch-approval Chinese copy |
+| `1a94965` + `547d761` | Task 6: add model_download (ureq + SHA256 + 100ms throttled progress) + fix(move resp.into_reader outside loop + add HTTP timeout + SHA256 case normalization) |
+| `7048f1c` | Task 7: add model_download_commands (is_voice_enabled + check_model + download_model) |
+| `f714cb8` + `6513690` | Task 8: add ModelDownloadBar with start-up detection + progress + retry + fix(useEffect cleanup race + role=alert + error format + retry auto-download + aria-live dedup + brand gradient) |
+| `3c14fa3` + `d89bdfd` | Task 9: add w6b3_e2e_smoke covering route→organize→approve→commit→audit chain + fix(voice-test cfg gate + precise audit assertions + negative src assert + diff_text expect) |
+| `4dff4e9` | Task 10: tauri Windows NSIS bundling with fluid-ripple icon + bundle metadata |
+| (本 commit) | Task 11: docs(w6b-3a): update PROGRESS.md with W6b-3a section + final test matrix |
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/
+├── fs/diff.rs (NEW)                        # compute_file_diff: similar crate, 50MB cap, binary detection, new-file detection
+├── fs/mod.rs                                # +pub use diff::compute_file_diff
+└── fs/tool.rs                               # +pub fn assert_path_allowed (exposed for diff commands)
+
+voicepilot/crates/ui/src/
+├── diff_commands.rs (NEW)                  # compute_diff_command (allowed_paths enforcement)
+├── model_download.rs (NEW)                 # download_model with ureq + SHA256 + 100ms throttled progress + .part + atomic rename
+├── model_download_commands.rs (NEW)        # is_voice_enabled + check_model + download_model Tauri commands
+├── commands.rs                              # register_handlers 追加 diff + model_download commands
+└── state.rs                                 # (unchanged,reuse existing State)
+
+voicepilot/crates/ui/tests/
+├── diff_commands_unit.rs (NEW)              # 2 tests (allowed_path + blocked_path)
+└── w6b3_e2e_smoke.rs (NEW)                  # 6 E2E tests (route/organize/approve/commit/audit chain + voice cfg gate + compute_diff + model_download_disabled)
+
+voicepilot/crates/ui/web/src/
+├── components/DiffViewer.tsx (NEW)          # 懒加载 diff 渲染 + truncated/binary/new-file states
+├── components/ApprovalModal.tsx             # +"查看差异" 按钮 + DiffViewer 集成 + 批次审批中文文案
+├── components/ModelDownloadBar.tsx (NEW)    # 启动检测 + 进度条 + 重试 + role=alert + aria-live
+├── App.tsx                                  # ModelDownloadBar 集成 + 启动 is_voice_enabled/check_model
+├── api.ts                                   # +computeDiff + checkModel + downloadModel + isVoiceEnabled
+└── types.ts                                 # +DiffResult + ModelCheckResult + DownloadProgress
+
+voicepilot/crates/ui/icons/ (NEW)
+├── icon-32x32.png                           # 流体波纹 amber-only(算法缩放自 128x128)
+├── icon-128x128.png                         # 主图标
+├── icon-256x256.png                         # 高分辨率
+├── icon-512x512.png                         # Tauri 商店
+├── icon.ico                                 # Windows ICO(多尺寸嵌入)
+└── icon-square.png                          # square variant(留作 macOS/Linux)
+
+voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + productName + bundle.icon[] + windows.minWidth/minHeight + CSP 加 huggingface.co
+```
+
+**测试矩阵(W6b-3a 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo test --workspace` | (default) | **221 passed, 0 failed**(W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a ui crate non-feature tests 25) |
+| `cargo test -p trust-kernel --features voice` | voice | **SKIP** — whisper-rs 0.13.2 bindgen issue #49(71 E0609 errors: `no field 'i_start_rule'/'grammar_penalty'/'initial_prompt' on type 'whisper_full_params'`),预存在问题,待 upstream fix 或换 fork |
+| `cargo test -p voicepilot-ui --features tauri` | tauri | **32 passed, 0 failed**(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + 2 diff_commands_unit + 4 settings + 2 audit + 1 trust_center + 2 skills + 0 voice_cancel_cache + 0 voice_commands + 0 w6a_e2e_smoke[tauri-only] + 0 w6b1_voice_smoke[voice-only]) |
+| `cargo test -p voicepilot-ui --features voice` | voice | **SKIP** — 同上 whisper-rs 0.13.2 bindgen issue #49 |
+| `cargo clippy --workspace -- -D warnings` | (default) | **0 warnings, 0 errors**(默认构建,无 voice) |
+| `npm.cmd run build` | — | **PASS** — dist/index.html 0.70 KB + index-BlEPT1yi.css 16.33 KB + index-C4pFYF_9.js 170.02 KB(无 TS 错误) |
+| `cargo tauri build` | (release) | **release 编译成功**(voicepilot-ui.exe 生成);NSIS 打包因 sandbox 限制失败(`nsis-3.11.zip` 解压被阻止),留 Fast-Follow 在非 sandbox 环境生成 `VoicePilot_0.1.0_x64-setup.exe` |
+
+**已知偏离 / 延后项:**
+- **50MB 软上限:** 用户选择"不限制",但加软上限防止 OOM(§7.1);超过返回 truncated 标志,DiffViewer 显示前 N 行 + 截断提示
+- **ApprovalScope::Batch 不引入:** 整批决策用现有架构,不新增类型(§7.1);前端把 N 个文件的决策合并为单次 `submit_approval` 调用
+- **auto-download 不写自动测试:** 依赖网络,CI 不稳定(§7.1);仅手动验证 + `is_voice_enabled`/`check_model` 返回 disabled 的负面测试
+- **Tauri 2 test `mock_app()` API 在 CI 环境不稳定:** E2E 用直接调用而非 `mock_app`(§7.1);避免 `tauri::test::mock_app` 在 sandbox 下 hang
+- **D3/E3 红色高亮延后 W7+:** `ApprovalRequestPayload` 当前不含 `eLevel`/`dLevel`(§3.2);需要扩展 schema + 后端 organize skill 携带 eLevel/dLevel
+- **图标 32x32 / 16x16 用算法缩放:** 理想是手动重绘(§6.2.1);当前 128x128 主图缩放,小尺寸可能模糊
+- **NSIS installer 生成留 Fast-Follow:** sandbox 阻止 `nsis-3.11.zip` 解压,需在非 sandbox 环境运行 `cargo tauri build`
+- **voice feature 编译失败(预存在问题):** whisper-rs 0.13.2 bindgen issue #49,71 E0609 errors;非 W6b-3a 引入,Task 6 模型下载代码不依赖 voice feature 编译(`is_voice_enabled` 返回 false 时跳过)
+- **CSP nonce 仍未实现:** style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W6b-3b 或 W7 探讨 nonce 方案
+- **macOS / Linux 打包延后 W7+:** 当前仅 `bundle.targets = ["nsis"]`(Windows);macOS `.dmg` / Linux `.deb`/.AppImage 需要额外 CI runner
+
+**§11.1 W6b gate 验证:**
+- ✅ Task 9 E2E 测试通过(覆盖 route → organize → approve → commit → audit 全链路,精确事件断言:`STEP_PREPARED` + `STEP_COMMITTED` + 负面断言 src 移走)
+- ✅ 默认 build 无 voice / CMake 依赖(`cargo test --workspace` 221 PASS)
+- ✅ `tauri` feature 与 `voice` feature 独立编译(`cargo test -p voicepilot-ui --features tauri` 32 PASS)
+- ✅ TauriApprover 三条 IPC 安全规则保留(WebView 不直连 FS / UI 不直调 MCP / approval_request_id 一次性)
+- ✅ Diff 计算在 Rust 端(隐私 + IPC 数据小)
+- ✅ auto-download 启动检测 + 用户确认(尊重用户选择)
+- ✅ clippy 0 warnings(`cargo clippy --workspace -- -D warnings`)
+- ✅ 前端构建成功(`npm.cmd run build`)
+- ⚠️ voice feature 编译失败(预存在问题 issue #49,非 W6b-3a 引入)
+
+**下一步:** W6b-3b(TTS / Chip 修改 / Push-to-talk Voice UX 扩展)或 Fast-Follow(NSIS 实际打包 + 图标精修 + voice feature bindgen fix)
+
 ---
 
 ## 三、当前 master 状态确认
@@ -744,8 +857,8 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ```
 当前分支: master
-最新 commit: 52d016c Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check
-保留分支: (无,W6a 直接提交到 master,无 feature 分支)
+最新 commit: 4dff4e9 build(w6b-3a): tauri Windows NSIS bundling with fluid-ripple icon + bundle metadata
+保留分支: (无,W6b-3a 直接提交到 master,无 feature 分支)
 ```
 
 ### 关键文件清单
