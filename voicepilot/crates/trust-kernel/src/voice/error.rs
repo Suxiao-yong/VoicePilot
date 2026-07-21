@@ -24,6 +24,9 @@ pub enum VoiceError {
 
     #[error("model load failed: {0}")]
     ModelLoadFailed(String),
+
+    #[error("model download failed: {0}")]
+    DownloadFailed(String),
 }
 
 pub type VoiceResult<T> = Result<T, VoiceError>;

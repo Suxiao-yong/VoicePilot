@@ -14,3 +14,4 @@ pub mod whisper;
 pub mod audio;
 pub mod router_bridge;
 pub mod listener;
+pub mod model_download;
