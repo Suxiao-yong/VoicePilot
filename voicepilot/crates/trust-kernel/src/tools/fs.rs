@@ -301,6 +301,21 @@ impl FilesystemTool {
         }
         Ok(out)
     }
+
+    /// 检查 path 是否在 allowed_paths 白名单内(W6b-3a Task 2)。
+    ///
+    /// - 若 `allowed_paths` 为 None(开放访问),返回 Ok(())
+    /// - 若 `allowed_paths` 为 Some,委托给 `AllowedPaths::check`
+    ///
+    /// 用于 diff_commands 等只读操作的安全校验,
+    /// 不修改文件系统,只检查路径合法性。
+    pub fn assert_path_allowed(&self, path: &Path) -> Result<()> {
+        if let Some(allowed) = &self.allowed_paths {
+            allowed.check(path)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -407,5 +422,43 @@ fn glob_recursive(p: &[char], pi: usize, s: &[char], si: usize) -> bool {
             }
             glob_recursive(p, pi + 1, s, si + 1)
         }
+    }
+}
+
+#[cfg(test)]
+mod assert_path_allowed_tests {
+    use super::*;
+    use crate::allowed_paths::AllowedPaths;
+    use std::path::Path;
+
+    #[test]
+    fn assert_path_allowed_open_access() {
+        // new() 无 allowed_paths —— 开放访问,任何路径都 Ok
+        let tool = FilesystemTool::new();
+        let path = Path::new("E:/definitely_nonexistent/path.txt");
+        assert!(tool.assert_path_allowed(path).is_ok());
+    }
+
+    #[test]
+    fn assert_path_allowed_whitelist_pass() {
+        // 用 tempdir 作为 allowed root
+        let tmp = tempfile::tempdir().unwrap();
+        let tmp_path = tmp.path().to_string_lossy().to_string();
+        let allowed = AllowedPaths::new(vec![tmp_path]);
+        let tool = FilesystemTool::new_with_allowed_paths(allowed);
+
+        let path_inside = tmp.path().join("file.txt");
+        assert!(tool.assert_path_allowed(&path_inside).is_ok());
+    }
+
+    #[test]
+    fn assert_path_allowed_whitelist_block() {
+        let allowed = AllowedPaths::new(vec!["C:/safe_area".to_string()]);
+        let tool = FilesystemTool::new_with_allowed_paths(allowed);
+
+        // E:/definitely_nonexistent 不在 C:/safe_area 下
+        let path_outside = Path::new("E:/definitely_nonexistent/path.txt");
+        let result = tool.assert_path_allowed(path_outside);
+        assert!(matches!(result, Err(crate::error::KernelError::PathNotAllowed(_))));
     }
 }
