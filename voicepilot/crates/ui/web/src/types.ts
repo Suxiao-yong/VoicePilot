@@ -87,3 +87,15 @@ export interface AuditEvent {
   prev_hash: string | null;
   hash: string;
 }
+
+export interface McpServer {
+  server_id: string;
+  name: string;
+  version: string;
+  transport: string;
+  enabled: boolean;
+  trusted: boolean;
+  protocol_version: string | null;
+  allowed_origins: string | null;
+  allowed_paths: string | null;
+}

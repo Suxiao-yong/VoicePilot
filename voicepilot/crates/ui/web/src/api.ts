@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalDecision,
   AuditEvent,
+  McpServer,
   OrganizeInput,
   OrganizeResult,
   RouteTextResult,
@@ -73,4 +74,12 @@ export async function listAuditRecent(limit: number): Promise<AuditEvent[]> {
 
 export async function listAuditForTask(taskId: string): Promise<AuditEvent[]> {
   return invoke<AuditEvent[]>("list_audit_for_task_command", { taskId });
+}
+
+export async function listMcpServers(): Promise<McpServer[]> {
+  return invoke<McpServer[]>("list_mcp_servers_command");
+}
+
+export async function toggleMcpServer(serverId: string, enabled: boolean): Promise<void> {
+  await invoke("toggle_mcp_server_command", { serverId, enabled });
 }

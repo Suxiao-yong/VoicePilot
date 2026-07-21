@@ -425,6 +425,18 @@ impl TrustKernel {
         crate::repo::config_repo::ConfigRepo::new()
     }
 
+    /// 切换 MCP Server 启用状态(V1.1.2 §8.3 Trust Center)。
+    pub fn toggle_mcp_server(&self, server_id: &str, enabled: bool) -> Result<()> {
+        let conn = self.conn();
+        crate::mcp::repo::McpServerRepo::new().toggle_enabled(&conn, server_id, enabled)
+    }
+
+    /// 列出所有 MCP Server(V1.1.2 §8.3 Trust Center)。
+    pub fn list_mcp_servers(&self) -> Result<Vec<crate::mcp::repo::McpServerRecord>> {
+        let conn = self.conn();
+        crate::mcp::repo::McpServerRepo::new().list(&conn)
+    }
+
     fn audit_append(
         &self,
         task_id: &str,

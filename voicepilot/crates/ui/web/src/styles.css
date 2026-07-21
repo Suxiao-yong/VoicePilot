@@ -553,3 +553,20 @@ html, body, #root {
 .timeline-step, .timeline-hash { color: #64748b; font-size: 11px; font-family: "IBM Plex Mono", monospace; }
 .timeline-genesis { color: #fbbf24; margin-left: 8px; }
 .empty-state { color: #64748b; font-style: italic; }
+
+/* Trust Center (V1.1.2 §8.3) */
+.trust-center { padding: 24px; }
+.view-description { color: #94a3b8; margin-bottom: 16px; }
+.mcp-table { width: 100%; border-collapse: collapse; }
+.mcp-table th, .mcp-table td { border: 1px solid #1f2937; padding: 8px 12px; text-align: left; }
+.mcp-table th { background: #111827; color: #fbbf24; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.mcp-table td { color: #f1f5f9; font-size: 13px; }
+.mcp-table .mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.mcp-table .small { font-size: 11px; color: #94a3b8; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.status-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: "IBM Plex Mono", monospace; }
+.status-pill.enabled { background: #064e3b; color: #10b981; }
+.status-pill.disabled { background: #450a0a; color: #ef4444; }
+.toggle-btn { border: 1px solid #1f2937; background: transparent; color: #f1f5f9; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.toggle-btn.enable { border-color: #10b981; color: #10b981; }
+.toggle-btn.disable { border-color: #ef4444; color: #ef4444; }
+.toggle-btn:hover { background: #1f2937; }

@@ -77,6 +77,16 @@ impl McpServerRepo {
         Ok(records)
     }
 
+    /// 切换 MCP Server 启用状态(V1.1.2 §8.3 Trust Center 一键停用)。
+    /// 若 server_id 不存在,SQLite UPDATE 0 行受影响,不报错(noop)。
+    pub fn toggle_enabled(&self, conn: &Connection, server_id: &str, enabled: bool) -> Result<()> {
+        conn.execute(
+            "UPDATE mcp_servers SET enabled = ?1 WHERE server_id = ?2",
+            params![enabled, server_id],
+        )?;
+        Ok(())
+    }
+
     pub fn update(&self, conn: &Connection, rec: &McpServerRecord) -> Result<()> {
         conn.execute(
             r#"UPDATE mcp_servers SET

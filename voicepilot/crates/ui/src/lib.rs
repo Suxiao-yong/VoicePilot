@@ -25,6 +25,9 @@ pub mod settings_commands;
 pub mod audit_commands;
 
 #[cfg(feature = "tauri")]
+pub mod trust_center_commands;
+
+#[cfg(feature = "tauri")]
 pub mod app;
 
 #[cfg(feature = "voice")]

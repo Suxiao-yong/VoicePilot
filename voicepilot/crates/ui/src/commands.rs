@@ -169,6 +169,8 @@ pub fn register_handlers(
         crate::settings_commands::update_settings_command,
         crate::audit_commands::list_audit_recent_command,
         crate::audit_commands::list_audit_for_task_command,
+        crate::trust_center_commands::list_mcp_servers_command,
+        crate::trust_center_commands::toggle_mcp_server_command,
     ])
 }
 
@@ -188,6 +190,8 @@ pub fn register_handlers_with_voice(
         crate::settings_commands::update_settings_command,
         crate::audit_commands::list_audit_recent_command,
         crate::audit_commands::list_audit_for_task_command,
+        crate::trust_center_commands::list_mcp_servers_command,
+        crate::trust_center_commands::toggle_mcp_server_command,
         crate::voice_commands::voice_listen_command,
     ])
 }
