@@ -32,4 +32,11 @@ tauri = { workspace = true, optional = true }
 
 [features]
 default = []
-tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "trust-kernel/voice"]
+# Tauri UI shell only — no voice subsystem dependency.
+# This decouples W6a UI work from the W5 voice environment (whisper-rs bindgen
+# issue #49), allowing the desktop shell to compile and run on systems where
+# voice is unavailable. Voice commands in the UI are gated with #[cfg(feature = "voice")].
+tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio"]
+# Opt-in voice subsystem (requires whisper-rs build environment).
+# Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
+voice = ["tauri", "trust-kernel/voice"]
