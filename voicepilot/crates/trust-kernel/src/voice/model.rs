@@ -4,7 +4,7 @@
 //! Users download manually (CLI prints URLs); W6+ may add auto-download.
 
 use crate::voice::error::{VoiceError, VoiceResult};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct ModelSpec {

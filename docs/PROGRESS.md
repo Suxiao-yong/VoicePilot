@@ -1,11 +1,11 @@
 # VoicePilot 项目进度记录
 
-> **最后更新:** 2026-07-20 (Asia/Shanghai)
+> **最后更新:** 2026-07-21 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `877d861` test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required)
-> **测试状态:** 196 passing (default, W1-W4) / +voice tests opt-in via `--features voice`(requires CMake + MSVC), 0 warnings
+> **最新 commit:** `715f6a4` fix(w5): verify voice compilation + fix VAD speech_end_sample bug
+> **测试状态:** 196 passing (default, W1-W4) / +voice tests 21 passing + 6 ignored via `--features voice`(requires CMake + MSVC + libclang), 0 warnings
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+)
-> **W5 Fast-Follow:** 已尝试(2026-07-20)— MSVC + CMake 已就绪,被 crates.io 网络阻塞(缺 `windows-0.54.0.crate`),详见 §二 W5 段落
+> **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 
 ---
 
@@ -330,20 +330,29 @@ crates/trust-kernel/src/voice/
 - CLI `voice listen` 录固定 5s(W5 PoC;无 VAD-based auto-stop)
 - `RouterBridge::route_text` 不执行 Skill — W5 PoC 由 caller(CLI)提示用户输入 args;W7 LLM Planner 将自动提取参数
 
-**⚠️ W5 Fast-Follow 已尝试 — 被 crates.io 网络阻塞(2026-07-20):**
+**✅ W5 Fast-Follow 已完成 — voice 编译验证通过(2026-07-21):**
 - ✅ MSVC Build Tools 已确认可用:Visual Studio Community 2022 at `E:\VS2022\VS`
 - ✅ CMake 3.31.6 已确认可用:VS 自带 at `E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`(满足 whisper-rs 3.20+ 要求)
-- ✅ 608 个 crate 已下载到 `~/.cargo/registry/cache/`(89.8 MB),包括 `whisper-rs-sys-0.11.1`、`cpal-0.15.3`、`hound-3.5.1`
-- ❌ **唯一缺失**:`windows-0.54.0.crate`(cpal 0.15.3 间接依赖)— Fastly CDN (146.75.46.137:443) 连接建立但数据传输停滞 50+ 分钟
-- ❌ RsProxy 镜像配置被用户取消;直接下载 static.crates.io 也卡住(同一 Fastly CDN)
-- ✅ 默认 `cargo check` + `cargo test` 通过(196 passing,W1-W4 无回归)
-- voice 模块代码已按 plan 完整提交,API 与签名严格遵循 plan 规格
+- ✅ LLVM/libclang 已就绪:`LIBCLANG_PATH=C:\Program Files\LLVM\bin`(bindgen 依赖)
+- ✅ `WHISPER_DONT_GENERATE_BINDINGS=1` 环境变量已设置 — 使用 bundled `bindings.rs` 而非 bindgen 生成(bindgen 在 Windows MSVC 上产生 opaque struct)
+- ✅ `cargo check --features voice` 通过(exit 0)
+- ✅ `cargo test --features voice` 通过(exit 0):voice_unit 18 passed + voice_integration 1 passed + 4 ignored(需模型)+ w5_e2e_smoke 2 passed + 2 ignored(需麦克风)= 21 passed + 6 ignored
+- ✅ `cargo test`(default)通过:196 passing,W1-W4 无回归
+- ✅ voice 模块代码已按 plan 完整提交,API 与签名严格遵循 plan 规格
 
-**Fast-Follow 恢复方式(任选其一):**
-1. 配置 RsProxy 镜像:在 `~/.cargo/config.toml` 添加 `[source.crates-io] replace-with = 'rsproxy-sparse'` + `[source.rsproxy-sparse] registry = "sparse+https://rsproxy.cn/index/"`,然后 `cargo check --features voice`
-2. 手动下载 `windows-0.54.0.crate` 放到 `~/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/`,然后 `cargo check --features voice --offline`
-3. 启用 VPN/代理后运行 `cargo check --features voice`
-4. 跳过验证,直接进入 W6(issue #49 记录 voice 编译未验证)
+**关键修复(本地 patch,非 upstream):**
+1. **`whisper-rs-sys-0.11.1\src\bindings.rs`**(bundled bindings,registry source + 2 build output 目录同步):
+   - 移除 32 个 Linux x86_64 专属的 `const _: () = { ... };` 编译期 size/align/offset 断言块(Windows MSVC ABI 不同,如 `_G_fpos_t` 在 Windows 上 12 字节 vs Linux 16 字节 → `E0080 overflow`)
+   - 3 个 C enum 类型别名从 `::std::os::raw::c_uint`(u32)改为 `i32`:`whisper_alignment_heads_preset` / `whisper_gretype` / `whisper_sampling_strategy`(Windows MSVC C enum 默认 `int` 即 i32,而 whisper-rs 0.13.2 显式 `#[repr(i32)]`,导致 `E0308 mismatched types`)
+2. **`whisper.cpp\src\whisper.cpp`**(registry source + 2 build output 目录同步):添加 UTF-8 BOM(`0xEF 0xBB 0xBF`)— MSVC 无 BOM 时误读 CJK 字符(♪♩♫♬「」『』)产生 `C3688 文本后缀"銆"无效`
+3. **`voice/vad.rs` bug fix**:`speech_end_sample` 语义错误 — 原返回 `last_speech_frame * frame_size`(语音最后一帧),应为 `(i + 1) * frame_size`(`i` = 静音超时帧,即语音段实际结束位置);修正后 `vad_detects_silence_after_speech_with_correct_boundary` 测试通过
+4. **`tests/voice_unit.rs` 修复**:`m.name.as_str()` 改为 `m.name`(`&'static str` 上 `as_str()` 是 unstable feature `str_as_str`);`VadOutcome::Speech { speech_end_sample }` 改为 `{ speech_end_sample, .. }`(缺字段 `speech_start_sample`);移除未使用 import `PathBuf` + `ModelSpec`
+5. **未使用 import 清理**:`voice/model.rs` 移除 `Path`,`voice/whisper.rs` 移除 `Path`,`voice/audio.rs` 移除 `Sample`
+
+**Patch 应用方式(若需在新机器上重现):**
+- `bindings.rs` 与 `whisper.cpp` 的 patch 作用于 cargo registry source(`~/.cargo/registry/src/index.crates.io-*/whisper-rs-sys-0.11.1/`)及 target build output 目录(`target/debug/build/whisper-rs-sys-*/out/`)
+- `cargo clean` 后这些 patch 会丢失,需要重新应用;未来可考虑用 `build.rs` patch 脚本或 fork whisper-rs-sys 自动化
+- 环境变量:`LIBCLANG_PATH=C:\Program Files\LLVM\bin`、`WHISPER_DONT_GENERATE_BINDINGS=1`、PATH 含 CMake
 
 **已知偏离(已记录 issue #44-#49,延后 W6+):**
 - #44: VAD 用简单能量阈值;可能误触发于背景噪声(W6+ 换 Silero VAD)
@@ -351,7 +360,7 @@ crates/trust-kernel/src/voice/
 - #46: 模型 auto-download 未实现(用户须手动下载 `ggml-tiny.bin`)
 - #47: 流式 partial transcripts 未实现(W6+,Whisper.cpp streaming API)
 - #48: wake word detection 未实现(W6+,用户须手动运行 `voice listen`)
-- #49: voice feature 需要 CMake + MSVC;默认构建排除 voice(opt-in decision 2026-07-20);**W5 fast-follow 因 crates.io 网络阻塞未完成验证**
+- #49: voice feature 需要 CMake + MSVC + libclang;默认构建排除 voice(opt-in decision 2026-07-20);**W5 fast-follow 已于 2026-07-21 完成验证(21 passed + 6 ignored)**
 
 ---
 
@@ -499,51 +508,20 @@ W5 引入的 6 个实现层 known issues(非规格问题,记录于 §二 W5 详�
 ```powershell
 cd d:\voicepilot
 git status                          # 应为 clean,on master
-git log --oneline -3                # 应看到 877d861 test(w5): end-to-end smoke test...
+git log --oneline -3                # 应看到最新 fix(w5) commit
 cargo test --manifest-path voicepilot\Cargo.toml 2>&1 | Select-String "test result:" | Measure-Object  # 应为 196(default,W1-W4;voice tests cfg-gated 跳过)
-```
-
-### 5.2 推荐起点:W5 fast-follow 恢复 + W6 计划编写
-
-W5 voice 模块代码已全部提交到 master(commit `877d861`)。**W5 fast-follow 已于 2026-07-20 尝试,MSVC + CMake 均已确认可用,但被 crates.io 网络阻塞**(无法下载 `windows-0.54.0.crate`,Fastly CDN 连接停滞)。详见 §二 W5 段落。
-
-**Step 1: W5 fast-follow 恢复(优先 — 解决网络后验证 voice 编译):**
-
-工具链已就绪(无需安装):
-- MSVC: `E:\VS2022\VS`(Visual Studio Community 2022)
-- CMake 3.31.6: `E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
-
-恢复方式(任选其一):
-
-```powershell
-# 方式 A: 配置 RsProxy 镜像(推荐)
-# 在 ~/.cargo/config.toml 添加:
-# [source.crates-io]
-# replace-with = 'rsproxy-sparse'
-# [source.rsproxy-sparse]
-# registry = "sparse+https://rsproxy.cn/index/"
-# 然后:
+# 可选(voice 验证,需 libclang + CMake + MSVC):
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+$env:WHISPER_DONT_GENERATE_BINDINGS = "1"
 $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
-cd d:\voicepilot\voicepilot
-cargo check --features voice     # 首次 5-10 min(whisper.cpp 编译)
-cargo test --features voice      # Tier 1 自动跑;Tier 2/3 #[ignore] 跳过
-
-# 方式 B: 手动下载缺失 crate
-# 浏览器下载 https://crates.io/api/v1/crates/windows/0.54.0/download
-# 放到 ~/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/windows-0.54.0.crate
-# 然后:
-cargo check --features voice --offline
-
-# 方式 C: VPN/代理
-# 启用后直接 cargo check --features voice
-
-# 可选: 下载 ggml-tiny.bin 到 ~/.voicepilot/models/
-# cargo test --features voice -- --ignored  # 跑 Tier 2 模型测试
+cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-验证完成后更新本文件 §二 W5 段落中 "⚠️ W5 Fast-Follow 已尝试" 子段为 "✅ voice 编译验证通过"。
+### 5.2 推荐起点:W6 计划编写
 
-**Step 2: W6 计划编写:**
+W5 voice 模块已全部完成并验证通过(commit `877d861` + fast-follow fix commit)。**`cargo check --features voice` + `cargo test --features voice` 全部通过(21 passed + 6 ignored,2026-07-21)**。详见 §二 W5 段落。
+
+**Step 1: W6 计划编写:**
 
 使用 `superpowers:writing-plans` skill 创建 W6 计划:
 

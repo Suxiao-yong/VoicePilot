@@ -6,7 +6,7 @@
 
 use crate::voice::error::{VoiceError, VoiceResult};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Sample, SampleFormat, StreamConfig};
+use cpal::{SampleFormat, StreamConfig};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

@@ -8,7 +8,7 @@
 //!   - Threads default to 4 (sensible for modern CPUs).
 
 use crate::voice::error::{VoiceError, VoiceResult};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct WhisperConfig {

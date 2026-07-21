@@ -104,7 +104,9 @@ impl VadDetector {
                     // End of speech segment.
                     if speech_frame_count >= self.min_speech_frames {
                         let speech_start_sample = speech_start_frame * self.frame_size;
-                        let speech_end_sample = (last_speech_frame + 1) * self.frame_size;
+                        // speech_end_sample is the sample index where speech ended
+                        // (after silence timeout), per doc contract.
+                        let speech_end_sample = (i + 1) * self.frame_size;
                         return VadOutcome::Speech {
                             speech_start_sample,
                             speech_end_sample,

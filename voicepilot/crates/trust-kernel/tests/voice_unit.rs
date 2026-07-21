@@ -26,8 +26,7 @@ fn voice_error_displays_human_readable_messages() {
     );
 }
 
-use std::path::PathBuf;
-use trust_kernel::voice::model::{ModelRegistry, ModelSpec};
+use trust_kernel::voice::model::ModelRegistry;
 
 #[test]
 fn model_registry_resolves_default_model_path() {
@@ -65,7 +64,7 @@ fn model_registry_lists_all_known_models() {
 
     let registry = ModelRegistry::with_home_dir(home);
     let all = registry.all_known_models();
-    let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
+    let names: Vec<&str> = all.iter().map(|m| m.name).collect();
     assert!(names.contains(&"ggml-tiny.bin"));
     assert!(names.contains(&"ggml-base.bin"));
     assert!(names.contains(&"ggml-small.bin"));
@@ -192,7 +191,7 @@ fn vad_detects_silence_after_speech_with_correct_boundary() {
     samples.extend(vec![0i16; 6400]);
     let outcome = vad.detect(&samples);
     match outcome {
-        VadOutcome::Speech { speech_end_sample } => {
+        VadOutcome::Speech { speech_end_sample, .. } => {
             // Speech ends ~4800 + 200ms silence = 4800 + 3200 = 8000
             assert!(
                 speech_end_sample >= 7000 && speech_end_sample <= 9000,
