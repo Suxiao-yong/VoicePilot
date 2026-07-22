@@ -826,54 +826,59 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid var(--border, #1e293b);
 }
 
 .model-download-bar.checking {
-  background: rgba(96, 165, 250, 0.1);
-  color: #60a5fa;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--accent, #f59e0b);
 }
 
 .model-download-bar.absent {
   background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
+  color: var(--accent, #f59e0b);
 }
 
 .model-download-bar.downloading {
-  background: rgba(96, 165, 250, 0.1);
-  color: #60a5fa;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--accent, #f59e0b);
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
 }
 
-.model-download-bar.error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+.model-download-bar.done {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success, #10b981);
 }
 
-.mdl-message {
+.model-download-bar.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger, #ef4444);
+}
+
+.model-download-message {
   flex: 1;
 }
 
-.mdl-btn {
+.model-download-btn {
   padding: 4px 12px;
   font-size: 12px;
 }
 
-.mdl-progress-info {
+.model-download-progress-info {
   font-size: 12px;
 }
 
-.mdl-progress-bar {
+.model-download-progress-bar {
   height: 6px;
-  background: #1e293b;
+  background: var(--border, #1e293b);
   border-radius: 3px;
   overflow: hidden;
 }
 
-.mdl-progress-fill {
+.model-download-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  background: linear-gradient(90deg, var(--accent, #f59e0b), var(--accent-bright, #fbbf24));
   transition: width 0.1s ease-out;
 }

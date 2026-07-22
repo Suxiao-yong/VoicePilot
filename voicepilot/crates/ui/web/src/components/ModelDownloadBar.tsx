@@ -71,13 +71,17 @@ export function ModelDownloadBar(): JSX.Element | null {
   // voice 未启用 → 不渲染
   if (!state.voiceEnabled) return null;
   // 模型已存在 → 不渲染(无需打扰用户)
-  if (state.phase === "present" || state.phase === "done") return null;
+  if (state.phase === "present") return null;
 
   async function handleDownload() {
     setState((s) => ({ ...s, phase: "downloading", progress: null, error: null }));
     try {
       await downloadModel();
       setState((s) => ({ ...s, phase: "done", progress: null, error: null }));
+      // 2 秒后隐藏 bar
+      window.setTimeout(() => {
+        setState((s) => ({ ...s, phase: "present", progress: null, error: null }));
+      }, 2000);
     } catch (e) {
       setState((s) => ({
         ...s,
@@ -104,13 +108,13 @@ export function ModelDownloadBar(): JSX.Element | null {
   // absent → 询问用户是否下载
   if (state.phase === "absent") {
     return (
-      <div className="model-download-bar absent" role="alert" aria-labelledby="mdl-title">
-        <span id="mdl-title" className="mdl-message">
+      <div className="model-download-bar absent" role="alert" aria-labelledby="model-download-title">
+        <span id="model-download-title" className="model-download-message">
           ⚠ 语音模型未安装(ggml-tiny.bin,~75MB),需要下载后才能使用语音输入。
         </span>
         <button
           type="button"
-          className="btn btn-primary mdl-btn"
+          className="btn btn-primary model-download-btn"
           onClick={handleDownload}
         >
           下载模型
@@ -130,18 +134,27 @@ export function ModelDownloadBar(): JSX.Element | null {
       : "?";
     return (
       <div className="model-download-bar downloading" role="status">
-        <div className="mdl-progress-info">
+        <div className="model-download-progress-info">
           下载中…{downloadedMb} / {totalMb} MB({percent.toFixed(1)}%)
         </div>
         <div
-          className="mdl-progress-bar"
+          className="model-download-progress-bar"
           role="progressbar"
           aria-valuenow={Math.round(percent)}
           aria-valuemin={0}
           aria-valuemax={100}
         >
-          <div className="mdl-progress-fill" style={{ width: `${percent}%` }} />
+          <div className="model-download-progress-fill" style={{ width: `${percent}%` }} />
         </div>
+      </div>
+    );
+  }
+
+  // done → 下载完成提示(2 秒后自动消失)
+  if (state.phase === "done") {
+    return (
+      <div className="model-download-bar done" role="status">
+        <span className="model-download-message">✓ 下载完成,可以开始使用语音输入</span>
       </div>
     );
   }
@@ -150,10 +163,10 @@ export function ModelDownloadBar(): JSX.Element | null {
   if (state.phase === "error") {
     return (
       <div className="model-download-bar error" role="alert">
-        <span className="mdl-message">⨯ 下载失败:{state.error}</span>
+        <span className="model-download-message">⨯ 下载失败:{state.error}</span>
         <button
           type="button"
-          className="btn btn-secondary mdl-btn"
+          className="btn btn-secondary model-download-btn"
           onClick={handleRetry}
         >
           重试
