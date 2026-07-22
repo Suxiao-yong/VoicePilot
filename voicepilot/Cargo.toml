@@ -37,6 +37,8 @@ dirs = "5"
 sherpa-rs = { version = "0.6.8", features = ["download-binaries", "tts"] }
 cpal = { version = "0.15" }
 hound = { version = "3.5" }
+bzip2 = "0.4"
+tar = "0.4"
 tauri = { version = "2", features = ["wry"] }
 tauri-build = { version = "2" }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }

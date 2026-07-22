@@ -26,74 +26,71 @@ fn voice_error_displays_human_readable_messages() {
     );
 }
 
-use trust_kernel::voice::model::ModelRegistry;
+use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
 
 #[test]
 fn model_registry_resolves_default_model_path() {
-    let home = std::env::temp_dir().join("vp-w5-model-test-home");
+    let home = std::env::temp_dir().join("vp-w6b3b-model-test-home");
     std::fs::remove_dir_all(&home).ok();
     std::fs::create_dir_all(&home).unwrap();
 
     let registry = ModelRegistry::with_home_dir(home.clone());
     let spec = registry.default_model();
-    assert_eq!(spec.name, "ggml-tiny.bin");
-    assert_eq!(spec.path, home.join(".voicepilot").join("models").join("ggml-tiny.bin"));
-    assert!(spec.size_hint_mb >= 70 && spec.size_hint_mb <= 80);
+    assert_eq!(spec.name, SENSE_VOICE_DIR_NAME);
+    assert_eq!(
+        spec.path,
+        home.join(".voicepilot").join("models").join(SENSE_VOICE_DIR_NAME)
+    );
+    // SenseVoice tar.bz2 ~234MB
+    assert!(spec.size_hint_mb >= 200 && spec.size_hint_mb <= 300);
 }
 
 #[test]
-fn model_registry_detects_existing_model_file() {
-    let home = std::env::temp_dir().join("vp-w5-model-test-home-2");
+fn model_registry_detects_existing_model_dir() {
+    let home = std::env::temp_dir().join("vp-w6b3b-model-test-home-2");
     std::fs::remove_dir_all(&home).ok();
-    std::fs::create_dir_all(home.join(".voicepilot").join("models")).unwrap();
-    std::fs::write(
-        home.join(".voicepilot").join("models").join("ggml-tiny.bin"),
-        b"fake model bytes"
-    ).unwrap();
+    let models_dir = home.join(".voicepilot").join("models");
+    std::fs::create_dir_all(models_dir.join(SENSE_VOICE_DIR_NAME)).unwrap();
 
     let registry = ModelRegistry::with_home_dir(home.clone());
-    assert!(registry.is_model_present("ggml-tiny.bin"));
-    assert!(!registry.is_model_present("ggml-base.bin"));
+    assert!(registry.is_model_present(SENSE_VOICE_DIR_NAME));
+    assert!(!registry.is_model_present("some-other-nonexistent-model"));
 }
 
 #[test]
 fn model_registry_lists_all_known_models() {
-    let home = std::env::temp_dir().join("vp-w5-model-test-home-3");
+    let home = std::env::temp_dir().join("vp-w6b3b-model-test-home-3");
     std::fs::remove_dir_all(&home).ok();
     std::fs::create_dir_all(&home).unwrap();
 
     let registry = ModelRegistry::with_home_dir(home);
     let all = registry.all_known_models();
-    let names: Vec<&str> = all.iter().map(|m| m.name).collect();
-    assert!(names.contains(&"ggml-tiny.bin"));
-    assert!(names.contains(&"ggml-base.bin"));
-    assert!(names.contains(&"ggml-small.bin"));
-    // Sorted by size_hint_mb ascending (tiny first).
-    assert_eq!(all[0].name, "ggml-tiny.bin");
+    // W6b-3b: whisper.cpp ggml 模型已弃用,仅支持 SenseVoice 一个模型
+    assert_eq!(all.len(), 1, "expected only SenseVoice model after W6b-3b");
+    assert_eq!(all[0].name, SENSE_VOICE_DIR_NAME);
 }
 
 #[test]
-fn model_registry_resolve_returns_missing_error_for_absent_file() {
-    let home = std::env::temp_dir().join("vp-w5-model-test-home-4");
+fn model_registry_resolve_returns_missing_error_for_absent_dir() {
+    let home = std::env::temp_dir().join("vp-w6b3b-model-test-home-4");
     std::fs::remove_dir_all(&home).ok();
     std::fs::create_dir_all(&home).unwrap();
 
     let registry = ModelRegistry::with_home_dir(home);
-    let result = registry.resolve("ggml-tiny.bin");
+    let result = registry.resolve("definitely_nonexistent_model_dir_xxx");
     assert!(matches!(result, Err(VoiceError::ModelMissing(_))));
 }
 
 #[test]
-fn model_registry_resolve_returns_path_for_present_file() {
-    let home = std::env::temp_dir().join("vp-w5-model-test-home-5");
+fn model_registry_resolve_returns_path_for_present_dir() {
+    let home = std::env::temp_dir().join("vp-w6b3b-model-test-home-5");
     std::fs::remove_dir_all(&home).ok();
     let models_dir = home.join(".voicepilot").join("models");
-    std::fs::create_dir_all(&models_dir).unwrap();
-    std::fs::write(models_dir.join("ggml-tiny.bin"), b"fake").unwrap();
+    std::fs::create_dir_all(models_dir.join(SENSE_VOICE_DIR_NAME)).unwrap();
 
     let registry = ModelRegistry::with_home_dir(home);
-    let path = registry.resolve("ggml-tiny.bin").unwrap();
-    assert!(path.ends_with("ggml-tiny.bin"));
+    let path = registry.resolve(SENSE_VOICE_DIR_NAME).unwrap();
+    assert!(path.ends_with(SENSE_VOICE_DIR_NAME));
 }
 
 use trust_kernel::voice::wav::{read_wav, write_wav};

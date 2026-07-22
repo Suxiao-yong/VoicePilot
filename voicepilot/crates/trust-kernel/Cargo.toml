@@ -23,6 +23,8 @@ dirs = { workspace = true, optional = true }
 sherpa-rs = { workspace = true, optional = true }
 cpal = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
+bzip2 = { workspace = true, optional = true }
+tar = { workspace = true, optional = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
@@ -32,4 +34,4 @@ tempfile = "3"
 
 [features]
 default = []
-voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs"]
+voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs", "dep:bzip2", "dep:tar"]
