@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use trust_kernel::voice::model::ModelRegistry;
 use trust_kernel::voice::wav::read_wav;
-use trust_kernel::voice::whisper::{WhisperEngine, WhisperConfig};
+use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 
 fn fixture_wav_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -25,12 +25,12 @@ fn whisper_engine_transcribes_yes_sample() {
         .resolve("ggml-tiny.bin")
         .expect("model file missing; run `voicepilot voice list-models` and download ggml-tiny.bin");
 
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir: model_path,
         language: Some("en".to_string()),
         ..Default::default()
     })
-    .expect("failed to load WhisperEngine");
+    .expect("failed to load SherpaAsrEngine");
 
     let (samples, sample_rate) = read_wav(&fixture_wav_path()).expect("fixture wav missing");
     // Resample to 16kHz if needed.
@@ -52,8 +52,8 @@ fn whisper_engine_transcribes_yes_sample() {
 #[test]
 #[ignore]
 fn whisper_engine_returns_error_for_missing_model_file() {
-    let result = WhisperEngine::new(WhisperConfig {
-        model_path: PathBuf::from("/definitely/nonexistent/ggml-tiny.bin"),
+    let result = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir: PathBuf::from("/definitely/nonexistent"),
         ..Default::default()
     });
     assert!(result.is_err());
@@ -67,12 +67,12 @@ fn whisper_engine_returns_no_speech_for_silent_audio() {
         .resolve("ggml-tiny.bin")
         .expect("model file missing");
 
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir: model_path,
         language: Some("en".to_string()),
         ..Default::default()
     })
-    .expect("failed to load WhisperEngine");
+    .expect("failed to load SherpaAsrEngine");
 
     // 2 seconds of pure silence.
     let samples: Vec<i16> = vec![0; 32000];

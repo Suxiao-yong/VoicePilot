@@ -34,7 +34,7 @@ walkdir = "2.5"
 similar = "2"
 ureq = { version = "2", features = ["tls"] }
 dirs = "5"
-whisper-rs = { version = "0.13" }
+sherpa-rs = { version = "0.6.8", features = ["download-binaries", "tts"] }
 cpal = { version = "0.15" }
 hound = { version = "3.5" }
 tauri = { version = "2", features = ["wry"] }

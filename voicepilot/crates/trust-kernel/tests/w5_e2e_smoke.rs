@@ -16,7 +16,7 @@ use trust_kernel::voice::model::ModelRegistry;
 use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
 use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
 use trust_kernel::voice::wav::{read_wav, write_wav};
-use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
+use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 use trust_kernel::kernel::TrustKernel;
 
 // ============================================================================
@@ -83,8 +83,8 @@ fn w5_e2e_transcribe_real_wav_then_route() {
         .join("w5_sample_organize.wav");
     let (samples, _sr) = read_wav(&fixture).expect("fixture missing");
 
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir: model_path,
         language: Some("zh".to_string()),
         ..Default::default()
     })
@@ -123,8 +123,8 @@ fn w5_e2e_listen_live_microphone_end_to_end() {
 
     let registry = ModelRegistry::new();
     let model_path = registry.resolve("ggml-tiny.bin").expect("model missing");
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir: model_path,
         language: None,
         ..Default::default()
     })

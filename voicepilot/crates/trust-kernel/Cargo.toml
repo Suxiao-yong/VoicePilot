@@ -20,7 +20,7 @@ walkdir = { workspace = true }
 similar = { workspace = true }
 ureq = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
-whisper-rs = { workspace = true, optional = true }
+sherpa-rs = { workspace = true, optional = true }
 cpal = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
 
@@ -32,4 +32,4 @@ tempfile = "3"
 
 [features]
 default = []
-voice = ["dep:whisper-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs"]
+voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs"]
