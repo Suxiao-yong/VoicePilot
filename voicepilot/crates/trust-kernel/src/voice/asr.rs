@@ -174,11 +174,29 @@ mod tests {
         );
     }
 
-    /// 注意:不测试 "假 model.onnx 加载失败" 场景。
-    /// sherpa-onnx C 库在加载无效 ONNX 文件时会触发 native abort
-    /// (STATUS_STACK_BUFFER_OVERRUN / "Rust cannot catch foreign exceptions"),
-    /// 而不是返回可被 `map_err` 捕获的 `Err`。
-    /// 我们只验证进入 sherpa 之前的路径校验(model_dir / model.onnx / tokens.txt 存在性)。
+    /// 假 model.onnx 加载失败场景。
+    ///
+    /// **`#[ignore]`**:sherpa-onnx C 库在加载无效 ONNX 文件时会触发 native abort
+    /// (STATUS_STACK_BUFFER_OVERRUN),Rust 无法捕获 foreign exception,会让整个进程崩溃
+    /// 而非返回 `Err`。因此本测试默认不运行,仅保留以维持规格(Task 3 Step 4)可追溯性。
+    ///
+    /// 手动验证:`cargo test --lib new_rejects_fake_model_onnx -- --ignored --features voice`
+    /// 预期:进程 abort(非 panic),证明 sherpa 确实拒绝了无效 ONNX。
+    #[cfg(feature = "voice")]
+    #[ignore = "sherpa-onnx C 库 abort 无法被 Rust 捕获,手动运行见 doc 注释"]
+    #[test]
+    fn new_rejects_fake_model_onnx() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("model.onnx"), b"fake").unwrap();
+        std::fs::write(tmp.path().join("tokens.txt"), b"fake").unwrap();
+        let config = SherpaAsrConfig {
+            model_dir: tmp.path().to_path_buf(),
+            ..Default::default()
+        };
+        // 假 model.onnx 不是有效 ONNX 文件,sherpa 加载应失败(实际触发 native abort)。
+        let result = SherpaAsrEngine::new(config);
+        assert!(result.is_err(), "expected Err for fake model.onnx");
+    }
 
     /// 集成测试:真实模型转写。
     /// 需要 sherpa-onnx SenseVoice 模型已下载到 VOICEPILOT_MODEL_DIR 环境变量指向的目录。
