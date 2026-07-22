@@ -128,7 +128,12 @@ where
     if final_dir.exists() {
         let _ = fs::remove_dir_all(&final_dir);
     }
-    extract_tar_bz2(&part_path, &dir)?;
+    if let Err(e) = extract_tar_bz2(&part_path, &dir) {
+        // 解压失败:立即清理 .part + 残留目录,避免占用磁盘 + 半解压状态
+        let _ = fs::remove_dir_all(&final_dir);
+        let _ = fs::remove_file(&part_path);
+        return Err(e);
+    }
 
     // === 阶段 4:校验解压结果 ===
     if !model_dir_is_complete(&final_dir) {
