@@ -359,11 +359,12 @@ pub async fn voice_listen_command(
     };
 
     // 3. 检查 asr_cache,miss 时加载(issue #61)
+    //    W6c P2 #3:用全 config 比较替换仅 model_dir 比较,
+    //    改 language / num_threads 也触发缓存失效。
     let engine: Arc<SherpaAsrEngine> = {
         let mut cache = state.asr_cache.lock().map_err(|e| e.to_string())?;
-        let needs_reload = cache
-            .as_ref()
-            .is_none_or(|eng| eng.config().model_dir != model_dir);
+        let needs_reload =
+            cache_needs_reload(cache.as_ref().map(|e| e.config()), &asr_config);
         if needs_reload {
             let new_engine = SherpaAsrEngine::new(asr_config.clone())
                 .map_err(|e| e.to_string())?;
@@ -407,6 +408,15 @@ fn load_voice_settings(
     let conn = kernel.conn();
     let kv = kernel.config_repo().list(&conn)?;
     crate::settings_commands::merge_from_kv(&kv)
+}
+
+/// W6c P2 #3:检查缓存是否需要重新加载(用全 config 比较替换仅 model_dir)。
+///
+/// `cached` 为 None 时返回 true(miss);`cached` config 与 `new_config` 不同时返回 true
+/// (改 language / num_threads / speed 等任意字段都触发失效)。
+/// 对于 SherpaTtsConfig,PartialEq 已排除 sample_rate(模型决定值,不参与失效判断)。
+pub fn cache_needs_reload<C: PartialEq>(cached: Option<&C>, new_config: &C) -> bool {
+    cached.is_none_or(|c| c != new_config)
 }
 
 // ===== tts_command + cancel_tts_command (VP-FR-002 voice feedback) =====
@@ -468,25 +478,28 @@ pub async fn tts_command(
         });
     }
     let model_dir = std::path::PathBuf::from(&settings.tts_model_path);
+    // W6c P2 #3:用全 config 比较替换仅 model_dir 比较,
+    // 改 num_threads / speed 也触发缓存失效。
+    // 注意:SherpaTtsConfig 的 PartialEq 排除 sample_rate(模型决定值)。
+    let tts_config = SherpaTtsConfig {
+        model_dir: model_dir.clone(),
+        ..Default::default()
+    };
     let engine: Arc<SherpaTtsEngine> = {
         let mut cache = state.tts_cache.lock().map_err(|e| e.to_string())?;
-        let needs_reload = cache
-            .as_ref()
-            .is_none_or(|eng| eng.config().model_dir != model_dir);
+        let needs_reload =
+            cache_needs_reload(cache.as_ref().map(|e| e.config()), &tts_config);
         if needs_reload {
-            let new_engine = SherpaTtsEngine::new(SherpaTtsConfig {
-                model_dir: model_dir.clone(),
-                ..Default::default()
-            })
-            .map_err(|e| e.to_string())?;
+            let new_engine = SherpaTtsEngine::new(tts_config.clone())
+                .map_err(|e| e.to_string())?;
             *cache = Some(Arc::new(new_engine));
         }
         Arc::clone(cache.as_ref().expect("tts cache should be populated"))
     };
 
-    // 4. 合成
+    // 4. 合成(W6c P2 #2:synth 返回 (samples, sample_rate),actual_sample_rate 也被缓存)
     let samples = match engine.synth(&text) {
-        Ok(s) => s,
+        Ok(s) => s.0,
         Err(e) => {
             return Ok(TtsResult {
                 played: false,
@@ -503,7 +516,9 @@ pub async fn tts_command(
     let wav_dir = std::env::temp_dir().join("voicepilot-tts");
     std::fs::create_dir_all(&wav_dir).map_err(|e| e.to_string())?;
     let wav_path = wav_dir.join(format!("tts-{}.wav", chrono::Utc::now().timestamp_millis()));
-    wav::write_wav(&wav_path, &samples, engine.config().sample_rate)
+    // W6c P2 #2:用 engine.actual_sample_rate()(由模型决定,中文 VITS 通常 22050 Hz)
+    // 而非 engine.config().sample_rate(16000 默认值),避免播放速度/音调失真。
+    wav::write_wav(&wav_path, &samples, engine.actual_sample_rate())
         .map_err(|e| e.to_string())?;
 
     // 6. 检查 cancel(简化实现:播放前检查一次,完整实现需在播放线程中循环检查)
@@ -610,5 +625,86 @@ mod tests {
         assert!(!payload.slots.is_empty(), "slots should not be empty for path/app text");
         assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::Path)));
         assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::App)));
+    }
+
+    // ===== W6c P2 #3:cache_needs_reload helper 测试 =====
+
+    use trust_kernel::voice::asr::SherpaAsrConfig;
+    use trust_kernel::voice::tts::SherpaTtsConfig;
+
+    #[test]
+    fn cache_needs_reload_returns_true_when_no_cached_config() {
+        let new = SherpaAsrConfig::default();
+        assert!(cache_needs_reload::<SherpaAsrConfig>(None, &new));
+    }
+
+    #[test]
+    fn cache_needs_reload_returns_false_when_asr_config_equal() {
+        let cached = SherpaAsrConfig {
+            model_dir: std::path::PathBuf::from("/models/asr"),
+            language: Some("zh".to_string()),
+            num_threads: 4,
+            sample_rate: 16000,
+        };
+        let new = cached.clone();
+        assert!(!cache_needs_reload(Some(&cached), &new));
+    }
+
+    #[test]
+    fn cache_needs_reload_returns_true_when_language_changes() {
+        // W6c P2 #3 核心修复:改 language 后缓存应失效
+        let cached = SherpaAsrConfig {
+            language: Some("zh".to_string()),
+            ..Default::default()
+        };
+        let new = SherpaAsrConfig {
+            language: Some("en".to_string()),
+            ..Default::default()
+        };
+        assert!(cache_needs_reload(Some(&cached), &new));
+    }
+
+    #[test]
+    fn cache_needs_reload_returns_true_when_num_threads_changes() {
+        let cached = SherpaAsrConfig {
+            num_threads: 4,
+            ..Default::default()
+        };
+        let new = SherpaAsrConfig {
+            num_threads: 8,
+            ..Default::default()
+        };
+        assert!(cache_needs_reload(Some(&cached), &new));
+    }
+
+    #[test]
+    fn cache_needs_reload_returns_false_when_tts_config_equal_ignoring_sample_rate() {
+        // SherpaTtsConfig 的 PartialEq 排除 sample_rate(模型决定值)
+        let cached = SherpaTtsConfig {
+            model_dir: std::path::PathBuf::from("/models/tts"),
+            sample_rate: 16000,
+            num_threads: 1,
+            speed: 1.0,
+        };
+        let new = SherpaTtsConfig {
+            model_dir: std::path::PathBuf::from("/models/tts"),
+            sample_rate: 22050, // 不同,但 PartialEq 不比较此字段
+            num_threads: 1,
+            speed: 1.0,
+        };
+        assert!(!cache_needs_reload(Some(&cached), &new));
+    }
+
+    #[test]
+    fn cache_needs_reload_returns_true_when_tts_speed_changes() {
+        let cached = SherpaTtsConfig {
+            speed: 1.0,
+            ..Default::default()
+        };
+        let new = SherpaTtsConfig {
+            speed: 1.5,
+            ..Default::default()
+        };
+        assert!(cache_needs_reload(Some(&cached), &new));
     }
 }

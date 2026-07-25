@@ -15,7 +15,10 @@ use sherpa_rs::sense_voice::{SenseVoiceConfig, SenseVoiceRecognizer};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-#[derive(Debug, Clone)]
+// W6c P2 #3:derive PartialEq — model_dir / language / num_threads / sample_rate
+// 全部参与比较(ASR 的 sample_rate 是调用方决定值 16000,与 TTS 不同)。
+// 改 language / num_threads 后 cache 失效,重新加载 engine。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SherpaAsrConfig {
     /// sherpa-onnx 模型目录(包含 model.onnx + tokens.txt)。
     pub model_dir: PathBuf,
@@ -134,6 +137,65 @@ mod tests {
             "err should mention model_dir not found, got: {}",
             err_msg
         );
+    }
+
+    // ===== W6c P2 #3:PartialEq 测试 =====
+
+    #[test]
+    fn asr_config_eq_when_all_fields_match() {
+        let a = SherpaAsrConfig {
+            model_dir: PathBuf::from("/models/asr"),
+            language: Some("zh".to_string()),
+            num_threads: 4,
+            sample_rate: 16000,
+        };
+        let b = SherpaAsrConfig {
+            model_dir: PathBuf::from("/models/asr"),
+            language: Some("zh".to_string()),
+            num_threads: 4,
+            sample_rate: 16000,
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn asr_config_ne_differs_on_language() {
+        // 改 language 后 cache 应失效(spec P2 #3 主要修复点)
+        let a = SherpaAsrConfig {
+            language: Some("zh".to_string()),
+            ..Default::default()
+        };
+        let b = SherpaAsrConfig {
+            language: Some("en".to_string()),
+            ..Default::default()
+        };
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn asr_config_ne_differs_on_num_threads() {
+        let a = SherpaAsrConfig {
+            num_threads: 4,
+            ..Default::default()
+        };
+        let b = SherpaAsrConfig {
+            num_threads: 8,
+            ..Default::default()
+        };
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn asr_config_ne_differs_on_model_dir() {
+        let a = SherpaAsrConfig {
+            model_dir: PathBuf::from("/models/asr-a"),
+            ..Default::default()
+        };
+        let b = SherpaAsrConfig {
+            model_dir: PathBuf::from("/models/asr-b"),
+            ..Default::default()
+        };
+        assert_ne!(a, b);
     }
 
     #[test]
