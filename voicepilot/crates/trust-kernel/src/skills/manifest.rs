@@ -584,7 +584,7 @@ pub fn research_save_manifest() -> SkillManifest {
             ],
             allowed_values: vec![],
             max_length: None,
-            default: Some(serde_json::json!(".md")),
+            default: None,
         },
     );
 
