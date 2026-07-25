@@ -222,6 +222,7 @@ fn transcription_final_payload_is_serializable() {
             skill_id: "files.organize".to_string(),
         },
         stopped_by_vad: true,
+        slots: vec![],
     };
     let json = serde_json::to_string(&payload).unwrap();
     assert!(json.contains("\"transcription\":\"test\""));

@@ -24,6 +24,7 @@ use trust_kernel::voice::vad::{VadConfig, VadDetector};
 use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 
 use crate::commands::RouteTextResult;
+use crate::slot_parser::{Slot, SlotParser};
 
 /// `voice_listen` 返回给 webview 的结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,9 +213,11 @@ impl VoiceListen for VoiceListenImpl {
                 let app_clone = app.clone();
                 Some(Box::new(move |samples: &[i16]| {
                     if let Ok(text) = engine_clone.transcribe(samples) {
+                        let slots = SlotParser::parse(&text);
                         let payload = TranscriptionPartialPayload {
                             partial: text,
                             timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                            slots,
                         };
                         let _ = app_clone.emit("transcription-partial", payload);
                     }
@@ -270,6 +273,7 @@ type PartialCbOpt = Option<Box<dyn Fn(&[i16]) + Send + Sync>>;
 pub struct TranscriptionPartialPayload {
     pub partial: String,
     pub timestamp_ms: i64,
+    pub slots: Vec<Slot>,
 }
 
 /// `transcription-final` 事件 payload,发射给 webview。
@@ -278,6 +282,7 @@ pub struct TranscriptionFinalPayload {
     pub transcription: String,
     pub route_outcome: RouteTextResult,
     pub stopped_by_vad: bool,
+    pub slots: Vec<Slot>,
 }
 
 /// 从 `VoiceListenResult` 构造 `transcription-final` 事件 payload。
@@ -293,6 +298,7 @@ pub fn build_transcription_final_payload(
             transcription: transcription.clone(),
             route_outcome: route_outcome.clone(),
             stopped_by_vad: *stopped_by_vad,
+            slots: SlotParser::parse(transcription),
         }),
         VoiceListenResult::Timeout {
             transcription: Some(t),
@@ -301,6 +307,7 @@ pub fn build_transcription_final_payload(
             transcription: t.clone(),
             route_outcome: route_outcome.clone(),
             stopped_by_vad: false,
+            slots: SlotParser::parse(t),
         }),
         VoiceListenResult::NoSpeech
         | VoiceListenResult::Error { .. }
@@ -558,5 +565,20 @@ mod tests {
             }
             other => panic!("expected Timeout, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn build_final_payload_includes_slots_for_success() {
+        let result = VoiceListenResult::Success {
+            transcription: "打开 notepad 整理 C:\\temp".to_string(),
+            route_outcome: RouteTextResult::Routed {
+                skill_id: "files.organize".to_string(),
+            },
+            stopped_by_vad: true,
+        };
+        let payload = build_transcription_final_payload(&result).unwrap();
+        assert!(!payload.slots.is_empty(), "slots should not be empty for path/app text");
+        assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::Path)));
+        assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::App)));
     }
 }
