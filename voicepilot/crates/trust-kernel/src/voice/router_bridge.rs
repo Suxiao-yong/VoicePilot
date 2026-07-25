@@ -6,7 +6,10 @@
 use crate::approval::approver::Approver;
 use crate::error::Result;
 use crate::kernel::TrustKernel;
-use crate::skills::manifest::files_organize_manifest;
+use crate::skills::manifest::{
+    files_organize_manifest, task_compensate_manifest, task_explain_manifest,
+    task_repeat_verified_manifest,
+};
 use crate::skills::router::{RouteDecision, SkillRouter};
 
 #[derive(Debug)]
@@ -45,7 +48,12 @@ pub fn route_text(
 
     let mut router = SkillRouter::new();
     router.register(files_organize_manifest());
-    // W7+: register additional built-in skills here.
+    router.register(task_repeat_verified_manifest());
+    // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
+    // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
+    router.register(task_compensate_manifest());
+    router.register(task_explain_manifest());
+    // Plan 4/5: register UIA + Playwright stub skills once executors exist.
 
     match router.route(trimmed) {
         RouteDecision::Skill(manifest) => Ok(RouteOutcome::Routed {

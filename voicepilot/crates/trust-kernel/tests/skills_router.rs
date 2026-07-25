@@ -1,4 +1,7 @@
-use trust_kernel::skills::manifest::files_organize_manifest;
+use trust_kernel::skills::manifest::{
+    files_organize_manifest, task_compensate_manifest, task_explain_manifest,
+    task_repeat_verified_manifest,
+};
 use trust_kernel::skills::router::{RouteDecision, SkillRouter};
 
 #[test]
@@ -76,5 +79,47 @@ fn router_does_not_match_unrelated_common_bigrams() {
             "goal {:?} should route to Planner, not files.organize",
             goal
         );
+    }
+}
+
+#[test]
+fn route_task_repeat_verified_keyword_returns_skill() {
+    let mut router = SkillRouter::new();
+    router.register(files_organize_manifest());
+    router.register(task_repeat_verified_manifest());
+    router.register(task_compensate_manifest());
+    router.register(task_explain_manifest());
+    let decision = router.route("重做上一步");
+    match decision {
+        RouteDecision::Skill(manifest) => assert_eq!(manifest.id, "task.repeat_verified"),
+        other => panic!("expected Skill, got {:?}", other),
+    }
+}
+
+#[test]
+fn route_task_explain_keyword_returns_skill() {
+    let mut router = SkillRouter::new();
+    router.register(files_organize_manifest());
+    router.register(task_repeat_verified_manifest());
+    router.register(task_compensate_manifest());
+    router.register(task_explain_manifest());
+    let decision = router.route("解释上一步");
+    match decision {
+        RouteDecision::Skill(manifest) => assert_eq!(manifest.id, "task.explain"),
+        other => panic!("expected Skill, got {:?}", other),
+    }
+}
+
+#[test]
+fn route_task_compensate_keyword_returns_skill() {
+    let mut router = SkillRouter::new();
+    router.register(files_organize_manifest());
+    router.register(task_repeat_verified_manifest());
+    router.register(task_compensate_manifest());
+    router.register(task_explain_manifest());
+    let decision = router.route("撤销上一步");
+    match decision {
+        RouteDecision::Skill(manifest) => assert_eq!(manifest.id, "task.compensate"),
+        other => panic!("expected Skill, got {:?}", other),
     }
 }

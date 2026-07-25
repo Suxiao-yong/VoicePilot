@@ -36,7 +36,10 @@ pub enum RouteTextResult {
 ///
 /// 路由阶段不执行 Skill;Skill 执行需要用户在 UI 上确认 Slot 后由 `organize_files_command` 触发。
 pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
-    use trust_kernel::skills::manifest::files_organize_manifest;
+    use trust_kernel::skills::manifest::{
+        files_organize_manifest, task_compensate_manifest, task_explain_manifest,
+        task_repeat_verified_manifest,
+    };
     use trust_kernel::skills::router::{RouteDecision, SkillRouter};
 
     let trimmed = text.trim();
@@ -49,10 +52,12 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         let llm = state.llm_client();
         let mut router = SkillRouter::with_llm(llm);
         router.register(files_organize_manifest());
-        // W7: 注册其他 7 个内置 Skill 在 Plan 2/3 实现 manifest 后取消注释。
-        // router.register(task_repeat_verified_manifest());
-        // router.register(task_explain_manifest());
-        // router.register(task_compensate_manifest());
+        router.register(task_repeat_verified_manifest());
+        // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
+        // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
+        router.register(task_compensate_manifest());
+        router.register(task_explain_manifest());
+        // Plan 4/5: register UIA + Playwright stub skills once executors exist.
         // router.register(app_control_manifest());
         // router.register(note_capture_manifest());
         // router.register(research_save_manifest());
@@ -83,6 +88,11 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         let _ = state;
         let mut router = SkillRouter::new();
         router.register(files_organize_manifest());
+        router.register(task_repeat_verified_manifest());
+        // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
+        // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
+        router.register(task_compensate_manifest());
+        router.register(task_explain_manifest());
         match router.route(trimmed) {
             RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
                 skill_id: manifest.id,
