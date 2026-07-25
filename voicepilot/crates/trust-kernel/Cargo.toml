@@ -25,6 +25,10 @@ cpal = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
 bzip2 = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
+# W7: LLM 客户端(OpenAI 兼容)+ 用户自定义 Skill YAML 解析(UIA 在 Plan 4 添加)
+reqwest = { workspace = true, optional = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
@@ -33,5 +37,6 @@ serde_json = { workspace = true }
 tempfile = "3"
 
 [features]
-default = []
+default = ["llm"]
 voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs", "dep:bzip2", "dep:tar"]
+llm = ["dep:reqwest"]
