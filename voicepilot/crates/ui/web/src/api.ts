@@ -149,10 +149,15 @@ export function onModelDownloadProgress(
 
 // ===== W6b-3b Task 13: TTS 播放 / 打断 =====
 
+/**
+ * TTS 播放结果(W6b-3b Fix 1:`wav_path` 返回合成的 WAV 文件绝对路径,
+ * 由前端 `<audio>` 元素通过 `convertFileSrc` 播放)。
+ */
 export interface TtsResult {
   played: boolean;
   interrupted: boolean;
   sample_count: number;
+  wav_path: string | null;
   error: string | null;
 }
 

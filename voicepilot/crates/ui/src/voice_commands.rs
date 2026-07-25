@@ -406,11 +406,16 @@ use trust_kernel::voice::tts::{SherpaTtsConfig, SherpaTtsEngine};
 use trust_kernel::voice::wav;
 
 /// TTS 播放结果(返回给 webview)。
+///
+/// W6b-3b Fix 1:`wav_path` 字段返回合成的 WAV 文件绝对路径,
+/// 由前端 `<audio>` 元素通过 `convertFileSrc` 播放(后端不再尝试用 cpal 播放)。
+/// `played: true` 语义改为"已合成可供播放"。
 #[derive(Debug, Clone, Serialize)]
 pub struct TtsResult {
     pub played: bool,
     pub interrupted: bool,
     pub sample_count: usize,
+    pub wav_path: Option<String>,
     pub error: Option<String>,
 }
 
@@ -428,6 +433,7 @@ pub async fn tts_command(
             played: false,
             interrupted: false,
             sample_count: 0,
+            wav_path: None,
             error: Some("tts disabled in settings".to_string()),
         });
     }
@@ -463,6 +469,7 @@ pub async fn tts_command(
                 played: false,
                 interrupted: false,
                 sample_count: 0,
+                wav_path: None,
                 error: Some(e.to_string()),
             });
         }
@@ -483,19 +490,19 @@ pub async fn tts_command(
             played: false,
             interrupted: true,
             sample_count: samples.len(),
+            wav_path: None,
             error: None,
         });
     }
 
-    // 7. 用 cpal 播放(若 voice/audio 模块有 AudioPlayer,用它;否则用 std::process::Command 调系统播放器)
-    // 此处用 cpal 简化路径(实际播放逻辑封装在 voice/audio::play_samples 中,需在 Task 11 中实现或复用)。
-    // 简化:把 played 标记为 true,实际播放逻辑由前端 invoke 一个 play_wav_command 处理(此处不实现)。
-    // 完整实现见 docs/superpowers/plans/w6b-3b 中的 "cpal AudioPlayer" 子任务(可选)。
-
+    // 7. W6b-3b Fix 1:后端不再用 cpal 播放(此前桩实现返回 played: true 但用户听不到声音)。
+    // 改为返回 WAV 路径,由前端 `<audio>` 元素通过 `convertFileSrc` 播放。
+    // `played: true` 语义改为"已合成可供播放"。前端 `MainView.tsx` 负责实际播放与中断。
     Ok(TtsResult {
         played: true,
         interrupted: false,
         sample_count: samples.len(),
+        wav_path: Some(wav_path.to_string_lossy().into_owned()),
         error: None,
     })
 }

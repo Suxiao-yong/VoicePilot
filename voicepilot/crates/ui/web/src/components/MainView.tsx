@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial, invokeTts, invokeCancelTts, type TtsResult } from "../api";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial, invokeTts, invokeCancelTts } from "../api";
 import type {
   RouteTextResult,
   OrganizeResult,
@@ -35,6 +36,8 @@ export function MainView() {
   // W6b-3b Task 13:Push-to-talk + TTS 播放状态
   const [pttActive, setPttActive] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
+  // W6b-3b Fix 1:audioRef 跟踪当前播放的 <audio> 元素,"停止语音反馈"按钮调用 pause() 中断。
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // W6b-3b Task 17:Slot Chip 修改状态(§8.4)
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -95,14 +98,41 @@ export function MainView() {
       // W6b-3b Task 13:转写成功后触发 TTS 语音反馈
       if (r.kind === "success" && r.transcription && r.transcription.trim()) {
         setTtsPlaying(true);
-        invokeTts(`已为您${r.transcription}`)
-          .then((ttsResult: TtsResult) => {
-            if (ttsResult.error) {
-              console.warn("TTS error:", ttsResult.error);
-            }
-          })
-          .catch((e) => console.warn("TTS invoke error:", e))
-          .finally(() => setTtsPlaying(false));
+        try {
+          const ttsResult = await invokeTts(`已为您${r.transcription}`);
+          if (ttsResult.error) {
+            console.warn("TTS error:", ttsResult.error);
+            setTtsPlaying(false);
+            return;
+          }
+          // W6b-3b Fix 1:用 wav_path 通过 <audio> 元素播放(此前桩实现返回 played: true 但无声音)。
+          // convertFileSrc 把文件路径转为 WebView 可访问的 URL(Tauri 2 asset protocol)。
+          if (ttsResult.wav_path) {
+            const url = convertFileSrc(ttsResult.wav_path);
+            const audio = new Audio(url);
+            audioRef.current = audio;
+            audio.onended = () => {
+              setTtsPlaying(false);
+              audioRef.current = null;
+            };
+            audio.onerror = () => {
+              console.warn("TTS audio playback error");
+              setTtsPlaying(false);
+              audioRef.current = null;
+            };
+            await audio.play().catch((e) => {
+              console.warn("TTS audio play() rejected:", e);
+              setTtsPlaying(false);
+              audioRef.current = null;
+            });
+          } else {
+            // 无 wav_path(如 interrupted),不播放
+            setTtsPlaying(false);
+          }
+        } catch (e) {
+          console.warn("TTS invoke error:", e);
+          setTtsPlaying(false);
+        }
       }
     } catch (e) {
       setVoiceError(e instanceof Error ? e.message : String(e));
@@ -176,6 +206,12 @@ export function MainView() {
               type="button"
               aria-label="停止语音反馈"
               onClick={() => {
+                // W6b-3b Fix 1:前端 pause() 立即中断播放;同时通知后端置 cancel flag
+                // (后端 cancel flag 主要在合成阶段生效,播放阶段由前端控制)。
+                if (audioRef.current) {
+                  audioRef.current.pause();
+                  audioRef.current = null;
+                }
                 invokeCancelTts().catch(console.error);
                 setTtsPlaying(false);
               }}
