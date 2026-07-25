@@ -2,8 +2,8 @@
 
 > **最后更新:** 2026-07-25 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `34b9a89` fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E), 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS
+> **最新 commit:** `a1fd7a6` fix(w7p2): bind approval to reverse_payload hash + use real destination
+> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件), 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -13,6 +13,8 @@
 > **W6b-3a:** ✅ 已完成(2026-07-22)— Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置,16 个 commit(spec/plan + 11 Task + 5 fix),详见 §二 W6b-3a 段落
 > **W6b-3a Fast-Follow:** ✅ 已完成(2026-07-23)— 图标重生成(标准多平台图标集 + iOS/Android 裁剪)+ ModelDownloadBar className 统一 + done phase 反馈 + CSS var fallback,2 个 commit,详见 §二 W6b-3a 段落末
 > **W6b-3b:** ✅ 已完成(2026-07-25)— sherpa-rs 迁移 + TTS 语音反馈 + Push-to-talk 全局快捷键 + §8.4 Chip 修改 + 高风险视觉确认,18 个 commit(spec/plan + 16 Task + 修复),issue #49 已解决,详见 §二 W6b-3b 段落
+> **W6c Fast-Follow:** ✅ 已完成(2026-07-25)— W6b-3b 审查遗留 P1/P2 修复(6 commits),详见 §二 W6c Fast-Follow 段落
+> **W7 Plan 2:** ✅ 已完成(2026-07-25)— 3 个新 fs Skill(task.repeat_verified / task.explain / task.compensate)+ 共享 helpers + 路由注册 + E2E 冒烟,agent-pr-review verdict APPROVED_WITH_NITS,详见 §二 W7 Plan 2 段落
 
 ---
 
@@ -31,7 +33,8 @@
 | W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ✅ 已完成 | +4 w6b2_smoke (tauri) + 2 partial (voice) + 10 ui unit (voice) | 2026-07-21 | (direct on master) |
 | W6b-3a | Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置 | ✅ 已完成 | +32 (ui crate, opt-in `--features tauri`,含 6 w6b3_e2e_smoke + 2 diff_commands_unit + 10 ui unit)/ +2 default (workspace 221,内含 w6b3_e2e_smoke 6 + diff_commands_unit 2) | 2026-07-22 | (direct on master) |
 | W6b-3b | sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 | ✅ 已完成 | +15 default (workspace 236) / +16 tauri (48 总) / +78 voice (sherpa-rs 迁移后 issue #49 解决,含 w6b3b_e2e_smoke 6 个 E2E) | 2026-07-25 | (direct on master) |
-| W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
+| W7 Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | +trust-kernel --features llm 全绿(2 e2e + 3 router + 4 skill suites) | 2026-07-25 | (direct on master) |
+| W7 | LLM Planner + 8 Skills | 🔄 进行中 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
 **累计测试数:** 236 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
@@ -1038,6 +1041,104 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 - **trust-kernel voice feature link.exe 内存失败:** 环境限制未变(W6b-3b 已记录),voice 单测在 ui crate 中通过
 
 **下一步:** W7(LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 / Tauri macOS+Linux 打包 三选一)
+
+---
+
+### W7 Plan 2: 3 个新 fs Skill + 共享 helpers + 路由 + E2E ✅
+
+**完成时间:** 2026-07-25(Asia/Shanghai)
+**对应规格:** `docs/superpowers/specs/2026-07-25-w7-llm-planner-skills-design.md`
+**对应计划:** `docs/superpowers/plans/2026-07-25-w7-plan2-skills-fs-infra.md`
+**Commit 范围:** W7 Plan 2 Tasks 1-7 + 修复 commit `b02c7d8` / `b68668c` / `a1fd7a6`(直接提交到 master)
+**Review Verdict:** agent-pr-review APPROVED_WITH_NITS(5 nit,无阻塞)
+
+**实现内容(7 项):**
+
+- **Task 1 — 共享 helpers(`skills/common.rs`):** 提取 W3b `executor.rs` 中的可复用流水线片段为 3 个公开 helper + 1 个验证器:
+  - `validate_input_against_manifest(input, manifest)` — 按 SkillInputType 规则验证 Directory / File / FileFilter / Text / Number / Enum / Url,支持 required / allowed_roots / allowed_values / max_length 约束
+  - `record_approval_decision(kernel, approver, effect_manifest, ctx)` — 调 `Approver::prompt` + 持久化 `ApprovalRecord`(通过 `kernel.record_approval`),返回 ApprovalRecord 供 caller 分支 Allow/Deny/Modify
+  - `create_post_commit_compensation(kernel, step_id, moved_paths, compensate_fn, level, conflict_policy, ttl)` — 构造 `{"moves": [{"from", "to"}]}` reverse_payload + 持久化 CompensationRecord
+  - `finalize_step_success(kernel, step_id, evidence_strength, comp_ref)` — 调 `update_step_post_commit` + `update_step_status(Succeeded)`
+  - `ApprovalContext<'a>` struct — 把 task/step/destination/preconditions_hash/e_level/d_level/approval_scope 打包为单个 ctx 参数,签名紧凑
+  - 21 个单元测试覆盖 7 种 input_type × 边界值 + Allow/Deny 分支 + 组合管道
+- **Task 2 — 3 个新 SkillManifest(`skills/manifest.rs`):**
+  - `task_repeat_verified_manifest()`: E1/D2/read-only,keywords `["重做", "重做上一步", "重复", "重新验证"]`,inputs `target_task_id: Text + source_filter: FileFilter`
+  - `task_explain_manifest()`: E0/D1/read-only,approval=None,keywords `["解释", "解释上一步", "说明", "为什么"]`,inputs `limit: Number (default 10)`
+  - `task_compensate_manifest()`: E2/D2/write,approval=PerStep,keywords `["撤销", "撤销上一步", "回滚", "补偿"]`,inputs `target_step_id: Text`
+- **Task 3 — `task.repeat_verified` 执行器(`skills/task_repeat.rs`):** 读取上一 task 的 `effect_manifest` → 重新 `search_files` + `verify_move` → 标记 step Succeeded + weak evidence;4 个单元测试覆盖成功 / 无 manifest / filter 无匹配 / target_task_id 空
+- **Task 4 — `task.explain` 执行器(`skills/task_explain.rs`):** 验证 limit ∈ 1..=100 → 创建 task/step → `list_audit_recent(limit)` → 标记 step Succeeded + weak evidence;4 个单元测试覆盖成功 / limit > 100 / limit = 0 / 空 audit log
+- **Task 5 — `task.compensate` 执行器(`skills/task_compensate.rs`):** 查找 active CompensationRecord → 构建 EffectManifest(approver 看到 reverse move) → record_approval(E2 + PerStep) → Allow 分支调 `auto_reverse_move` → 标记 compensation status = "reversed" → 标记 step Succeeded + strong evidence;4 个单元测试覆盖成功 / 用户 Deny / 无 active compensation / target_step_id 空
+- **Task 6 — 路由注册:** `voice/router_bridge.rs` 和 `ui/src/commands.rs`(LLM + non-LLM 两个分支)均注册 3 个新 Skill,注册顺序 `task_compensate` 先于 `task_explain`(避免 "上一步" 关键词阴影 "撤销上一步");`tests/skills_router.rs` 加 3 个路由测试
+- **Task 7 — E2E 冒烟测试(`tests/w7_plan2_skills_smoke.rs`):** 2 个测试:
+  - `e2e_files_organize_then_repeat_verified_then_compensate` — 完整生命周期:files.organize 移动 a.pdf/b.pdf → task.repeat_verified 重新验证 → task.compensate 反向移动;断言文件最终回到 src + compensation 记录 status="reversed"
+  - `e2e_explain_reads_audit_log_after_multiple_operations` — 多次操作后 task.explain 读取 audit log;断言 step Succeeded + audit log 增长
+
+**修复 commits(实现过程中发现并修复):**
+
+| Commit | 主题 |
+|---|---|
+| `b02c7d8` | fix(w7p2): remove contradictory default from research_save save_path input(stub manifest 默认值矛盾) |
+| `b68668c` | fix(w7p2): remove dead tool_result and mark step Failed on verify_move errors(task_repeat 死代码 + 错误路径缺 Failed 标记) |
+| `a1fd7a6` | fix(w7p2): bind approval to reverse_payload hash + use real destination(task_compensate TOCTOU 修复 — preconditions_hash 从 "(none)" 占位符改为 SHA256(reverse_payload),destination 从 "(reverse)" 改为真实路径) |
+
+**核心架构决策:**
+- **共享 helpers 而非 trait:** Plan 2 用自由函数 + `ApprovalContext` struct,而非 `trait SkillExecutor`。原因:每个 Skill 的 input/output 类型不同,trait 抽象会引入泛型 + associated type 复杂度,而 helper 函数组合已足够。W7 Plan 4+ (UIA / Playwright) 可重新评估 trait 抽象
+- **TOCTOU 绑定:** `task.compensate` 的 `preconditions_hash = SHA256(reverse_payload)` 把审批与具体 moves 列表密码学绑定,post-hoc 审计可验证用户实际批准的内容,防止 approve 与 commit 之间 reverse_payload 被替换
+- **注册顺序解决关键词冲突:** `task.explain` 的 keyword "上一步" 在 `task.compensate` 的 "撤销上一步" 中出现,SkillRouter 是 first-match-wins,必须先注册 compensate。三处注册点(voice router_bridge / ui commands llm 分支 / ui commands non-llm 分支)注释一致
+- **错误路径 discipline:** 每个执行器在 `Running` 之后的每个 fallible kernel 调用都用 `.inspect_err(|_| { let _ = kernel.update_step_status(step_id, Failed); })` 标记 Failed,确保 step 不卡在 Running
+- **`task.explain` 不持久化 summary:** audit log 本身就是 explanation 数据,UI/CLI 直接调 `kernel.list_audit_recent(limit)` 渲染,executor 仅记录"用户请求了 explain"这一事实(本身可审计)
+
+**W7 Plan 2 commits(按时序,直接提交到 master):**
+
+| Commit | 任务 |
+|---|---|
+| (Tasks 1-7 impl commits) | Task 1: common.rs + 21 tests / Task 2: 3 manifests + 4 stubs / Task 3: task_repeat.rs + 4 tests / Task 4: task_explain.rs + 4 tests / Task 5: task_compensate.rs + 4 tests / Task 6: router + commands registration + 3 router tests / Task 7: w7_plan2_skills_smoke.rs 2 e2e tests |
+| `b02c7d8` | fix(w7p2): remove contradictory default from research_save save_path input |
+| `b68668c` | fix(w7p2): remove dead tool_result and mark step Failed on verify_move errors |
+| `a1fd7a6` | fix(w7p2): bind approval to reverse_payload hash + use real destination |
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/skills/
+├── mod.rs                  # +pub mod common / task_compensate / task_explain / task_repeat
+├── common.rs (NEW)         # 3 helpers + validate_input_against_manifest + ApprovalContext + 21 tests
+├── manifest.rs             # +task_repeat_verified_manifest + task_explain_manifest + task_compensate_manifest + 4 stubs
+├── task_repeat.rs (NEW)    # execute_repeat_verified + lookup_effect_manifest + 4 tests
+├── task_explain.rs (NEW)   # execute_explain + 4 tests
+└── task_compensate.rs (NEW) # execute_compensate + build_reverse_effect_manifest + 4 tests
+
+voicepilot/crates/trust-kernel/src/voice/router_bridge.rs  # +register 3 new skills(compensate 先于 explain)
+voicepilot/crates/ui/src/commands.rs                       # +register 3 new skills(LLM + non-LLM 两分支)
+
+voicepilot/crates/trust-kernel/tests/
+├── skills_router.rs        # +3 路由测试(repeat_verified / explain / compensate keywords)
+└── w7_plan2_skills_smoke.rs (NEW)  # 2 E2E 测试(organize→repeat→compensate 完整生命周期 + explain 读 audit log)
+```
+
+**测试矩阵(W7 Plan 2 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo test -p trust-kernel --features llm --no-fail-fast` | llm | **全绿**(含 w7_plan2_skills_smoke 2 E2E + skills_router 9(原 6 + 新 3)+ common 21 + task_repeat 4 + task_explain 4 + task_compensate 4 + w3b_e2e_smoke 2 + w4_e2e_smoke 2 + state_machine 12 + toolresult 3 + transaction 6) |
+| `cargo test --workspace --no-default-features` | (default) | **236 passed, 0 failed**(W1-W4 + W6 ui non-feature tests,无回归) |
+| `cargo clippy --workspace --no-default-features -- -D warnings` | (default) | **0 warnings**(未引入新 lint) |
+
+**agent-pr-review verdict: APPROVED_WITH_NITS(2026-07-25):**
+
+5 个 nit(无阻塞,可延后 W7 Plan 3 或 fast-follow):
+1. `task_compensate.rs` `first_destination: Option<String>` 实际只在首轮迭代 set 一次,Option 形状误导(逻辑正确)
+2. `task_compensate.rs` 若 `mark_compensation_status("reversed")` 在 `auto_reverse_move` 成功后失败,文件已反向移动但 comp 记录仍 active — 已记录为可接受(auto_reverse 幂等),建议加 tracing 日志
+3. `task_repeat.rs` `source_dir` 仅取首个 source 的 parent dir,多源目录场景只搜第一个 — 匹配 plan 但 plan 未规定多源行为
+4. `task_explain.rs` manifest 把 `limit: Number` 配 `max_length=100`,而 `max_length` 对 Number 无意义(schema 不一致)— 已用显式 `1..=100` 兜底,manifest 字段宜改为 `max_value` 或类似(Plan-level spec issue)
+5. `w7_plan2_skills_smoke.rs` E2E 在 organize 与 repeat_verified 之间写 `c.pdf` "workaround" 文件,因 repeat_verified 要求非空 source — 反映"重新验证历史 move"与"搜索当前 source"之间的设计张力,Plan 3+ 可考虑分离为两个 Skill
+
+**已知偏离 / 延后项:**
+- **`task.repeat_verified` 多源目录:** 仅取首个 source parent dir 作为 source_dir(Plan 未规定多源行为,W7 Plan 3+ 评估)
+- **`task.compensate` Modify 分支:** 当前返回 Err("modify not supported"),W7+ 实现 Modify 重新 prepare 流程
+- **4 个 stub manifest(app_control / note_capture / research_save / form_prepare):** Plan 2 只产出 manifest 函数,executor 实现 + 路由注册延后 Plan 4 / Plan 5
+- **`task.explain` 不持久化 summary:** Option A(audit log 本身即 explanation),Option B(持久化结构化 summary)延后 W7+ 视用户体验决定
+- **`task.compensate` 不支持 reversing a reverse:** 注释说明 auto_reverse_move 幂等足够,W7+ 视实际需求决定是否加二阶补偿
+
+**下一步:** W7 Plan 3(user-custom Skills — YAML 加载 + serde_yaml)+ Plan 4(UIA Automation)+ Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
 
 ---
 
