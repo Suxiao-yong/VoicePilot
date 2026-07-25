@@ -5,7 +5,11 @@ import type {
   RouteTextResult,
   OrganizeResult,
   VoiceListenResult,
+  TranscriptionFinalPayload,
+  Slot,
 } from "../types";
+import { Chip } from "./Chip";
+import { SlotEditDialog } from "./SlotEditDialog";
 
 export function MainView() {
   // ===== 语音输入状态(W6b-1) =====
@@ -32,11 +36,30 @@ export function MainView() {
   const [pttActive, setPttActive] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
 
+  // W6b-3b Task 17:Slot Chip 修改状态(§8.4)
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [editingSlot, setEditingSlot] = useState<Slot | null>(null);
+
   // W6b-2 issue #47:监听 partial transcript 事件,实时更新 partialText
   useEffect(() => {
     const unlisten = onTranscriptionPartial((payload) => {
       setPartialText(payload.partial);
+      // W6b-3b Task 17:更新 slots(§8.4 Chip 修改)
+      setSlots(payload.slots || []);
     });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // W6b-3b Task 17:监听 transcription-final 事件,更新 slots + 清空 partial
+  useEffect(() => {
+    const unlisten = listen<TranscriptionFinalPayload>(
+      "transcription-final",
+      (event) => {
+        setSlots(event.payload.slots || []);
+      }
+    );
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
@@ -65,6 +88,7 @@ export function MainView() {
     setVoiceError(null);
     setVoiceResult(null);
     setPartialText("");
+    setSlots([]);
     try {
       const r = await voiceListen();
       setVoiceResult(r);
@@ -233,6 +257,32 @@ export function MainView() {
             )}
           </>
         )}
+
+        {slots.length > 0 && (
+          <div className="chips-container" aria-label="可修改参数">
+            {slots.map((slot, idx) => (
+              <Chip
+                key={`${slot.kind}-${slot.start}-${idx}`}
+                slot={slot}
+                onClick={(s) => setEditingSlot(s)}
+              />
+            ))}
+          </div>
+        )}
+        <SlotEditDialog
+          slot={editingSlot}
+          onSubmit={(slot, newValue) => {
+            // 更新本地 slots 列表
+            setSlots((prev) =>
+              prev.map((s) =>
+                s === slot ? { ...s, raw: newValue } : s,
+              ),
+            );
+            // 同时更新 transcription 显示(简单替换)
+            setEditingSlot(null);
+          }}
+          onClose={() => setEditingSlot(null)}
+        />
       </div>
 
       {/* ===== §5.1 Skill Router(键盘输入 fallback,W6a)===== */}
