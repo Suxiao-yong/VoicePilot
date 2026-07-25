@@ -2,8 +2,8 @@
 
 > **最后更新:** 2026-07-25 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `a58c4d9` fix(w6b3b): correct misleading comment + add chips-container layout
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +72 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS), 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS
+> **最新 commit:** `34b9a89` fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry
+> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E), 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -30,11 +30,11 @@
 | W6b-1 | Main Chat + Voice 集成 | ✅ 已完成 | +35 (ui crate, opt-in `--features voice`) | 2026-07-21 | (direct on master) |
 | W6b-2 | Settings + Audit Viewer + Trust Center + Skills Manager | ✅ 已完成 | +4 w6b2_smoke (tauri) + 2 partial (voice) + 10 ui unit (voice) | 2026-07-21 | (direct on master) |
 | W6b-3a | Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置 | ✅ 已完成 | +32 (ui crate, opt-in `--features tauri`,含 6 w6b3_e2e_smoke + 2 diff_commands_unit + 10 ui unit)/ +2 default (workspace 221,内含 w6b3_e2e_smoke 6 + diff_commands_unit 2) | 2026-07-22 | (direct on master) |
-| W6b-3b | sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 | ✅ 已完成 | +15 default (workspace 236) / +16 tauri (48 总) / +72 voice (sherpa-rs 迁移后 issue #49 解决) | 2026-07-25 | (direct on master) |
+| W6b-3b | sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 | ✅ 已完成 | +15 default (workspace 236) / +16 tauri (48 总) / +78 voice (sherpa-rs 迁移后 issue #49 解决,含 w6b3b_e2e_smoke 6 个 E2E) | 2026-07-25 | (direct on master) |
 | W7 | LLM Planner + 8 Skills | ⏳ 未开始 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
-**累计测试数:** 236 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+72 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS)
+**累计测试数:** 236 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
 
 ---
 
@@ -861,7 +861,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 
 **完成时间:** 2026-07-25(Asia/Shanghai)
 **对应规格:** V1.1 §8.4 语音转写快速纠错 + VP-FR-001 Push-to-talk + VP-FR-002 语音反馈 TTS
-**Commit 范围:** 18 个 commit(spec/plan + 16 Task + 多个修复,直接提交到 master)
+**Commit 范围:** 21 个 commit(spec/plan + 16 Task + 4 修复,直接提交到 master)
 
 **实现内容:**
 - **sherpa-rs 迁移(修复 issue #49):** whisper-rs 0.13.2 在 Windows MSVC 上 bindgen 失败(71 E0609 errors),迁移到 sherpa-rs v0.6.8(`download-binaries` feature 走预编译库,无需 CMake/bindgen);`voice/whisper.rs` 删除,新增 `voice/asr.rs`(SherpaAsrEngine 包 `sherpa_rs::SenseVoiceRecognizer`)+ `voice/tts.rs`(SherpaTtsEngine 包 `sherpa_rs::VitsTts`)
@@ -901,7 +901,10 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 | `9f78a4d` | feat(w6b3b): add Chip + SlotEditDialog components for §8.4 chip modification |
 | `fe06997` | feat(w6b3b): render Chips in MainView + high-risk visual confirm in SlotEditDialog |
 | `a58c4d9` | fix(w6b3b): correct misleading comment + add chips-container layout |
-| (本 commit) | docs(w6b3b): update PROGRESS.md — W6b-3b complete, issue #49 resolved |
+| `0199945` | docs(w6b3b): update PROGRESS.md — W6b-3b complete, issue #49 resolved |
+| `7a7ea4c` | fix(w6b3b): TTS plays audio via frontend `<audio>` element + wav_path in TtsResult (P0 修复 #1) |
+| `78f16d2` | test(w6b3b): add w6b3b_e2e_smoke covering SlotParser + TTS settings + payload slots (P0 修复 #2) |
+| `34b9a89` | fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry (P0 修复 #3) |
 
 **新增模块结构:**
 ```
@@ -946,7 +949,7 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 |---|---|---|
 | `cargo test --workspace --no-default-features` | (default) | **236 passed, 0 failed**(W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40) |
 | `cargo test -p voicepilot-ui --features tauri` | tauri | **48 passed, 0 failed**(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit) |
-| `cargo test -p voicepilot-ui --features voice` | voice | **72 passed, 0 failed**(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS) |
+| `cargo test -p voicepilot-ui --features voice` | voice | **78 passed, 0 failed**(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E) |
 | `cargo test -p trust-kernel --features voice` | voice | ⚠️ link.exe 内存分配失败(环境限制,非代码问题;sherpa-rs 静态链接资源密集,需更大内存机器或分批 link) |
 | `cargo clippy --workspace --no-default-features -- -D warnings` | (default) | **0 warnings, 0 errors** |
 | `npm.cmd run build` | — | **PASS** — dist/index.html + assets 生成(无 TS 错误) |
@@ -962,13 +965,18 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 - ✅ issue #49 已解决(whisper-rs → sherpa-rs 迁移,voice feature 测试不再 SKIP)
 
 **已知偏离 / 延后项:**
-- **trust-kernel voice feature 链接失败(环境限制):** sherpa-rs 静态链接资源密集,link.exe 内存分配失败(1.2GB);需更大内存机器或分批 link;**非代码问题**,voice feature 单元测试在 ui crate 中通过(72 PASS)
+- **trust-kernel voice feature 链接失败(环境限制):** sherpa-rs 静态链接资源密集,link.exe 内存分配失败(1.2GB);需更大内存机器或分批 link;**非代码问题**,voice feature 单元测试在 ui crate 中通过(78 PASS)
 - **`new_rejects_fake_model_onnx` 标 `#[ignore]`:** sherpa-onnx C 库在加载无效 model.onnx 时会 abort 进程(无法 catch),测试保留为 `#[ignore]` 以保留规格可追溯性
 - **TTS 默认 enabled:** 当前 SettingsDto 默认 `tts_enabled = true`(VP-FR-002 规格"可禁用");用户可在 Settings 中关闭
 - **SlotParser 5 类 Slot:** §8.4 规格未明确 slot 类型集合,W6b-3b 选 path/app/number/recipient/delete-target 覆盖常见高风险场景;W7 LLM Planner 可扩展更多 slot 类型
 - **Push-to-talk 快捷键硬编码 Ctrl+Alt+Space:** §8.4 规格未规定具体快捷键,W6b-3b 选 Ctrl+Alt+Space(与 IDE 不冲突);W7+ 可加 Settings 让用户自定义
 - **macOS / Linux 打包延后 W7+:** 当前仅 `bundle.targets = ["nsis"]`(Windows);sherpa-rs 在 macOS/Linux 上预编译库可用,但需额外 CI runner
 - **CSP nonce 仍未实现:** style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W7+ 探讨 nonce 方案
+
+**P0 修复(最终代码审查后):**
+- ✅ **P0 #1 TTS 实际播放音频(commit `7a7ea4c`):** 原实现仅写 WAV 到 tempdir 不播放;修复为 `TtsResult` 新增 `wav_path` 字段,前端用 `convertFileSrc` + `new Audio()` 播放,`audioRef.pause()` 实现中断
+- ✅ **P0 #2 w6b3b_e2e_smoke.rs 缺失(commit `78f16d2`):** 原计划 Task 18 要求的 E2E 测试文件未创建;补写 6 个测试覆盖 SlotParser 提取 + 高风险标记 + final payload slots + TTS settings 往返 + 默认 TTS enabled + wav_path 字段
+- ✅ **P0 #3 voice_model_path 默认值(commit `34b9a89`):** 原默认值为相对模型名导致 ASR 加载必失败;修复为空字符串默认 + `voice_listen_command` 检测空路径时通过 `ModelRegistry::default_model().path` 解析到 `~/.voicepilot/models/<name>`
 
 **下一步:** W6c(规格待定,可能方向:LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 / Tauri macOS+Linux 打包)
 
@@ -989,14 +997,14 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # 结果:48 passing, 0 failing (W6a 12 + W6b-2 4 + W6b-3a 6 + W6b-3b 6 + 20 ui unit)
 # 验证 voice 编译(sherpa-rs 迁移后 issue #49 已解决,无需 CMake/bindgen):
 # cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features voice
-# 结果:72 passing, 0 failing (W5+W6b-1+W6b-2+W6b-3b voice-gated tests)
+# 结果:78 passing, 0 failing (W5+W6b-1+W6b-2+W6b-3b voice-gated tests,含 w6b3b_e2e_smoke 6 个 E2E)
 ```
 
 ### Git 状态
 
 ```
 当前分支: master
-最新 commit: a58c4d9 fix(w6b3b): correct misleading comment + add chips-container layout
+最新 commit: 34b9a89 fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry
 保留分支: (无,W6b-3b 直接提交到 master,无 feature 分支)
 ```
 
