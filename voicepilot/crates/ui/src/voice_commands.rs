@@ -341,7 +341,16 @@ pub async fn voice_listen_command(
 
     // 2. 从 Settings 加载 voice 配置(V1.1.2 §8.3 Settings 持久化)
     let settings = load_voice_settings(&state.kernel).map_err(|e| e.to_string())?;
-    let model_dir = std::path::PathBuf::from(&settings.voice_model_path);
+    // W6b-3b Fix 3:voice_model_path 为空时用 ModelRegistry 解析默认模型路径
+    // (~/.voicepilot/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17)。
+    // 此前默认值是模型名(相对路径),SherpaAsrEngine::new 校验 model_dir.is_dir()
+    // 时从 CWD 查找必失败。
+    let model_dir = if settings.voice_model_path.is_empty() {
+        let registry = ModelRegistry::new();
+        registry.default_model().path
+    } else {
+        std::path::PathBuf::from(&settings.voice_model_path)
+    };
     let asr_config = SherpaAsrConfig {
         model_dir: model_dir.clone(),
         language: settings.voice_language.clone(),
@@ -444,6 +453,20 @@ pub async fn tts_command(
         .store(false, std::sync::atomic::Ordering::SeqCst);
 
     // 3. 加载 / 缓存 TTS engine
+    // W6b-3b Fix 3:tts_model_path 为空时返回友好错误(未配置)。
+    // TTS 模型(vits-icefall-zh-aishell3)与 ASR 模型不同,ModelRegistry 当前
+    // 只有 ASR 模型,故空路径时提示用户配置 tts_model_path。
+    if settings.tts_model_path.is_empty() {
+        return Ok(TtsResult {
+            played: false,
+            interrupted: false,
+            sample_count: 0,
+            wav_path: None,
+            error: Some(
+                "TTS model path not configured. Please set tts_model_path in Settings.".to_string(),
+            ),
+        });
+    }
     let model_dir = std::path::PathBuf::from(&settings.tts_model_path);
     let engine: Arc<SherpaTtsEngine> = {
         let mut cache = state.tts_cache.lock().map_err(|e| e.to_string())?;

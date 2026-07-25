@@ -30,7 +30,11 @@ pub struct SettingsDto {
 impl Default for SettingsDto {
     fn default() -> Self {
         Self {
-            voice_model_path: "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17".to_string(),
+            // W6b-3b Fix 3:空字符串表示"用默认模型",由 voice_commands 用
+            // ModelRegistry::default_model() 解析到 ~/.voicepilot/models/<default_model_name>。
+            // 此前默认值是模型名(相对路径),SherpaAsrEngine::new 校验 model_dir.is_dir()
+            // 时从 CWD 查找必失败。
+            voice_model_path: String::new(),
             voice_language: None,
             voice_threads: 4,
             vad_energy_threshold: 100.0,
@@ -41,7 +45,8 @@ impl Default for SettingsDto {
             privacy_mode: false,
             compensation_ttl_hours: 24,
             tts_enabled: true,
-            tts_model_path: "vits-icefall-zh-aishell3".to_string(),
+            // W6b-3b Fix 3:同上,空字符串表示"未配置",tts_command 检测到空时返回友好错误。
+            tts_model_path: String::new(),
         }
     }
 }

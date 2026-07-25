@@ -7,10 +7,14 @@ use voicepilot_ui::settings_commands::{SettingsDto, flatten_to_kv, merge_from_kv
 #[test]
 fn settings_dto_default_has_sensible_values() {
     let dto = SettingsDto::default();
-    assert_eq!(dto.voice_model_path, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17");
+    // W6b-3b Fix 3:voice_model_path 默认空字符串(用 ModelRegistry 解析默认模型),
+    // tts_model_path 默认空字符串(未配置时 tts_command 返回友好错误)。
+    assert_eq!(dto.voice_model_path, "");
+    assert_eq!(dto.tts_model_path, "");
     assert_eq!(dto.voice_threads, 4);
     assert!(!dto.privacy_mode); // 默认隐私模式关闭
     assert_eq!(dto.compensation_ttl_hours, 24);
+    assert!(dto.tts_enabled); // VP-FR-002 默认开启
 }
 
 #[test]
@@ -49,6 +53,7 @@ fn settings_merge_from_partial_kv_uses_defaults_for_missing() {
     let kv = vec![("voice.threads".to_string(), "16".to_string())];
     let dto = merge_from_kv(&kv).expect("merge");
     assert_eq!(dto.voice_threads, 16);
-    assert_eq!(dto.voice_model_path, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17");
+    // W6b-3b Fix 3:缺失 voice.model_path 时默认空字符串(而非模型名)。
+    assert_eq!(dto.voice_model_path, "");
     assert_eq!(dto.compensation_ttl_hours, 24);
 }
