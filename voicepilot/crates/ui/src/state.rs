@@ -18,6 +18,16 @@ pub struct AppState {
     /// 必须用 `Arc<SherpaAsrEngine>` 共享。
     #[cfg(feature = "voice")]
     pub asr_cache: Arc<std::sync::Mutex<Option<Arc<trust_kernel::voice::asr::SherpaAsrEngine>>>>,
+    /// SherpaTtsEngine 缓存(VP-FR-002)。miss 时加载并缓存(Arc 共享);
+    /// Settings 更新 tts_model_path 时应 invalidate(设为 None)。
+    /// `SherpaTtsEngine` 内部持有 `Mutex<VitsTts>`(`Send + Sync` 但不 `Clone`),
+    /// 必须用 `Arc<SherpaTtsEngine>` 共享。
+    #[cfg(feature = "voice")]
+    pub tts_cache: Arc<std::sync::Mutex<Option<Arc<trust_kernel::voice::tts::SherpaTtsEngine>>>>,
+    /// TTS 播放取消标志(VP-FR-002 可中断)。cancel_tts_command 设为 true;
+    /// tts_command 开始时重置为 false,合成前后检查。
+    #[cfg(feature = "voice")]
+    pub tts_cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -30,6 +40,10 @@ impl AppState {
             kill_switch: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             #[cfg(feature = "voice")]
             asr_cache: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cache: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -41,6 +55,10 @@ impl AppState {
             kill_switch: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             #[cfg(feature = "voice")]
             asr_cache: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cache: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

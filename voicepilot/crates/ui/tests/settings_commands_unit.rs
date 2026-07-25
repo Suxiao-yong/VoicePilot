@@ -26,16 +26,22 @@ fn settings_dto_roundtrip_through_kv() {
         voice_chunk_duration_ms: 750,
         privacy_mode: true,
         compensation_ttl_hours: 48,
+        tts_enabled: false,
+        tts_model_path: "/models/tts-test".to_string(),
     };
     let kv = flatten_to_kv(&dto);
     assert!(kv.iter().any(|(k, _)| k == "voice.model_path"));
     assert!(kv.iter().any(|(k, _)| k == "voice.threads"));
     assert!(kv.iter().any(|(k, _)| k == "privacy.mode"));
+    assert!(kv.iter().any(|(k, _)| k == "tts.enabled"));
+    assert!(kv.iter().any(|(k, _)| k == "tts.model_path"));
     let restored = merge_from_kv(&kv).expect("merge");
     assert_eq!(restored.voice_model_path, "/models/base.bin");
     assert_eq!(restored.voice_threads, 8);
     assert!(restored.privacy_mode);
     assert_eq!(restored.compensation_ttl_hours, 48);
+    assert_eq!(restored.tts_enabled, false);
+    assert_eq!(restored.tts_model_path, "/models/tts-test");
 }
 
 #[test]

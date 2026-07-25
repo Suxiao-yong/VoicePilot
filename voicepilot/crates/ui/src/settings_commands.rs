@@ -23,6 +23,8 @@ pub struct SettingsDto {
     pub voice_chunk_duration_ms: u64,
     pub privacy_mode: bool,
     pub compensation_ttl_hours: u32,
+    pub tts_enabled: bool,
+    pub tts_model_path: String,
 }
 
 impl Default for SettingsDto {
@@ -38,6 +40,8 @@ impl Default for SettingsDto {
             voice_chunk_duration_ms: 500,
             privacy_mode: false,
             compensation_ttl_hours: 24,
+            tts_enabled: true,
+            tts_model_path: "vits-icefall-zh-aishell3".to_string(),
         }
     }
 }
@@ -55,6 +59,8 @@ pub fn flatten_to_kv(dto: &SettingsDto) -> Vec<(String, String)> {
         ("voice.chunk_duration_ms".to_string(), dto.voice_chunk_duration_ms.to_string()),
         ("privacy.mode".to_string(), dto.privacy_mode.to_string()),
         ("compensation.ttl_hours".to_string(), dto.compensation_ttl_hours.to_string()),
+        ("tts.enabled".to_string(), dto.tts_enabled.to_string()),
+        ("tts.model_path".to_string(), dto.tts_model_path.clone()),
     ]
 }
 
@@ -73,6 +79,8 @@ pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsDto> {
             "voice.chunk_duration_ms" => dto.voice_chunk_duration_ms = v.parse().map_err(|e| UiError::InvalidConfig(format!("chunk_duration_ms: {e}")))?,
             "privacy.mode" => dto.privacy_mode = v.parse().map_err(|e| UiError::InvalidConfig(format!("privacy.mode: {e}")))?,
             "compensation.ttl_hours" => dto.compensation_ttl_hours = v.parse().map_err(|e| UiError::InvalidConfig(format!("ttl_hours: {e}")))?,
+            "tts.enabled" => dto.tts_enabled = v.parse().map_err(|e| UiError::InvalidConfig(format!("tts.enabled: {e}")))?,
+            "tts.model_path" => dto.tts_model_path = v.clone(),
             _ => {} // 忽略未知 key(前向兼容)
         }
     }
@@ -106,4 +114,20 @@ pub fn update_settings(state: &AppState, settings: &SettingsDto) -> UiResult<()>
 #[tauri::command]
 pub async fn update_settings_command(state: State<'_, AppState>, settings: SettingsDto) -> Result<(), String> {
     update_settings(&state, &settings).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_dto_tts_roundtrip() {
+        let mut dto = SettingsDto::default();
+        dto.tts_enabled = false;
+        dto.tts_model_path = "custom-tts-model".to_string();
+        let kv = flatten_to_kv(&dto);
+        let parsed = merge_from_kv(&kv).unwrap();
+        assert_eq!(parsed.tts_enabled, false);
+        assert_eq!(parsed.tts_model_path, "custom-tts-model");
+    }
 }
