@@ -2,8 +2,8 @@
 
 > **最后更新:** 2026-07-25 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `a1fd7a6` fix(w7p2): bind approval to reverse_payload hash + use real destination
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件), 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS
+> **最新 commit:** `f69f029` test(w7p3): add user skill loading smoke tests (Task 8)
+> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(3 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -15,6 +15,7 @@
 > **W6b-3b:** ✅ 已完成(2026-07-25)— sherpa-rs 迁移 + TTS 语音反馈 + Push-to-talk 全局快捷键 + §8.4 Chip 修改 + 高风险视觉确认,18 个 commit(spec/plan + 16 Task + 修复),issue #49 已解决,详见 §二 W6b-3b 段落
 > **W6c Fast-Follow:** ✅ 已完成(2026-07-25)— W6b-3b 审查遗留 P1/P2 修复(6 commits),详见 §二 W6c Fast-Follow 段落
 > **W7 Plan 2:** ✅ 已完成(2026-07-25)— 3 个新 fs Skill(task.repeat_verified / task.explain / task.compensate)+ 共享 helpers + 路由注册 + E2E 冒烟,agent-pr-review verdict APPROVED_WITH_NITS,详见 §二 W7 Plan 2 段落
+> **W7 Plan 3:** ✅ 已完成(2026-07-25)— 用户自定义 Skill 加载(`%APPDATA%\voicepilot\skills\*.md`)+ YAML frontmatter 解析 + 用户覆盖 built-in + Tauri 导入 UI + E2E 冒烟,3 个 commit(51ef37c 后端 + 09055da UI + f69f029 测试),agent-pr-review verdict READY(无阻塞),详见 §二 W7 Plan 3 段落
 
 ---
 
@@ -34,6 +35,7 @@
 | W6b-3a | Diff Preview + 批次审批 + auto-download + E2E + Windows 打包配置 | ✅ 已完成 | +32 (ui crate, opt-in `--features tauri`,含 6 w6b3_e2e_smoke + 2 diff_commands_unit + 10 ui unit)/ +2 default (workspace 221,内含 w6b3_e2e_smoke 6 + diff_commands_unit 2) | 2026-07-22 | (direct on master) |
 | W6b-3b | sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 | ✅ 已完成 | +15 default (workspace 236) / +16 tauri (48 总) / +78 voice (sherpa-rs 迁移后 issue #49 解决,含 w6b3b_e2e_smoke 6 个 E2E) | 2026-07-25 | (direct on master) |
 | W7 Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | +trust-kernel --features llm 全绿(2 e2e + 3 router + 4 skill suites) | 2026-07-25 | (direct on master) |
+| W7 Plan 3 | 用户自定义 Skill 加载 + Tauri 导入 UI + E2E | ✅ 已完成 | +3 e2e (w7_plan3_user_skill_smoke) + 5 unit (user_loader::tests) | 2026-07-25 | (direct on master) |
 | W7 | LLM Planner + 8 Skills | 🔄 进行中 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
@@ -1138,7 +1140,119 @@ voicepilot/crates/trust-kernel/tests/
 - **`task.explain` 不持久化 summary:** Option A(audit log 本身即 explanation),Option B(持久化结构化 summary)延后 W7+ 视用户体验决定
 - **`task.compensate` 不支持 reversing a reverse:** 注释说明 auto_reverse_move 幂等足够,W7+ 视实际需求决定是否加二阶补偿
 
-**下一步:** W7 Plan 3(user-custom Skills — YAML 加载 + serde_yaml)+ Plan 4(UIA Automation)+ Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
+**下一步:** W7 Plan 4(UIA Automation)+ Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
+
+---
+
+### W7 Plan 3: 用户自定义 Skill 加载 + Tauri 导入 UI + E2E ✅
+
+**完成时间:** 2026-07-25(Asia/Shanghai)
+**对应规格:** `docs/superpowers/specs/2026-07-25-w7-llm-planner-skills-design.md`
+**对应计划:** `docs/superpowers/plans/2026-07-25-w7-plan3-user-custom-skills.md`
+**Commit 范围:** 3 个 commit(`51ef37c` 后端 + `09055da` UI + `f69f029` 测试,直接提交到 master)
+**Review Verdict:** agent-pr-review READY(3 次审查,无阻塞,5 个 follow-up 全部接受)
+
+**实现内容(8 项):**
+
+- **Task 1 — `SkillManifest::description_body` 字段(`skills/manifest.rs`):** 新增 `#[serde(default)] pub description_body: Option<String>`,仅用于用户自定义 Skill 的 Markdown body;built-in manifest 一律设 `None`(7 个 manifest 函数同步更新)
+- **Task 2 — `SkillRouter::register` 覆盖语义(`skills/router.rs`):** 将 `self.skills.push(manifest)` 改为先按 `id` 查找,存在则替换、不存在则 push;保证用户自定义 Skill > built-in 优先级;新增单元测试 `register_same_id_overrides_built_in`
+- **Task 3 — `user_loader.rs` 模块(`skills/user_loader.rs`,新文件 197 行):**
+  - `user_skills_dir() -> Result<PathBuf>` — 计算 `%APPDATA%\voicepilot\skills` 目录,`create_dir_all` + `canonicalize`(解析 symlink)
+  - `parse_skill_md(content) -> Result<(SkillManifest, String)>` — 解析 YAML frontmatter(`---` 分隔)+ Markdown body;校验 `id` 匹配 `^[a-z][a-z0-9._-]{0,63}$`(防路径遍历 + 命名空间安全);5 个单元测试覆盖 valid / missing frontmatter / invalid YAML / invalid id / scan-skip
+  - `scan_user_skills(dir) -> Vec<SkillManifest>` — 非递归扫描 `*.md`,单文件错误经 `tracing::warn!` 记录并跳过;`MAX_SKILL_FILE_BYTES = 1 MiB` 防资源耗尽(billion-laughs YAML)
+- **Task 4 — `TrustKernel` 集成(`kernel.rs`):**
+  - `load_user_skills() -> Result<usize>` — 扫描目录 + upsert 到 `skills` 表(`SkillRecord.version = 1` DB 计数器,manifest version 字符串保留在 `manifest_json`);best-effort,错误经 `tracing::warn!` 不向上传播
+  - `list_user_skill_manifests() -> Result<Vec<SkillManifest>>` — 重新扫描目录,供 `route_text` 在 fresh `SkillRouter` 上注册
+  - 启动 hook:在 `with_conn` 函数末尾(kernel 构造完成)调 `load_user_skills`,错误不影响 kernel 构造
+- **Task 5 — Tauri 命令(`ui/src/skills_commands.rs`):** 3 个新命令 + 3 个逻辑函数 + `UserSkillDto`:
+  - `reload_skills_command` — 重扫目录 + upsert DB + 返回当前列表
+  - `import_skill_command(source_path)` — 5 步边界校验(绝对路径 / .md 扩展名 / canonicalize / is_file / size ≤ 1 MiB)+ 目标路径 confinement(`dest.starts_with(skills_dir)`)+ 复制 + 重新 parse 验证 + 失败则删除文件;符合 spec "Sink 2" 安全清单
+  - `list_user_skills_command` — 列出当前用户自定义 Skill(含源文件路径)
+- **Task 6 — `route_text` 注册用户 Skill(`ui/src/commands.rs`):** 在 LLM 和 non-LLM 两个分支均调 `state.kernel.list_user_skill_manifests()` 并 register 到 fresh `SkillRouter`;覆盖语义保证同 id 用户 Skill 自动覆盖 built-in
+- **Task 7 — 前端 API + UI(`ui/web/src/`):**
+  - `types.ts` 新增 `UserSkill` 接口
+  - `api.ts` 新增 `invokeReloadSkills` / `invokeImportSkill` / `invokeListUserSkills` 三个 invoke wrapper
+  - `SkillsManagerView.tsx` 新增"用户自定义 Skill"区:导入按钮(调 `@tauri-apps/plugin-dialog` `open()` 选 .md 文件)+ 重新扫描按钮 + 用户 Skill 列表表格;符合 Tauri IPC 三条安全规则(WebView 不直接访问 FS、UI 不直接调 MCP、approval_request_id 单次使用)
+  - `styles.css` 新增 user-skills-section 样式
+  - `Cargo.toml`(workspace + ui crate)+ `capabilities/default.json` + `app.rs` 注册 `tauri-plugin-dialog`
+  - `package.json` 添加 `@tauri-apps/plugin-dialog` 依赖
+- **Task 8 — E2E 冒烟测试(`tests/w7_plan3_user_skill_smoke.rs`,新文件 137 行):** 3 个测试:
+  - `scan_loads_valid_skill_into_router` — tempdir + 写 `my-test.md` + 干扰 `.txt` → scan 返回 1 个 manifest + description_body 含 "# My Test" + route 命中
+  - `scan_skips_malformed_yaml` — tempdir + 写 `bad.md`(未闭合 YAML 序列)→ scan 返回空 vec
+  - `user_skill_overrides_built_in_same_id` — 注册 built-in `files.organize` + 注册同 id 用户版本(不同 title)→ route 返回用户版本
+
+**W7 Plan 3 commits(按时序,直接提交到 master):**
+
+| Commit | 任务 |
+|---|---|
+| `51ef37c` | feat(w7p3): implement user skill loading backend (Task 1-4) — Cargo.toml + kernel.rs + manifest.rs + mod.rs + router.rs + user_loader.rs |
+| `09055da` | feat(w7p3): add user skill import UI and Tauri commands (Task 5-7) — UI Cargo.toml + capabilities + app.rs + commands.rs + skills_commands.rs + web/dist + package.json + api.ts + types.ts + SkillsManagerView.tsx + styles.css |
+| `f69f029` | test(w7p3): add user skill loading smoke tests (Task 8) — w7_plan3_user_skill_smoke.rs 3 个 E2E |
+
+**核心架构决策:**
+- **YAML frontmatter + Markdown body 分离:** `SkillManifest` 通过 serde_yaml 反序列化 frontmatter;body 存入 `description_body: Option<String>`,前端可显示给用户。built-in manifest 不设此字段(保持 `None`),不污染序列化输出
+- **覆盖语义在 `register` 而非 `route`:** `SkillRouter::register` 改为 upsert-by-id,而非在 `route` 时按优先级查找。原因:route 是热路径,每次调用都要遍历;register 是冷路径,只在 router 构造时调用一次。覆盖语义在 register 一次完成,route 保持 O(n) 线性扫描不变
+- **DB row version vs manifest version 字符串:** `SkillRecord.version: i64` 是 DB 行计数器(用于乐观锁),`SkillManifest.version: String` 是 manifest 版本号(如 "1.0.0")。upsert 用户 Skill 时 DB row version 用 1,manifest version 字符串保留在 `manifest_json` JSON 内
+- **boot hook best-effort:** `load_user_skills` 错误经 `tracing::warn!` 记录,不向上传播。原因:用户文件损坏不应让 kernel 构造失败,使整个应用无法启动
+- **route_text 重新扫描而非缓存:** `route_text` 每次调用都重新扫描目录 + 构造 fresh `SkillRouter`。原因:(1) 用户可能在应用运行时手动编辑 `skills/` 目录下的 .md 文件;(2) route_text 不是热路径(用户输入间隔秒级);(3) 避免引入跨调用的 router 缓存 + 失效逻辑
+- **import_skill 5 步边界校验 + post-copy re-parse:** 按 spec "Sink 2" 安全清单实现:绝对路径(防相对路径注入)+ .md 扩展名(防误读任意文件)+ canonicalize(防 symlink + `..` 路径遍历)+ is_file(防目录)+ size ≤ 1 MiB(防资源耗尽)。复制后再次 parse 验证,失败则删除文件(原子性:无效文件不留残)
+- **Tauri IPC 三条安全规则(project_memory):**
+  1. WebView 不能直接访问文件系统 — 前端用 `@tauri-apps/plugin-dialog` `open()` 选择文件,只把路径字符串传给 Rust 命令;所有 I/O 在 Rust 端完成
+  2. UI 不能直接调 MCP — 用户 Skill 经 SkillRouter 路由,不直接调 MCP server
+  3. approval_request_id 单次使用 — 用户 Skill 执行时若需审批,走标准 approval 流程
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/skills/
+├── mod.rs                  # +pub mod user_loader
+├── manifest.rs             # +description_body: Option<String> 字段(7 个 manifest 函数同步更新)
+├── router.rs               # register() 改为 upsert-by-id + 1 个新单元测试
+└── user_loader.rs (NEW)    # user_skills_dir + parse_skill_md + scan_user_skills + 5 个单元测试
+
+voicepilot/crates/trust-kernel/src/kernel.rs  # +load_user_skills + list_user_skill_manifests + boot hook
+
+voicepilot/crates/ui/src/
+├── app.rs                  # 注册 tauri_plugin_dialog::init()
+├── commands.rs             # route_text LLM + non-LLM 两分支均注册用户 Skill + register 3 个新命令
+└── skills_commands.rs      # +UserSkillDto + reload_skills + import_skill + list_user_skills + 3 个 Tauri 命令
+
+voicepilot/crates/ui/web/src/
+├── types.ts                # +UserSkill 接口
+├── api.ts                  # +invokeReloadSkills + invokeImportSkill + invokeListUserSkills
+├── styles.css              # +user-skills-section 样式
+└── components/SkillsManagerView.tsx  # +用户自定义 Skill 区(导入按钮 + 重新扫描 + 列表表格)
+
+voicepilot/crates/trust-kernel/tests/
+└── w7_plan3_user_skill_smoke.rs (NEW)  # 3 个 E2E 测试
+```
+
+**测试矩阵(W7 Plan 3 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo check --workspace --exclude voicepilot-ui` | (default) | **OK** |
+| `cargo check -p voicepilot-ui --features tauri` | tauri | **OK** |
+| `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` | (default) | **3 passed**(scan_loads_valid + scan_skips_malformed + user_overrides_built_in) |
+| `cargo test -p trust-kernel --lib skills::user_loader` | (default) | **5 passed**(parse_valid + parse_missing_frontmatter + parse_invalid_yaml + parse_invalid_id + scan_skips_malformed_and_returns_valid) |
+| `npm.cmd run build` (tsc + vite build) | — | **PASS**(47 modules transformed, 180.16 kB JS gzip 56.18 kB) |
+
+**agent-pr-review verdict: READY(2026-07-25,3 次审查):**
+
+3 次审查(后端 / UI / 测试)verdict 均 READY,无阻塞。Follow-up 项(全部接受):
+
+1. `is_valid_skill_id` regex 在函数内编译 — 可用 `OnceLock<Regex>` 缓存(boot-time + on-demand scan 频次低,可接受)
+2. `load_user_skills` boot 时 re-upsert 所有 manifest — 依赖 `SkillRepo::upsert` 不重置 `success_count`/`avg_latency_ms`(冲突时),建议加 follow-up 测试验证
+3. `reload_skills` 两次扫描同目录 — 可缓存扫描结果(UI 低频动作,可接受)
+4. `import_skill` 并发竞态 — `State<'_, AppState>` 共享,kernel 锁串行化(W7 follow-up 验证)
+5. `importNotice` 不自动清除 — 可加 `setTimeout` 5 秒后清(UX 改进,可接受)
+
+**已知偏离 / 延后项:**
+- **用户 Skill 删除 UI 未实现:** 当前用户需手动删除 `%APPDATA%\voicepilot\skills\<file>.md` 后点"重新扫描"。W7 Plan 4+ 评估是否加删除按钮 + 二次确认
+- **用户 Skill 编辑 UI 未实现:** 当前用户需在外部编辑器修改 .md 文件。W7 Plan 4+ 评估是否加内置编辑器
+- **用户 Skill 不支持 `tools` 字段中的 MCP server 调用:** 当前用户 Skill 只能调用 built-in tools(files.organize 等);W7 Plan 4+ (UIA) / Plan 5+ (Playwright) 评估是否开放 MCP 工具配置
+- **用户 Skill 不参与 LLM fallback 路由:** 当前 LLM fallback 仅在关键词不匹配时触发,用户 Skill 的 intent_examples 不进入 LLM prompt 上下文。W7 Plan 6+ 评估
+- **`description_body` 仅 UI 显示,不进入 LLM prompt:** 当前 LLM 只看 `description` 字段。W7 Plan 6+ 评估是否把 body 也作为上下文
+
+**下一步:** W7 Plan 4(UIA Automation)+ Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
 
 ---
 
