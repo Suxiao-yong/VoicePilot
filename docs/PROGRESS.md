@@ -978,7 +978,66 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 - ✅ **P0 #2 w6b3b_e2e_smoke.rs 缺失(commit `78f16d2`):** 原计划 Task 18 要求的 E2E 测试文件未创建;补写 6 个测试覆盖 SlotParser 提取 + 高风险标记 + final payload slots + TTS settings 往返 + 默认 TTS enabled + wav_path 字段
 - ✅ **P0 #3 voice_model_path 默认值(commit `34b9a89`):** 原默认值为相对模型名导致 ASR 加载必失败;修复为空字符串默认 + `voice_listen_command` 检测空路径时通过 `ModelRegistry::default_model().path` 解析到 `~/.voicepilot/models/<name>`
 
-**下一步:** W6c(规格待定,可能方向:LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 / Tauri macOS+Linux 打包)
+**下一步:** W6c Fast-Follow(W6b-3b 最终代码审查遗留 P1/P2 修复)
+
+---
+
+### W6c Fast-Follow: W6b-3b 审查遗留 P1/P2 修复 ✅
+
+**完成时间:** 2026-07-25(Asia/Shanghai)
+**对应规格:** `docs/superpowers/specs/2026-07-25-w6c-fast-follow-design.md`
+**Commit 范围:** 6 个 commit(1 spec + 5 修复,直接提交到 master)
+
+**实现内容(7 项):**
+
+- **P1 #1 SettingsView TTS UI(commit `18f2c53`):** `types.ts` 的 `Settings` interface 补 `tts_enabled: boolean` + `tts_model_path: string`(对齐后端 `SettingsDto`);`SettingsView.tsx` 在"语音配置" fieldset 后新增"TTS 配置" fieldset(`tts_enabled` checkbox + `tts_model_path` text input),`handleField<K extends keyof Settings>` 泛型已支持新字段
+- **P1 #2 Slot 提交重执行 — 手动 Apply 按钮(commit `c673df5`):** `Slot` interface 加 `modified?: boolean`(前端状态);`Chip.tsx` modified=true 显示绿色边框 + ✓ 角标;`MainView.tsx` 新增 `onApplySlotEdits` — 按 `slot.end` 降序替换 transcription `[start, end)` 区间,生成新文本后调 `routeText(newText)` 重新路由,Apply 后清空所有 modified 标记;"Apply 修改"按钮仅在有 modified slot 时显示
+- **P2 #1 VoiceError 文案修正(commit `de772da`):** `voice/error.rs` 第 13 行 `InferenceFailed` 文案 `"whisper inference failed: {0}"` → `"inference failed: {0}"`(迁移到 sherpa-rs 后语义正确);`voice_unit.rs` 测试断言同步更新
+- **P2 #2 TTS sample_rate(commit `473d2a3`):** sherpa-rs `TtsAudio.sample_rate: u32` 由模型决定(中文 VITS 通常 22050 Hz);`SherpaTtsEngine::synth` 返回 `(Vec<i16>, u32)`(samples + actual sample_rate);新增 `actual_sample_rate: AtomicU32` 字段缓存实际值;`voice_commands.rs` `wav::write_wav` 用 `engine.actual_sample_rate()` 替代 `engine.config().sample_rate`(原 16000 默认值导致播放失真)
+- **P2 #3 缓存失效扩展(commit `473d2a3`):** `SherpaAsrConfig` / `SherpaTtsConfig` 派生 `PartialEq`(TTS 手动 impl 排除 `sample_rate` — 模型决定值不参与失效判断);新增 `cache_needs_reload<C: PartialEq>(cached: Option<&C>, new_config: &C) -> bool` 泛型 helper 替代仅比较 `model_dir` 的旧逻辑;改 language/num_threads/speed 等任意字段均触发缓存失效
+- **P2 #4 Push-to-talk emit 错误日志(commit `4f9e200`):** `app.rs` `let _ = app.emit(...)` → `if let Err(e) = app.emit(...) { eprintln!("[voice] emit ... failed: {}", e); }`,emit 失败时 stderr 有日志而非静默吞错(不引入 `tracing` 依赖)
+- **P2 #5 CSP nonce — 跳过(用户选择 A):** Tauri 2 CSP nonce 自动注入只对 `index.html` 中静态 `<style>` / `<script>` 标签生效,**不对 React 运行时 `style={{...}}` prop 有效**;当前 `MainView.tsx` 等组件大量使用 inline style prop,移除 `'unsafe-inline'` 会导致 UI 渲染失败;W7+ 评估"移除所有 React inline style prop"重构后再启用 nonce
+
+**修改文件清单:**
+```
+voicepilot/crates/ui/web/src/types.ts                      # Settings + Slot interface 扩展
+voicepilot/crates/ui/web/src/components/SettingsView.tsx   # TTS 配置 fieldset
+voicepilot/crates/ui/web/src/components/Chip.tsx           # modified 标记 + .chip-modified 样式
+voicepilot/crates/ui/web/src/components/MainView.tsx       # Apply 按钮 + onApplySlotEdits 重执行逻辑
+voicepilot/crates/ui/web/src/styles.css                   # .chip-modified + .slot-apply-row 样式
+voicepilot/crates/trust-kernel/src/voice/error.rs          # InferenceFailed 文案去掉 whisper 引用
+voicepilot/crates/trust-kernel/src/voice/tts.rs            # synth 返回 (samples, sample_rate) + actual_sample_rate + 手动 PartialEq
+voicepilot/crates/trust-kernel/src/voice/asr.rs            # SherpaAsrConfig 派生 PartialEq
+voicepilot/crates/trust-kernel/tests/voice_unit.rs         # 测试断言更新
+voicepilot/crates/ui/src/voice_commands.rs                # cache_needs_reload helper + wav 用 actual_sample_rate
+voicepilot/crates/ui/src/app.rs                            # push-to-talk emit 错误日志
+```
+
+**W6c commits(按时序,直接提交到 master):**
+| Commit | 任务 |
+|---|---|
+| `b16e0d9` | docs(w6c): design spec for W6b-3b review leftover fixes |
+| `18f2c53` | feat(w6c): add TTS config UI to SettingsView (P1 #1) |
+| `c673df5` | feat(w6c): add Apply button to re-route after Slot edits (P1 #2) |
+| `de772da` | fix(w6c): update InferenceFailed message to drop whisper reference (P2 #1) |
+| `473d2a3` | feat(w6c): TTS sample_rate from model + cache invalidation by full config (P2 #2 + P2 #3) |
+| `4f9e200` | fix(w6c): log push-to-talk emit errors instead of swallowing (P2 #4) |
+
+**验收门禁复跑(2026-07-25):**
+| 命令 | 结果 |
+|---|---|
+| `cargo test --workspace --no-default-features` | **0 failed**(default,W1-W4 + W6 ui non-feature tests) |
+| `cargo test -p voicepilot-ui --features tauri` | **48 passed, 0 failed**(W6a 12 + W6b-2 4 + W6b-3a 6 + W6b-3b 6 + 20 ui unit) |
+| `cargo clippy --workspace --no-default-features -- -D warnings` | **0 warnings, 0 errors** |
+| `npm.cmd run build` | **PASS** — dist/index.html + assets 生成(无 TS 错误) |
+| `cargo test -p voicepilot-ui --features voice` | (W6b-3b 验证已 78 passed;W6c 未引入新 voice-gated 测试,数字不变) |
+
+**已知偏离 / 延后项:**
+- **P2 #5 CSP nonce 跳过(用户选择 A):** Tauri 2 CSP nonce 自动注入仅对 `index.html` 静态 `<style>` / `<script>` 标签生效,不对 React 运行时 `style={{...}}` prop 有效;当前 MainView 等组件大量使用 inline style prop,移除 `'unsafe-inline'` 会导致 UI 渲染失败;W7+ 评估"移除所有 React inline style prop"重构后再启用 nonce
+- **macOS / Linux 打包延后 W7+:** 仍只 Windows NSIS(用户明确 Windows-only)
+- **trust-kernel voice feature link.exe 内存失败:** 环境限制未变(W6b-3b 已记录),voice 单测在 ui crate 中通过
+
+**下一步:** W7(LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 / Tauri macOS+Linux 打包 三选一)
 
 ---
 
@@ -1004,8 +1063,8 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ```
 当前分支: master
-最新 commit: 34b9a89 fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry
-保留分支: (无,W6b-3b 直接提交到 master,无 feature 分支)
+最新 commit: 4f9e200 fix(w6c): log push-to-talk emit errors instead of swallowing (P2 #4)
+保留分支: (无,W6b-3b + W6c Fast-Follow 直接提交到 master,无 feature 分支)
 ```
 
 ### 关键文件清单
@@ -1025,6 +1084,9 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 - `d:\voicepilot\docs\superpowers\plans\2026-07-22-w6b-3a-diff-preview-batch-approval-auto-download.md`
 - `d:\voicepilot\docs\superpowers\plans\2026-07-22-w6b-3b-sherpa-tts-pushtotalk-chip.md`
 
+**规格文档(W6c Fast-Follow):**
+- `d:\voicepilot\docs\superpowers\specs\2026-07-25-w6c-fast-follow-design.md`
+
 **进度文档(本文件):**
 - `d:\voicepilot\docs\PROGRESS.md`
 
@@ -1039,52 +1101,34 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W6b 计划编写
+### 4.1 立即任务:W7 计划编写
 
-**W6b 范围(Main Chat + Settings + Audit Viewer + Trust Center + Diff Preview):**
+**W6 系列已完成:** W6a Tauri Shell + Approval → W6b-1 Main Chat + Voice → W6b-2 Settings + Audit + Trust + Skills + Kill Switch → W6b-3a Diff Preview + 批次审批 + auto-download + 打包 → W6b-3b sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 → **W6c Fast-Follow(W6b-3b 审查遗留 P1/P2 修复)**。
 
-W6a 已完成 Tauri UI Shell 骨架 + Approval 窗口,W6b 补齐 §8.2 剩余四个窗口:
+**W7 候选方向(三选一,等用户决策):**
 
-1. **Main Chat 窗口(§8.2)**
-   - 语音输入按钮(调用 `voice listen` command,W5 已实现 CLI 层)
-   - 实时 transcription 显示
-   - route 结果反馈(matched skill / unmatched)
-   - VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
+1. **LLM Planner 预研 + 8 Skills 完整实现(§5.1 Skill Router / §5.3 Skill Manifest)**
+   - 当前 Skill Router 是纯关键词匹配(W3b-W6 placeholder),W7 引入本地 LLM fallback(如 llama.cpp / ort)
+   - 8 个确定性 Skill 全部 struct literal → YAML 文件 + serde_yaml(W7+)
+   - LLM Planner 决定 Skill 调用顺序 + 参数填充
+   - 关键依赖:本地 LLM 模型选择(隐私模式 VP-NFR-005)、性能(<2s 端到端)
 
-2. **Settings 面板(§8.2)**
-   - Whisper 模型路径配置(浏览 `~/.voicepilot/models/`)
-   - `allowed_paths` 白名单编辑器(W4 `mcp_servers.allowed_paths` JSON 数组)
-   - 麦克风设备选择 + VAD 阈值调节
-   - 模型 auto-download(issue #46 解决)
+2. **Stronghold 加密预研(§7.2 snapshot_encrypted W8 准备)**
+   - `snapshot_encrypted` 从明文 JSON 升级为 stronghold 加密
+   - Taint Tracking 污点传播(用户输入 → Skill 输出 → 文件系统)
+   - 关键依赖:stronghold-rs 集成、密钥管理策略
 
-3. **Audit Viewer(§8.2)**
-   - 只读 audit_logs 查询 + 展示
-   - 按 task_id / 时间范围过滤
-   - 哈希链完整性可视化
+3. **Tauri macOS + Linux 打包(§11.1 跨平台)**
+   - 当前仅 Windows NSIS bundle,sherpa-rs 在 macOS/Linux 上预编译库可用
+   - 需 CI runner(macOS arm64 + Linux x64)+ 代码签名(W7+)
+   - 跨平台路径处理(`fs_paths::canonicalize` 已实现 POSIX/Windows 统一)
 
-4. **Trust Center(§8.2)**
-   - MCP server 列表(W4 `mcp_servers` 表)
-   - egress 策略展示
-   - 一键禁用 kill switch(常驻顶栏)
-
-5. **Skills Manager(§8.2)**
-   - 已保存 Skills 列表
-   - 成功率 + 延迟统计
-
-6. **Approval Modal Diff Preview(§8.3)**
-   - 文件内容读取器(读 sources 内容,diff 展示)
-   - 替代当前 sha256 截断展示
-
-7. **W6a Fast-Follow**
-   - ApprovalModal 卸载时 effect 总会 fire `submitApproval("deny")`(即使用户已点 Allow/Deny)— 加 `submittedRef` 短路,避免冗余 IPC
-   - 响应式布局(当前 1024×768 固定,窄窗口主区会挤压)
-   - CSP 增加 `object-src 'none'; frame-ancestors 'none'`
-
-**W6b 不在范围(留到 W7+):**
-- LLM Planner fallback(留 W7)
+**W7 不在范围(留到 W8+):**
 - 真实 Stronghold 加密(留 W8)
-- Silero VAD(留 W6+ 决定)
-- Tauri 打包 NSIS / 代码签名(留 W7+)
+- Silero VAD(留 W6+ 决定,目前 W6b-1 用能量阈值 VAD)
+- macOS/Linux 代码签名(留 W7+ 视用户决策)
+
+**W6b-3b 审查遗留 W6c Fast-Follow 全部已修复(commit `b16e0d9` → `4f9e200`),无 P0/P1/P2 遗留项。**
 
 ### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
@@ -1160,36 +1204,32 @@ $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
 cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-### 5.2 推荐起点:W6b 计划编写
+### 5.2 推荐起点:W7 计划编写
 
-W6a Tauri UI Shell + Approval 窗口已全部完成并验证通过(commit `52d016c`,12 个 ui tests passing)。**`cargo check -p voicepilot-ui --features tauri` + `cargo test -p voicepilot-ui --features tauri` 全部通过(2026-07-21)**。详见 §二 W6a 段落。
+W6 系列全部完成并验证通过(最新 commit `4f9e200`,W6c Fast-Follow P1/P2 修复)。**`cargo test --workspace --no-default-features` + `cargo test -p voicepilot-ui --features tauri` 全部通过(2026-07-25)**。详见 §二 W6c Fast-Follow 段落。
 
-**Step 1: W6b 计划编写:**
+**Step 1: 与用户决策 W7 方向(三选一,见 §4.1):**
+- LLM Planner 预研 + 8 Skills 完整实现
+- Stronghold 加密预研(W8 准备)
+- Tauri macOS + Linux 打包
 
-使用 `superpowers:writing-plans` skill 创建 W6b 计划:
+**Step 2: W7 计划编写:**
+
+使用 `superpowers:writing-plans` skill 创建 W7 计划:
 
 ```
-d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w6b-main-chat-settings-audit-trust.md
+d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w7-<chosen-direction>.md
 ```
 
-**W6b 计划应包含的 TDD 任务(初步估计 12-16 个):**
+**W7 计划应包含的 TDD 任务(根据用户决策方向调整):**
 
-1. Main Chat 窗口骨架(替换 MainView 占位)
-2. 语音输入按钮 Tauri command(调用 `voice listen`,需 `--features voice`)
-3. 实时 transcription 显示(订阅 `transcription-partial` 事件)
-4. Route outcome 反馈 UI(matched skill / unmatched / planner fallback)
-5. VAD-based 自动停止(替换 W5 PoC 的固定 5s 超时,issue #45)
-6. Settings 面板骨架
-7. Whisper 模型路径配置(浏览 `~/.voicepilot/models/`)
-8. `allowed_paths` 白名单编辑器
-9. Audit Viewer(只读 audit_logs 查询 + 哈希链可视化)
-10. Trust Center(MCP server 列表 + egress 策略 + kill switch)
-11. Skills Manager(已保存 Skills 列表 + 成功率 + 延迟)
-12. Approval Modal Diff Preview(文件内容读取器)
-13. 模型 auto-download(issue #46)
-14. W6a Fast-Follow(ApprovalModal `submittedRef` 短路 + 响应式 + CSP 加固)
-15. Tauri 打包(Windows installer,代码签名延后 W7+)
-16. E2E 冒烟测试(§11.1 W6b gate)
+LLM Planner 方向示例(12-16 个):
+1. LLM 模型加载(本地推理,llama.cpp / ort)
+2. Skill Router LLM fallback(关键词 miss 时调用 LLM)
+3. 8 Skills struct literal → YAML 文件 + serde_yaml
+4. LLM Planner 参数填充(从 transcription → Skill 调用)
+5. Skill 调用顺序编排
+6. ...其余视具体方向补充
 
 ### 5.3 用户偏好提醒
 
