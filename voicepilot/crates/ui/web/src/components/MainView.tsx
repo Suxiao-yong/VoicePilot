@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial } from "../api";
+import { listen } from "@tauri-apps/api/event";
+import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial, invokeTts, invokeCancelTts, type TtsResult } from "../api";
 import type {
   RouteTextResult,
   OrganizeResult,
@@ -27,6 +28,10 @@ export function MainView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // W6b-3b Task 13:Push-to-talk + TTS 播放状态
+  const [pttActive, setPttActive] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+
   // W6b-2 issue #47:监听 partial transcript 事件,实时更新 partialText
   useEffect(() => {
     const unlisten = onTranscriptionPartial((payload) => {
@@ -34,6 +39,24 @@ export function MainView() {
     });
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // W6b-3b Task 13:监听全局快捷键 Push-to-talk 事件
+  useEffect(() => {
+    const unlistenStart = listen("push-to-talk-start", () => {
+      setPttActive(true);
+      // 触发 voice listen
+      onVoiceListen();
+    });
+    const unlistenStop = listen("push-to-talk-stop", () => {
+      setPttActive(false);
+      // 取消 voice listen
+      cancelVoice().catch(console.error);
+    });
+    return () => {
+      unlistenStart.then((fn) => fn());
+      unlistenStop.then((fn) => fn());
     };
   }, []);
 
@@ -45,6 +68,18 @@ export function MainView() {
     try {
       const r = await voiceListen();
       setVoiceResult(r);
+      // W6b-3b Task 13:转写成功后触发 TTS 语音反馈
+      if (r.kind === "success" && r.transcription && r.transcription.trim()) {
+        setTtsPlaying(true);
+        invokeTts(`已为您${r.transcription}`)
+          .then((ttsResult: TtsResult) => {
+            if (ttsResult.error) {
+              console.warn("TTS error:", ttsResult.error);
+            }
+          })
+          .catch((e) => console.warn("TTS invoke error:", e))
+          .finally(() => setTtsPlaying(false));
+      }
     } catch (e) {
       setVoiceError(e instanceof Error ? e.message : String(e));
       console.error(e);
@@ -105,6 +140,21 @@ export function MainView() {
           <span className="mic-icon" aria-hidden="true">{listening ? "■" : "●"}</span>
           {listening ? "Listening..." : "Start Listening"}
         </button>
+
+        <div className="ptt-status">
+          {pttActive && <span className="ptt-active">按住 Ctrl+Alt+Space 录音中…</span>}
+          {ttsPlaying && (
+            <button
+              type="button"
+              onClick={() => {
+                invokeCancelTts();
+                setTtsPlaying(false);
+              }}
+            >
+              停止语音反馈
+            </button>
+          )}
+        </div>
 
         {listening && (
           <button

@@ -146,3 +146,20 @@ export function onModelDownloadProgress(
     handler(e.payload)
   );
 }
+
+// ===== W6b-3b Task 13: TTS 播放 / 打断 =====
+
+export interface TtsResult {
+  played: boolean;
+  interrupted: boolean;
+  sample_count: number;
+  error: string | null;
+}
+
+export async function invokeTts(text: string): Promise<TtsResult> {
+  return await invoke<TtsResult>("tts_command", { text });
+}
+
+export async function invokeCancelTts(): Promise<void> {
+  await invoke("cancel_tts_command");
+}
