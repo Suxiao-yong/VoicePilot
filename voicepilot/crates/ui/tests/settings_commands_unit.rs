@@ -32,6 +32,8 @@ fn settings_dto_roundtrip_through_kv() {
         compensation_ttl_hours: 48,
         tts_enabled: false,
         tts_model_path: "/models/tts-test".to_string(),
+        // W7: 新增 5 字段用 Default 填充,本测试只验证原有字段往返。
+        ..SettingsDto::default()
     };
     let kv = flatten_to_kv(&dto);
     assert!(kv.iter().any(|(k, _)| k == "voice.model_path"));
@@ -39,6 +41,9 @@ fn settings_dto_roundtrip_through_kv() {
     assert!(kv.iter().any(|(k, _)| k == "privacy.mode"));
     assert!(kv.iter().any(|(k, _)| k == "tts.enabled"));
     assert!(kv.iter().any(|(k, _)| k == "tts.model_path"));
+    // W7: 验证 LLM KV 也被展平
+    assert!(kv.iter().any(|(k, _)| k == "llm.enabled"));
+    assert!(kv.iter().any(|(k, _)| k == "llm.api_key"));
     let restored = merge_from_kv(&kv).expect("merge");
     assert_eq!(restored.voice_model_path, "/models/base.bin");
     assert_eq!(restored.voice_threads, 8);

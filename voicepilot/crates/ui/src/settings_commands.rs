@@ -25,6 +25,15 @@ pub struct SettingsDto {
     pub compensation_ttl_hours: u32,
     pub tts_enabled: bool,
     pub tts_model_path: String,
+    // W7 新增:云端 LLM 配置(OpenAI 兼容,默认 DeepSeek)。
+    // llm_enabled=false 时 LlmClient::disabled(),路由纯走 keyword 匹配。
+    // privacy_mode=true 强制覆盖 llm_enabled 为 false(rebuild_llm_client 实现)。
+    pub llm_enabled: bool,
+    pub llm_api_key: String,
+    pub llm_base_url: String,
+    pub llm_model: String,
+    /// "Get API Key" 链接(前端 <a href>,DeepSeek/OpenAI/Qwen/Kimi 等 provider 入口)。
+    pub llm_provider_url: String,
 }
 
 impl Default for SettingsDto {
@@ -47,6 +56,13 @@ impl Default for SettingsDto {
             tts_enabled: true,
             // W6b-3b Fix 3:同上,空字符串表示"未配置",tts_command 检测到空时返回友好错误。
             tts_model_path: String::new(),
+            // W7 默认值:llm_enabled=false(opt-in),api_key 空(未配置)。
+            // base_url/model/provider_url 预填 DeepSeek 默认值,用户切换 provider 时改。
+            llm_enabled: false,
+            llm_api_key: String::new(),
+            llm_base_url: "https://api.deepseek.com/v1".to_string(),
+            llm_model: "deepseek-chat".to_string(),
+            llm_provider_url: "https://platform.deepseek.com/api_keys".to_string(),
         }
     }
 }
@@ -66,6 +82,12 @@ pub fn flatten_to_kv(dto: &SettingsDto) -> Vec<(String, String)> {
         ("compensation.ttl_hours".to_string(), dto.compensation_ttl_hours.to_string()),
         ("tts.enabled".to_string(), dto.tts_enabled.to_string()),
         ("tts.model_path".to_string(), dto.tts_model_path.clone()),
+        // W7 LLM
+        ("llm.enabled".to_string(), dto.llm_enabled.to_string()),
+        ("llm.api_key".to_string(), dto.llm_api_key.clone()),
+        ("llm.base_url".to_string(), dto.llm_base_url.clone()),
+        ("llm.model".to_string(), dto.llm_model.clone()),
+        ("llm.provider_url".to_string(), dto.llm_provider_url.clone()),
     ]
 }
 
@@ -86,6 +108,12 @@ pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsDto> {
             "compensation.ttl_hours" => dto.compensation_ttl_hours = v.parse().map_err(|e| UiError::InvalidConfig(format!("ttl_hours: {e}")))?,
             "tts.enabled" => dto.tts_enabled = v.parse().map_err(|e| UiError::InvalidConfig(format!("tts.enabled: {e}")))?,
             "tts.model_path" => dto.tts_model_path = v.clone(),
+            // W7 LLM
+            "llm.enabled" => dto.llm_enabled = v.parse().map_err(|e| UiError::InvalidConfig(format!("llm.enabled: {e}")))?,
+            "llm.api_key" => dto.llm_api_key = v.clone(),
+            "llm.base_url" => dto.llm_base_url = v.clone(),
+            "llm.model" => dto.llm_model = v.clone(),
+            "llm.provider_url" => dto.llm_provider_url = v.clone(),
             _ => {} // 忽略未知 key(前向兼容)
         }
     }
@@ -134,5 +162,33 @@ mod tests {
         let parsed = merge_from_kv(&kv).unwrap();
         assert_eq!(parsed.tts_enabled, false);
         assert_eq!(parsed.tts_model_path, "custom-tts-model");
+    }
+
+    #[test]
+    fn llm_settings_roundtrip() {
+        let mut dto = SettingsDto::default();
+        dto.llm_enabled = true;
+        dto.llm_api_key = "sk-test".to_string();
+        dto.llm_base_url = "https://api.deepseek.com/v1".to_string();
+        dto.llm_model = "deepseek-chat".to_string();
+        dto.llm_provider_url = "https://platform.deepseek.com/api_keys".to_string();
+
+        let kv = flatten_to_kv(&dto);
+        let restored = merge_from_kv(&kv).unwrap();
+        assert_eq!(restored.llm_enabled, true);
+        assert_eq!(restored.llm_api_key, "sk-test");
+        assert_eq!(restored.llm_base_url, "https://api.deepseek.com/v1");
+        assert_eq!(restored.llm_model, "deepseek-chat");
+        assert_eq!(restored.llm_provider_url, "https://platform.deepseek.com/api_keys");
+    }
+
+    #[test]
+    fn llm_defaults_are_disabled() {
+        let dto = SettingsDto::default();
+        assert!(!dto.llm_enabled);
+        assert_eq!(dto.llm_api_key, "");
+        assert_eq!(dto.llm_base_url, "https://api.deepseek.com/v1");
+        assert_eq!(dto.llm_model, "deepseek-chat");
+        assert_eq!(dto.llm_provider_url, "https://platform.deepseek.com/api_keys");
     }
 }
