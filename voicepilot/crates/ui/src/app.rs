@@ -2,7 +2,6 @@
 
 use crate::error::UiResult;
 use crate::state::AppState;
-use tauri::Emitter;
 
 pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
     let state = AppState::new(kernel);
@@ -11,22 +10,22 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
     // 注册 global-shortcut plugin（voice feature 才需要 Push-to-talk）。
     #[cfg(feature = "voice")]
     let builder = {
+        use tauri::Emitter;
         use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
         let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
-        builder
-            .plugin(
-                tauri_plugin_global_shortcut::Builder::new()
-                    .with_shortcut(shortcut)
-                    .unwrap()
-                    .with_handler(move |app, _shortcut, event| {
-                        if event.state == ShortcutState::Pressed {
-                            let _ = app.emit("push-to-talk-start", ());
-                        } else if event.state == ShortcutState::Released {
-                            let _ = app.emit("push-to-talk-stop", ());
-                        }
-                    })
-                    .build(),
-            )
+        builder.plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut(shortcut)
+                .expect("hardcoded Ctrl+Alt+Space shortcut should always be valid")
+                .with_handler(move |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let _ = app.emit("push-to-talk-start", ());
+                    } else if event.state == ShortcutState::Released {
+                        let _ = app.emit("push-to-talk-stop", ());
+                    }
+                })
+                .build(),
+        )
     };
 
     // 根据 voice feature 选择 handler 注册函数。
