@@ -60,11 +60,13 @@ export interface TranscriptionFinalPayload {
   transcription: string;
   route_outcome: RouteTextResult;
   stopped_by_vad: boolean;
+  slots: Slot[];
 }
 
 export interface TranscriptionPartialPayload {
   partial: string;
   timestamp_ms: number;
+  slots: Slot[];
 }
 
 export interface Settings {
@@ -135,4 +137,16 @@ export interface DownloadProgressPayload {
   downloaded_bytes: number;
   total_bytes: number | null;
   percent: number | null;
+}
+
+// ===== W6b-3b Task 16: Slot + SlotKind (§8.4 Chip 修改) =====
+
+export type SlotKind = "path" | "app" | "number" | "recipient" | "delete_target";
+
+export interface Slot {
+  kind: SlotKind;
+  raw: string;
+  start: number;
+  end: number;
+  high_risk: boolean;
 }

@@ -882,3 +882,70 @@ html, body, #root {
   background: linear-gradient(90deg, var(--accent, #f59e0b), var(--accent-bright, #fbbf24));
   transition: width 0.1s ease-out;
 }
+
+/* ===== W6b-3b Task 16: Chip + SlotEditDialog (§8.4) ===== */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin: 0 2px;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: var(--bg-deep);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip-high-risk {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.chip-low-confidence {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.chip-kind {
+  font-size: 10px;
+  opacity: 0.7;
+}
+.slot-edit-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.slot-edit-dialog {
+  background: var(--bg-deep);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 20px;
+  min-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.slot-edit-dialog label {
+  color: var(--accent);
+  font-family: var(--sans);
+}
+.slot-edit-dialog input[type="text"] {
+  padding: 6px 8px;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  color: var(--text-primary);
+  font-family: var(--mono);
+}
+.slot-edit-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
