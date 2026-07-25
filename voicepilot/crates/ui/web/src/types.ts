@@ -83,6 +83,13 @@ export interface Settings {
   // W6c P1 #1:TTS 配置(VP-FR-002 语音反馈),与后端 SettingsDto 对齐
   tts_enabled: boolean;
   tts_model_path: string;
+  // W7:云端 LLM 配置(OpenAI 兼容,默认 DeepSeek)。
+  // llm_enabled=false 或 privacy_mode=true 时,后端 LlmClient::disabled()。
+  llm_enabled: boolean;
+  llm_api_key: string;
+  llm_base_url: string;
+  llm_model: string;
+  llm_provider_url: string;
 }
 
 export type View = "main" | "settings" | "audit" | "trust" | "skills";
@@ -144,7 +151,15 @@ export interface DownloadProgressPayload {
 
 // ===== W6b-3b Task 16: Slot + SlotKind (§8.4 Chip 修改) =====
 
-export type SlotKind = "path" | "app" | "number" | "recipient" | "delete_target";
+export type SlotKind =
+  | "path"
+  | "app"
+  | "number"
+  | "recipient"
+  | "delete_target"
+  // W7 新增:LLM 提取的 Slot 类型(regex 不覆盖)
+  | "time_range"
+  | "url";
 
 export interface Slot {
   kind: SlotKind;
@@ -154,4 +169,14 @@ export interface Slot {
   high_risk: boolean;
   // W6c P1 #2:前端状态标记,后端 Rust 不需要(用户修改后置 true,Apply 后清空)
   modified?: boolean;
+}
+
+// ===== W7: LLM ExtractedSlot =====
+// 后端 trust_kernel::llm::types::ExtractedSlot 的前端镜像。
+// LLM 路由返回的原始 Slot(open kind 字符串,无字符位置)。
+// route_text 将 ExtractedSlot 转换为 Slot 后再返回前端。
+export interface ExtractedSlot {
+  kind: string;
+  raw: string;
+  high_risk: boolean;
 }

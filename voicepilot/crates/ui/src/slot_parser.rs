@@ -236,6 +236,29 @@ fn parse_slot_kind(kind: &str) -> SlotKind {
     }
 }
 
+/// W7: 将 `LlmRouteResponse.slots`(`ExtractedSlot` 列表)转换为 UI `Slot` 列表。
+///
+/// LLM 不返回字符位置(start/end),用 `0..raw.chars().count()` 占位:
+/// UI Chip 渲染只依赖 `raw` + `kind` + `high_risk`,不依赖位置;
+/// 后续 Skill executor 也只读 `raw`,位置仅用于源文本高亮(可选)。
+///
+/// 调用方:`commands::route_text` 在 `RouteDecision::SkillWithSlots` 分支调用。
+#[cfg(feature = "llm")]
+pub fn convert_extracted_slots(
+    extracted: &[trust_kernel::llm::types::ExtractedSlot],
+) -> Vec<Slot> {
+    extracted
+        .iter()
+        .map(|s| Slot {
+            kind: parse_slot_kind(&s.kind),
+            raw: s.raw.clone(),
+            start: 0,
+            end: s.raw.chars().count(),
+            high_risk: s.high_risk,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -48,6 +48,8 @@ fn w6b1_smoke_voice_listen_success_returns_result_with_transcription() {
         transcription: "整理下载目录里的 PDF".to_string(),
         route_outcome: RouteTextResult::Routed {
             skill_id: "files.organize".to_string(),
+            // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+            slots: vec![],
         },
         stopped_by_vad: true,
     }));
@@ -192,6 +194,8 @@ fn w6b1_smoke_all_voice_listen_result_variants_serialize_to_json() {
             transcription: "test".to_string(),
             route_outcome: RouteTextResult::Routed {
                 skill_id: "files.organize".to_string(),
+                // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+                slots: vec![],
             },
             stopped_by_vad: true,
         })

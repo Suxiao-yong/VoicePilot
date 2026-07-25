@@ -24,12 +24,14 @@ use voicepilot_ui::state::AppState;
 
 /// route_text 通过关键词匹配路由到 files.organize。
 /// "整理下载目录的图片" 同时命中 keywords "整理" 和 "下载目录"。
-#[test]
-fn e2e_route_text_matches_files_organize() {
+///
+/// W7: route_text 改为 async fn,测试用 `#[tokio::test]` + `.await`。
+#[tokio::test]
+async fn e2e_route_text_matches_files_organize() {
     let state = AppState::new_in_memory().unwrap();
-    let result = route_text(&state, "整理下载目录的图片").unwrap();
+    let result = route_text(&state, "整理下载目录的图片").await.unwrap();
     match result {
-        RouteTextResult::Routed { skill_id } => {
+        RouteTextResult::Routed { skill_id, .. } => {
             assert_eq!(skill_id, "files.organize");
         }
         other => panic!("expected Routed, got {:?}", other),

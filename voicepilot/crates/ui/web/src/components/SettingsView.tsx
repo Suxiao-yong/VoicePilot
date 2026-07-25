@@ -173,6 +173,84 @@ export function SettingsView(): JSX.Element {
         </div>
       </fieldset>
 
+      {/* W7:LLM 配置(OpenAI 兼容,默认 DeepSeek)。
+          privacy_mode=true 时整段禁用(后端 rebuild_llm_client 强制 disabled)。*/}
+      <fieldset className="settings-fieldset">
+        <legend>LLM 配置</legend>
+        <div className="form-row checkbox-row">
+          <input
+            id="llm_enabled"
+            type="checkbox"
+            checked={settings.llm_enabled}
+            onChange={(e) => handleField("llm_enabled", e.target.checked)}
+            disabled={settings.privacy_mode}
+            aria-describedby="llm-enabled-hint"
+          />
+          <label htmlFor="llm_enabled">启用云端 LLM(用于意图分类与 Slot 提取)</label>
+        </div>
+        <p id="llm-enabled-hint" className="settings-hint">
+          LLM 仅在关键词路由未命中时调用,Skill 执行不调 LLM。
+        </p>
+        {settings.privacy_mode && (
+          <p className="settings-hint settings-warn" role="alert">
+            隐私模式已启用,LLM 不可用
+          </p>
+        )}
+        <div className="form-row">
+          <label htmlFor="llm_api_key">API Key</label>
+          <input
+            id="llm_api_key"
+            type="password"
+            value={settings.llm_api_key}
+            onChange={(e) => handleField("llm_api_key", e.target.value)}
+            placeholder="sk-..."
+            autoComplete="off"
+            disabled={settings.privacy_mode || !settings.llm_enabled}
+          />
+        </div>
+        <div className="form-row">
+          <label htmlFor="llm_base_url">Base URL</label>
+          <input
+            id="llm_base_url"
+            type="text"
+            value={settings.llm_base_url}
+            onChange={(e) => handleField("llm_base_url", e.target.value)}
+            placeholder="https://api.deepseek.com/v1"
+            disabled={settings.privacy_mode || !settings.llm_enabled}
+          />
+        </div>
+        <div className="form-row">
+          <label htmlFor="llm_model">模型名</label>
+          <input
+            id="llm_model"
+            type="text"
+            value={settings.llm_model}
+            onChange={(e) => handleField("llm_model", e.target.value)}
+            placeholder="deepseek-chat"
+            disabled={settings.privacy_mode || !settings.llm_enabled}
+          />
+        </div>
+        <div className="form-row">
+          <a
+            href={settings.llm_provider_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="settings-link"
+          >
+            获取 API Key
+          </a>
+        </div>
+        <details className="settings-details">
+          <summary>常见 provider 配置</summary>
+          <ul>
+            <li>DeepSeek: base_url=<code>https://api.deepseek.com/v1</code>, model=<code>deepseek-chat</code></li>
+            <li>OpenAI: base_url=<code>https://api.openai.com/v1</code>, model=<code>gpt-4o-mini</code></li>
+            <li>通义千问: base_url=<code>https://dashscope.aliyuncs.com/compatible-mode/v1</code>, model=<code>qwen-turbo</code></li>
+            <li>Kimi: base_url=<code>https://api.moonshot.cn/v1</code>, model=<code>moonshot-v1-8k</code></li>
+          </ul>
+        </details>
+      </fieldset>
+
       <div className="form-actions">
         <button type="button" onClick={handleSave} disabled={saving}>
           {saving ? "保存中…" : "保存设置"}

@@ -13,6 +13,8 @@ const KIND_LABEL: Record<SlotKind, string> = {
   number: "数量",
   recipient: "收件人",
   delete_target: "删除目标",
+  time_range: "时间范围",
+  url: "URL",
 };
 
 export function Chip({ slot, onClick, lowConfidence }: ChipProps) {

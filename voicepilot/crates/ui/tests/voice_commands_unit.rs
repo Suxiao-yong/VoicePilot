@@ -45,6 +45,8 @@ fn voice_listen_returns_success_when_transcription_present() {
         transcription: "整理下载目录".to_string(),
         route_outcome: RouteTextResult::Routed {
             skill_id: "files.organize".to_string(),
+            // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+            slots: vec![],
         },
         stopped_by_vad: true,
     }));
@@ -60,7 +62,7 @@ fn voice_listen_returns_success_when_transcription_present() {
             assert_eq!(transcription, "整理下载目录");
             assert!(matches!(
                 route_outcome,
-                RouteTextResult::Routed { skill_id } if skill_id == "files.organize"
+                RouteTextResult::Routed { ref skill_id, .. } if skill_id == "files.organize"
             ));
             assert!(stopped_by_vad);
         }
@@ -159,6 +161,8 @@ fn build_payload_returns_some_for_success_result() {
         transcription: "整理下载目录".to_string(),
         route_outcome: RouteTextResult::Routed {
             skill_id: "files.organize".to_string(),
+            // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+            slots: vec![],
         },
         stopped_by_vad: true,
     };
@@ -169,7 +173,7 @@ fn build_payload_returns_some_for_success_result() {
     assert_eq!(p.transcription, "整理下载目录");
     assert!(matches!(
         p.route_outcome,
-        RouteTextResult::Routed { skill_id } if skill_id == "files.organize"
+        RouteTextResult::Routed { ref skill_id, .. } if skill_id == "files.organize"
     ));
     assert!(p.stopped_by_vad);
 }
@@ -220,6 +224,8 @@ fn transcription_final_payload_is_serializable() {
         transcription: "test".to_string(),
         route_outcome: RouteTextResult::Routed {
             skill_id: "files.organize".to_string(),
+            // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+            slots: vec![],
         },
         stopped_by_vad: true,
         slots: vec![],

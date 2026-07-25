@@ -9,42 +9,90 @@ use serde::{Deserialize, Serialize};
 
 /// 镜像 `trust_kernel::voice::router_bridge::RouteOutcome`,但带 Serialize
 /// 作为 Tauri command 返回类型。
+///
+/// W7:`Routed` 加 `slots: Vec<Slot>` 字段。LLM fallback 命中时 `SkillRouter` 返回
+/// `SkillWithSlots`,此 variant 携带 LLM 提取的 Slot 列表,UI 在 Chip 区域渲染。
+/// 同步 keyword 路径(`SkillRouter::route`)不提取 Slot,`slots` 为空 Vec。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RouteTextResult {
-    Routed { skill_id: String },
+    Routed {
+        skill_id: String,
+        /// W7:LLM 提取的 Slot 列表(keyword 路径为空 Vec)。
+        /// 前端据此渲染 Chip 修改 UI,用户确认后才提交 Skill 执行。
+        slots: Vec<crate::slot_parser::Slot>,
+    },
     Unmatched { text: String },
     Empty,
 }
 
 /// 通过 SkillRouter 路由转写文本(或任意文本输入)。
-/// V1.1 §5.1 —— 纯关键词匹配(W7 将添加 LLM Planner fallback)。
-pub fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
+///
+/// W7:keyword 优先,LLM fallback。
+/// - `llm` feature 开启:`SkillRouter::with_llm(state.llm_client())` + `route_with_llm().await`
+///   - LLM disabled(privacy_mode / llm_enabled=false / api_key 空):route_with_llm 跳过 LLM 分支
+///   - LLM 启用且 keyword 未命中:调 LLM,confidence ≥ 0.7 返回 `SkillWithSlots`
+/// - `llm` feature 关闭:`SkillRouter::new()` + 同步 `route()`(纯 keyword,永不返回 SkillWithSlots)
+///
+/// 路由阶段不执行 Skill;Skill 执行需要用户在 UI 上确认 Slot 后由 `organize_files_command` 触发。
+pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
     use trust_kernel::skills::manifest::files_organize_manifest;
     use trust_kernel::skills::router::{RouteDecision, SkillRouter};
-
-    // `state` 暂未在路由中使用 —— W7 Planner fallback 会用它访问 TrustKernel。
-    let _ = state;
 
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(RouteTextResult::Empty);
     }
-    let mut router = SkillRouter::new();
-    router.register(files_organize_manifest());
-    // 同步 `route()` 仅返回 Skill / Planner,绝不返回 SkillWithSlots。
-    // Task 8 会切换到 `route_with_llm()` 并真正消费 SkillWithSlots 的 slots。
-    match router.route(trimmed) {
-        RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
-            skill_id: manifest.id,
-        }),
-        #[cfg(feature = "llm")]
-        RouteDecision::SkillWithSlots(manifest, _slots) => Ok(RouteTextResult::Routed {
-            skill_id: manifest.id,
-        }),
-        RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
-            text: trimmed.to_string(),
-        }),
+
+    #[cfg(feature = "llm")]
+    {
+        let llm = state.llm_client();
+        let mut router = SkillRouter::with_llm(llm);
+        router.register(files_organize_manifest());
+        // W7: 注册其他 7 个内置 Skill 在 Plan 2/3 实现 manifest 后取消注释。
+        // router.register(task_repeat_verified_manifest());
+        // router.register(task_explain_manifest());
+        // router.register(task_compensate_manifest());
+        // router.register(app_control_manifest());
+        // router.register(note_capture_manifest());
+        // router.register(research_save_manifest());
+        // router.register(form_prepare_manifest());
+
+        let decision = router.route_with_llm(trimmed).await;
+        return match decision {
+            RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
+                skill_id: manifest.id,
+                slots: vec![],
+            }),
+            RouteDecision::SkillWithSlots(manifest, slots) => {
+                // LLM ExtractedSlot → UI Slot(LLM 不返回字符位置,start=0/end=raw.len())
+                let slot_dtos = crate::slot_parser::convert_extracted_slots(&slots);
+                Ok(RouteTextResult::Routed {
+                    skill_id: manifest.id,
+                    slots: slot_dtos,
+                })
+            }
+            RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
+                text: trimmed.to_string(),
+            }),
+        };
+    }
+
+    #[cfg(not(feature = "llm"))]
+    {
+        let _ = state;
+        let mut router = SkillRouter::new();
+        router.register(files_organize_manifest());
+        match router.route(trimmed) {
+            RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
+                skill_id: manifest.id,
+                slots: vec![],
+            }),
+            // 无 LLM feature 时 `RouteDecision` 不含 SkillWithSlots 变体,无需匹配。
+            RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
+                text: trimmed.to_string(),
+            }),
+        }
     }
 }
 
@@ -54,7 +102,7 @@ pub async fn route_text_command(
     state: tauri::State<'_, AppState>,
     text: String,
 ) -> Result<RouteTextResult, String> {
-    route_text(&state, &text).map_err(Into::into)
+    route_text(&state, &text).await.map_err(Into::into)
 }
 
 // ===== files.organize Skill command (V1.1 §5.2 + §6.2 + §8.2) =====

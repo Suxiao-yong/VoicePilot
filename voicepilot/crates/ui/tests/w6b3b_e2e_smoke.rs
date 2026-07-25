@@ -92,6 +92,8 @@ fn build_final_payload_includes_slots() {
         transcription: "打开 notepad 整理 C:\\temp".to_string(),
         route_outcome: RouteTextResult::Routed {
             skill_id: "files.organize".to_string(),
+            // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+            slots: vec![],
         },
         stopped_by_vad: true,
     };

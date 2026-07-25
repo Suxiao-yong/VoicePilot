@@ -144,9 +144,24 @@ pub fn update_settings(state: &AppState, settings: &SettingsDto) -> UiResult<()>
 }
 
 /// 更新设置 Tauri command 包装。
+///
+/// W7: 持久化 Settings 后重建并缓存 LlmClient(对应 `configuration-and-automation-safety` 的
+/// "application-state" 检查 —— 写入 KV 是 accepted/persisted,但 route_text 用的是
+/// serving-applied 状态;此处显式刷新 serving-applied LlmClient,避免 Settings 改了
+/// 但路由仍用旧客户端)。
 #[tauri::command]
 pub async fn update_settings_command(state: State<'_, AppState>, settings: SettingsDto) -> Result<(), String> {
-    update_settings(&state, &settings).map_err(Into::into)
+    update_settings(&state, &settings).map_err(|e: crate::error::UiError| e.to_string())?;
+    // W7: 重建 LlmClient 并写入 AppState 缓存。
+    // - privacy_mode=true / llm_enabled=false / api_key 空 → LlmClient::disabled()
+    // - 否则 → LlmClient::new(base_url, api_key, model)
+    // 下次 route_text 调 state.llm_client() 即拿到新实例。
+    #[cfg(feature = "llm")]
+    {
+        let new_llm = state.rebuild_llm_client(&settings);
+        *state.llm_client.lock().unwrap() = Some(new_llm);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

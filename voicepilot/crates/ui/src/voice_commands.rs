@@ -184,10 +184,19 @@ impl VoiceListenImpl {
     }
 
     /// 路由文本到 Skill。错误时降级为 `Empty`。
+    ///
+    /// W7 注:voice pipeline 走 `router_bridge::route_text`(同步,纯 keyword 匹配),
+    /// 不调 LLM。LLM fallback 仅在 `commands::route_text`(文本输入路径)中触发。
+    /// voice 路径的 Slot 提取由 `SlotParser::parse` 在 `listen()` 末尾完成,
+    /// 通过 `TranscriptionFinalPayload.slots` 单独传递(不进入 `RouteTextResult`)。
+    /// 因此此处的 `RouteTextResult::Routed.slots` 始终为空 Vec。
     fn route(&self, text: &str) -> RouteTextResult {
         let outcome = route_text(&self.kernel, &AutoApprover, text);
         match outcome {
-            Ok(RouteOutcome::Routed { skill_id }) => RouteTextResult::Routed { skill_id },
+            Ok(RouteOutcome::Routed { skill_id }) => RouteTextResult::Routed {
+                skill_id,
+                slots: vec![],
+            },
             Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
             Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
             Err(_) => RouteTextResult::Empty,
@@ -566,6 +575,8 @@ mod tests {
             transcription: "hello".to_string(),
             route_outcome: RouteTextResult::Routed {
                 skill_id: "files.organize".to_string(),
+                // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+                slots: vec![],
             },
             stopped_by_vad: true,
         };
@@ -618,6 +629,8 @@ mod tests {
             transcription: "打开 notepad 整理 C:\\temp".to_string(),
             route_outcome: RouteTextResult::Routed {
                 skill_id: "files.organize".to_string(),
+                // W7: Routed 加 slots 字段(voice 路径不调 LLM,此处置空 Vec)。
+                slots: vec![],
             },
             stopped_by_vad: true,
         };
