@@ -21,6 +21,17 @@ pub struct LlmClient {
     timeout: Duration,
 }
 
+impl std::fmt::Debug for LlmClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmClient")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("timeout", &self.timeout)
+            .field("enabled", &self.is_enabled())
+            .finish_non_exhaustive()
+    }
+}
+
 impl LlmClient {
     pub fn new(base_url: &str, api_key: &str, model: &str) -> Self {
         let timeout = Duration::from_secs(DEFAULT_TIMEOUT_SECS);

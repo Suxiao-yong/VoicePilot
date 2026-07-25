@@ -43,6 +43,11 @@ fn end_to_end_files_organize_skill_smoke() {
         trust_kernel::skills::router::RouteDecision::Planner => {
             panic!("router should have picked files.organize Skill")
         }
+        // 同步 route() 不返回 SkillWithSlots;若返回则契约被破坏。
+        #[cfg(feature = "llm")]
+        trust_kernel::skills::router::RouteDecision::SkillWithSlots(_, _) => {
+            panic!("sync route() should not return SkillWithSlots")
+        }
     };
     assert_eq!(skill_manifest.id, "files.organize");
 

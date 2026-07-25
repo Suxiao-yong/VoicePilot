@@ -51,6 +51,12 @@ pub fn route_text(
         RouteDecision::Skill(manifest) => Ok(RouteOutcome::Routed {
             skill_id: manifest.id,
         }),
+        // 同步 `route()` 不调用 LLM,不会产生 SkillWithSlots;若上游契约被破坏,
+        // 退化为 Planner 而非 panic,保持 voice pipeline 鲁棒性。
+        #[cfg(feature = "llm")]
+        RouteDecision::SkillWithSlots(manifest, _slots) => Ok(RouteOutcome::Routed {
+            skill_id: manifest.id,
+        }),
         RouteDecision::Planner => Ok(RouteOutcome::Unmatched {
             text: trimmed.to_string(),
         }),

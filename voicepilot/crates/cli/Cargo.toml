@@ -18,5 +18,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [features]
-default = []
-voice = ["trust-kernel/voice"]
+default = ["llm"]
+# W7: LLM 路由能力(默认开启,与 trust-kernel/default 对齐)
+llm = ["trust-kernel/llm"]
+voice = ["trust-kernel/voice", "llm"]

@@ -19,7 +19,7 @@ required-features = ["tauri"]
 tauri-build = { workspace = true, optional = true }
 
 [dependencies]
-trust-kernel = { workspace = true }
+trust-kernel = { workspace = true, default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -34,7 +34,11 @@ tracing-subscriber = { workspace = true, optional = true }
 regex = { workspace = true }
 
 [features]
-default = []
+default = ["llm"]
+# W7: LLM 客户端路由能力(默认开启,与 trust-kernel/default 对齐)。
+# voicepilot-ui 代码用 #[cfg(feature = "llm")] 门控 SkillWithSlots 匹配臂等,
+# 与 trust-kernel/llm 同步开闭。
+llm = ["trust-kernel/llm"]
 # Tauri UI shell only — no voice subsystem dependency.
 # This decouples W6a UI work from the W5 voice environment (whisper-rs bindgen
 # issue #49), allowing the desktop shell to compile and run on systems where
@@ -42,7 +46,7 @@ default = []
 tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "dep:tracing-subscriber"]
 # Opt-in voice subsystem (requires whisper-rs build environment).
 # Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
-voice = ["tauri", "trust-kernel/voice"]
+voice = ["tauri", "trust-kernel/voice", "llm"]
 
 [dev-dependencies]
 tempfile = "3"

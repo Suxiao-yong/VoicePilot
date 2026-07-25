@@ -32,8 +32,14 @@ pub fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
     }
     let mut router = SkillRouter::new();
     router.register(files_organize_manifest());
+    // 同步 `route()` 仅返回 Skill / Planner,绝不返回 SkillWithSlots。
+    // Task 8 会切换到 `route_with_llm()` 并真正消费 SkillWithSlots 的 slots。
     match router.route(trimmed) {
         RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
+            skill_id: manifest.id,
+        }),
+        #[cfg(feature = "llm")]
+        RouteDecision::SkillWithSlots(manifest, _slots) => Ok(RouteTextResult::Routed {
             skill_id: manifest.id,
         }),
         RouteDecision::Planner => Ok(RouteTextResult::Unmatched {

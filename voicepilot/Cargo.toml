@@ -18,7 +18,10 @@ authors = ["VoicePilot Team"]
 license = "MIT"
 
 [workspace.dependencies]
-trust-kernel = { path = "crates/trust-kernel" }
+# W7: default-features=false 让 downstream crate 显式 opt-in trust-kernel 的 feature
+# (llm/voice/tauri)。与 trust-kernel/default = ["llm"] 配合:downstream 默认需写
+# `default = ["llm"]` 才能保留 LLM 路由能力。
+trust-kernel = { path = "crates/trust-kernel", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
