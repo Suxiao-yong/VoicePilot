@@ -10,7 +10,8 @@ pub enum VoiceError {
     #[error("microphone access denied")]
     MicDenied,
 
-    #[error("whisper inference failed: {0}")]
+    // W6c P2 #1:迁移到 sherpa-rs 后,文案去除 whisper 字眼(语义保持中性)
+    #[error("inference failed: {0}")]
     InferenceFailed(String),
 
     #[error("invalid WAV file: {0}")]

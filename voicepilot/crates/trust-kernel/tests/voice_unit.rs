@@ -12,9 +12,10 @@ fn voice_error_displays_human_readable_messages() {
         VoiceError::MicDenied.to_string(),
         "microphone access denied"
     );
+    // W6c P2 #1:文案改为 "inference failed"(去除 whisper 字眼)
     assert_eq!(
         VoiceError::InferenceFailed("out of memory".into()).to_string(),
-        "whisper inference failed: out of memory"
+        "inference failed: out of memory"
     );
     assert_eq!(
         VoiceError::InvalidWav("truncated header".into()).to_string(),
