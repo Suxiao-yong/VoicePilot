@@ -126,6 +126,16 @@ export interface Skill {
   risk_label: string;
 }
 
+// ===== W7 Plan 3: 用户自定义 Skill(从 %APPDATA%\voicepilot\skills\*.md 加载) =====
+
+export interface UserSkill {
+  skill_id: string;
+  title: string;
+  description: string;
+  /** 源文件绝对路径(`%APPDATA%\voicepilot\skills\<filename>.md`)。 */
+  source_path: string;
+}
+
 // ===== W6b-3a Task 4: Diff Preview =====
 
 export type FileKind = "new_file" | "text" | "binary";

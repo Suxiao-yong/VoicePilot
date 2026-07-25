@@ -46,6 +46,7 @@ tauri = { version = "2", features = ["wry"] }
 tauri-build = { version = "2" }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
 regex = "1"
 # W7: LLM + 用户自定义 Skill 解析(UIA 依赖在 Plan 4 添加)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

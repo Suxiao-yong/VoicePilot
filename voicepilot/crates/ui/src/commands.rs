@@ -63,6 +63,14 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         // router.register(research_save_manifest());
         // router.register(form_prepare_manifest());
 
+        // W7 Plan 3: 注册用户自定义 Skill。Task 3 覆盖语义保证同 id 时
+        // 用户版本覆盖 built-in(用户 > built-in 优先级)。
+        if let Ok(user_manifests) = state.kernel.list_user_skill_manifests() {
+            for m in user_manifests {
+                router.register(m);
+            }
+        }
+
         let decision = router.route_with_llm(trimmed).await;
         return match decision {
             RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
@@ -85,7 +93,6 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
 
     #[cfg(not(feature = "llm"))]
     {
-        let _ = state;
         let mut router = SkillRouter::new();
         router.register(files_organize_manifest());
         router.register(task_repeat_verified_manifest());
@@ -93,6 +100,14 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
         router.register(task_compensate_manifest());
         router.register(task_explain_manifest());
+
+        // W7 Plan 3: 注册用户自定义 Skill(覆盖语义同 llm 分支)。
+        if let Ok(user_manifests) = state.kernel.list_user_skill_manifests() {
+            for m in user_manifests {
+                router.register(m);
+            }
+        }
+
         match router.route(trimmed) {
             RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
                 skill_id: manifest.id,
@@ -237,6 +252,9 @@ pub fn register_handlers(
         crate::trust_center_commands::toggle_mcp_server_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
+        crate::skills_commands::reload_skills_command,
+        crate::skills_commands::import_skill_command,
+        crate::skills_commands::list_user_skills_command,
         crate::diff_commands::compute_diff_command,
         crate::model_download_commands::is_voice_enabled_command,
         crate::model_download_commands::check_model_command,
@@ -264,6 +282,9 @@ pub fn register_handlers_with_voice(
         crate::trust_center_commands::toggle_mcp_server_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
+        crate::skills_commands::reload_skills_command,
+        crate::skills_commands::import_skill_command,
+        crate::skills_commands::list_user_skills_command,
         crate::diff_commands::compute_diff_command,
         crate::voice_commands::voice_listen_command,
         crate::voice_commands::cancel_voice_command,

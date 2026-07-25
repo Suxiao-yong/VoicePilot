@@ -5,7 +5,11 @@ use crate::state::AppState;
 
 pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
     let state = AppState::new(kernel);
-    let builder = tauri::Builder::default().manage(state);
+    // W7 Plan 3: 注册 dialog plugin,前端用 `@tauri-apps/plugin-dialog` 的
+    // `open()` 选择本地 .md 文件导入为用户自定义 Skill。
+    let builder = tauri::Builder::default()
+        .manage(state)
+        .plugin(tauri_plugin_dialog::init());
 
     // 注册 global-shortcut plugin（voice feature 才需要 Push-to-talk）。
     #[cfg(feature = "voice")]

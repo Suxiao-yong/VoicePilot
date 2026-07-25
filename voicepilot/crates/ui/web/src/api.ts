@@ -10,6 +10,7 @@ import type {
   OrganizeResult,
   RouteTextResult,
   Skill,
+  UserSkill,
   VoiceListenResult,
   TranscriptionFinalPayload,
   TranscriptionPartialPayload,
@@ -167,4 +168,24 @@ export async function invokeTts(text: string): Promise<TtsResult> {
 
 export async function invokeCancelTts(): Promise<void> {
   await invoke("cancel_tts_command");
+}
+
+// ===== W7 Plan 3: 用户自定义 Skill 导入 / 列表 / 重载 =====
+
+/** 重扫 `%APPDATA%\voicepilot\skills\*.md`,upsert 到 DB,返回当前列表。 */
+export async function invokeReloadSkills(): Promise<UserSkill[]> {
+  return invoke<UserSkill[]>("reload_skills_command");
+}
+
+/**
+ * 校验 + 复制 .md 到 skills 目录 + reload。
+ * source_path 由前端通过 `@tauri-apps/plugin-dialog` 的 `open()` 选择。
+ */
+export async function invokeImportSkill(sourcePath: string): Promise<UserSkill> {
+  return invoke<UserSkill>("import_skill_command", { sourcePath });
+}
+
+/** 列出当前用户自定义 Skill(重新扫描 skills 目录)。 */
+export async function invokeListUserSkills(): Promise<UserSkill[]> {
+  return invoke<UserSkill[]>("list_user_skills_command");
 }
