@@ -55,8 +55,8 @@ export function MainView() {
       cancelVoice().catch(console.error);
     });
     return () => {
-      unlistenStart.then((fn) => fn());
-      unlistenStop.then((fn) => fn());
+      unlistenStart.then((fn) => fn()).catch(() => {});
+      unlistenStop.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -142,12 +142,17 @@ export function MainView() {
         </button>
 
         <div className="ptt-status">
-          {pttActive && <span className="ptt-active">按住 Ctrl+Alt+Space 录音中…</span>}
+          {pttActive && (
+            <span className="ptt-active" role="status" aria-live="polite">
+              按住 Ctrl+Alt+Space 录音中…
+            </span>
+          )}
           {ttsPlaying && (
             <button
               type="button"
+              aria-label="停止语音反馈"
               onClick={() => {
-                invokeCancelTts();
+                invokeCancelTts().catch(console.error);
                 setTtsPlaying(false);
               }}
             >
