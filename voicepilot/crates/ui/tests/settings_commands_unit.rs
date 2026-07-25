@@ -7,7 +7,7 @@ use voicepilot_ui::settings_commands::{SettingsDto, flatten_to_kv, merge_from_kv
 #[test]
 fn settings_dto_default_has_sensible_values() {
     let dto = SettingsDto::default();
-    assert_eq!(dto.voice_model_path, "ggml-tiny.bin");
+    assert_eq!(dto.voice_model_path, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17");
     assert_eq!(dto.voice_threads, 4);
     assert!(!dto.privacy_mode); // 默认隐私模式关闭
     assert_eq!(dto.compensation_ttl_hours, 24);
@@ -43,6 +43,6 @@ fn settings_merge_from_partial_kv_uses_defaults_for_missing() {
     let kv = vec![("voice.threads".to_string(), "16".to_string())];
     let dto = merge_from_kv(&kv).expect("merge");
     assert_eq!(dto.voice_threads, 16);
-    assert_eq!(dto.voice_model_path, "ggml-tiny.bin");
+    assert_eq!(dto.voice_model_path, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17");
     assert_eq!(dto.compensation_ttl_hours, 24);
 }

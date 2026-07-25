@@ -28,7 +28,7 @@ pub struct SettingsDto {
 impl Default for SettingsDto {
     fn default() -> Self {
         Self {
-            voice_model_path: "ggml-tiny.bin".to_string(),
+            voice_model_path: "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17".to_string(),
             voice_language: None,
             voice_threads: 4,
             vad_energy_threshold: 100.0,

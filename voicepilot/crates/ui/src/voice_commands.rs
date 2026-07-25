@@ -5,8 +5,8 @@
 //!
 //! W6b-2 Task 5:
 //! - `VoiceListen::listen` 接收 `cancel: &AtomicBool`(issue #57)
-//! - `VoiceListenImpl::with_engine` 接收 `Arc<WhisperEngine>`(issue #61 缓存)
-//! - `voice_listen_command` 从 ConfigRepo 读 settings + 用 whisper_cache
+//! - `VoiceListenImpl::with_engine` 接收 `Arc<SherpaAsrEngine>`(issue #61 缓存)
+//! - `voice_listen_command` 从 ConfigRepo 读 settings + 用 asr_cache
 //! - `cancel_voice_command` 设 kill_switch 为 true
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use trust_kernel::voice::listener::{AudioRecorderAdapter, ListenOutcome, VoiceLi
 use trust_kernel::voice::model::ModelRegistry;
 use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
 use trust_kernel::voice::vad::{VadConfig, VadDetector};
-use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
+use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 
 use crate::commands::RouteTextResult;
 
@@ -101,16 +101,16 @@ pub fn voice_listen(
 
 // ===== VoiceListenImpl: 生产实现 =====
 
-/// 生产用 `VoiceListen` 实现,编排 `VoiceListener` + `WhisperEngine` + `route_text`。
+/// 生产用 `VoiceListen` 实现,编排 `VoiceListener` + `SherpaAsrEngine` + `route_text`。
 ///
-/// W6b-2 Task 5:`cached_engine: Option<Arc<WhisperEngine>>` 用于模型缓存(issue #61)。
+/// W6b-2 Task 5:`cached_engine: Option<Arc<SherpaAsrEngine>>` 用于模型缓存(issue #61)。
 /// W6b-2 Task 6:`partial_app: Option<AppHandle>` 用于发射 `transcription-partial` 事件(issue #47)。
 pub struct VoiceListenImpl {
     recorder: Arc<dyn VoiceRecorder>,
-    whisper_config: WhisperConfig,
-    /// 缓存的 WhisperEngine(issue #61)。Some 时 transcribe 直接用;
-    /// None 时 fallback 到每次 `WhisperEngine::new(whisper_config.clone())`。
-    cached_engine: Option<Arc<WhisperEngine>>,
+    asr_config: SherpaAsrConfig,
+    /// 缓存的 SherpaAsrEngine(issue #61)。Some 时 transcribe 直接用;
+    /// None 时 fallback 到每次 `SherpaAsrEngine::new(asr_config.clone())`。
+    cached_engine: Option<Arc<SherpaAsrEngine>>,
     /// AppHandle 用于发射 `transcription-partial` 事件(issue #47)。
     /// Some 时 listen 期间每 2s 调 engine.transcribe 并 emit partial。
     partial_app: Option<AppHandle>,
@@ -123,12 +123,12 @@ impl VoiceListenImpl {
     /// 用默认 VAD + 默认录音配置创建(cached_engine = None, partial_app = None)。
     pub fn new(
         recorder: Arc<dyn VoiceRecorder>,
-        whisper_config: WhisperConfig,
+        asr_config: SherpaAsrConfig,
         kernel: Arc<TrustKernel>,
     ) -> Self {
         Self {
             recorder,
-            whisper_config,
+            asr_config,
             cached_engine: None,
             partial_app: None,
             kernel,
@@ -137,34 +137,34 @@ impl VoiceListenImpl {
         }
     }
 
-    /// 用默认模型(ggml-tiny.bin)创建,便于 Tauri command 构造。
+    /// 用默认模型(sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17)创建,便于 Tauri command 构造。
     pub fn with_default_model(
         recorder: Arc<dyn VoiceRecorder>,
         kernel: Arc<TrustKernel>,
     ) -> VoiceResult<Self> {
         let registry = ModelRegistry::new();
-        let model_path = registry.resolve("ggml-tiny.bin")?;
-        let whisper_config = WhisperConfig {
-            model_path,
+        let model_dir = registry.resolve("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17")?;
+        let asr_config = SherpaAsrConfig {
+            model_dir,
             language: None,
             ..Default::default()
         };
-        Ok(Self::new(recorder, whisper_config, kernel))
+        Ok(Self::new(recorder, asr_config, kernel))
     }
 
-    /// 用缓存的 WhisperEngine + AppHandle 创建(issue #61 + #47)。
-    /// 调用方负责从 `state.whisper_cache` 取出 `Arc<WhisperEngine>` 传入。
+    /// 用缓存的 SherpaAsrEngine + AppHandle 创建(issue #61 + #47)。
+    /// 调用方负责从 `state.asr_cache` 取出 `Arc<SherpaAsrEngine>` 传入。
     /// `app` 用于 listen 期间发射 `transcription-partial` 事件。
     pub fn with_engine(
         recorder: Arc<dyn VoiceRecorder>,
-        engine: Arc<WhisperEngine>,
+        engine: Arc<SherpaAsrEngine>,
         app: AppHandle,
         kernel: Arc<TrustKernel>,
     ) -> Self {
-        let whisper_config = engine.config().clone();
+        let asr_config = engine.config().clone();
         Self {
             recorder,
-            whisper_config,
+            asr_config,
             cached_engine: Some(engine),
             partial_app: Some(app),
             kernel,
@@ -173,12 +173,12 @@ impl VoiceListenImpl {
         }
     }
 
-    /// 转写样本。优先用 cached_engine,否则每次 new WhisperEngine。
+    /// 转写样本。优先用 cached_engine,否则每次 new SherpaAsrEngine。
     fn transcribe(&self, samples: &[i16]) -> VoiceResult<String> {
         if let Some(engine) = &self.cached_engine {
             return engine.transcribe(samples);
         }
-        let engine = WhisperEngine::new(self.whisper_config.clone())?;
+        let engine = SherpaAsrEngine::new(self.asr_config.clone())?;
         engine.transcribe(samples)
     }
 
@@ -316,7 +316,7 @@ pub fn build_transcription_final_payload(
 /// W6b-2 Task 5 流程:
 /// 1. 重置 kill_switch 为 false
 /// 2. 从 ConfigRepo 加载 voice settings(§8.3 Settings 持久化)
-/// 3. 检查 whisper_cache,miss 时加载(issue #61)
+/// 3. 检查 asr_cache,miss 时加载(issue #61)
 /// 4. 用 `VoiceListenImpl::with_engine` 构造 listener
 /// 5. 调 `voice_listen(&listener, &state.kill_switch)`(透传 cancel)
 /// 6. 发射 `transcription-final` 事件(若有 transcription)
@@ -334,22 +334,22 @@ pub async fn voice_listen_command(
 
     // 2. 从 Settings 加载 voice 配置(V1.1.2 §8.3 Settings 持久化)
     let settings = load_voice_settings(&state.kernel).map_err(|e| e.to_string())?;
-    let model_path = std::path::PathBuf::from(&settings.voice_model_path);
-    let whisper_config = WhisperConfig {
-        model_path: model_path.clone(),
+    let model_dir = std::path::PathBuf::from(&settings.voice_model_path);
+    let asr_config = SherpaAsrConfig {
+        model_dir: model_dir.clone(),
         language: settings.voice_language.clone(),
-        threads: settings.voice_threads,
+        num_threads: settings.voice_threads,
         ..Default::default()
     };
 
-    // 3. 检查 whisper_cache,miss 时加载(issue #61)
-    let engine: Arc<WhisperEngine> = {
-        let mut cache = state.whisper_cache.lock().map_err(|e| e.to_string())?;
+    // 3. 检查 asr_cache,miss 时加载(issue #61)
+    let engine: Arc<SherpaAsrEngine> = {
+        let mut cache = state.asr_cache.lock().map_err(|e| e.to_string())?;
         let needs_reload = cache
             .as_ref()
-            .is_none_or(|eng| eng.config().model_path != model_path);
+            .is_none_or(|eng| eng.config().model_dir != model_dir);
         if needs_reload {
-            let new_engine = WhisperEngine::new(whisper_config.clone())
+            let new_engine = SherpaAsrEngine::new(asr_config.clone())
                 .map_err(|e| e.to_string())?;
             *cache = Some(Arc::new(new_engine));
         }
