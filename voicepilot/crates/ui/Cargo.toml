@@ -29,6 +29,7 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true, optional = true, features = ["time"] }
 tauri = { workspace = true, optional = true }
+tauri-plugin-global-shortcut = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 
 [features]
@@ -40,7 +41,7 @@ default = []
 tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "dep:tracing-subscriber"]
 # Opt-in voice subsystem (requires whisper-rs build environment).
 # Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
-voice = ["tauri", "trust-kernel/voice"]
+voice = ["tauri", "trust-kernel/voice", "dep:tauri-plugin-global-shortcut"]
 
 [dev-dependencies]
 tempfile = "3"
