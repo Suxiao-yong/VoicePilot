@@ -150,6 +150,29 @@ export function SettingsView(): JSX.Element {
         </div>
       </fieldset>
 
+      {/* W6c P1 #1:TTS 配置(VP-FR-002 语音反馈)*/}
+      <fieldset className="settings-fieldset">
+        <legend>TTS 配置</legend>
+        <div className="form-row checkbox-row">
+          <input
+            id="tts_enabled"
+            type="checkbox"
+            checked={settings.tts_enabled}
+            onChange={(e) => handleField("tts_enabled", e.target.checked)}
+          />
+          <label htmlFor="tts_enabled">启用语音反馈</label>
+        </div>
+        <div className="form-row">
+          <label htmlFor="tts_model_path">TTS 模型路径(空=使用默认)</label>
+          <input
+            id="tts_model_path"
+            type="text"
+            value={settings.tts_model_path}
+            onChange={(e) => handleField("tts_model_path", e.target.value)}
+          />
+        </div>
+      </fieldset>
+
       <div className="form-actions">
         <button type="button" onClick={handleSave} disabled={saving}>
           {saving ? "保存中…" : "保存设置"}

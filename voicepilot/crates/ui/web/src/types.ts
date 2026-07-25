@@ -80,6 +80,9 @@ export interface Settings {
   voice_chunk_duration_ms: number;
   privacy_mode: boolean;
   compensation_ttl_hours: number;
+  // W6c P1 #1:TTS 配置(VP-FR-002 语音反馈),与后端 SettingsDto 对齐
+  tts_enabled: boolean;
+  tts_model_path: string;
 }
 
 export type View = "main" | "settings" | "audit" | "trust" | "skills";
