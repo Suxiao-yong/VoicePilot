@@ -39,6 +39,7 @@ use crate::skills::common::{
 use crate::skills::manifest::task_compensate_manifest;
 use crate::tools::fs_paths::canonicalize;
 use crate::tools::fs_snapshot::snapshot_file;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -115,12 +116,20 @@ pub fn execute_compensate(
     kernel.update_step_status(&input.step_id, StepStatus::Running)?;
 
     // Step 6: record approval decision (E2 + PerStep). The approver sees
-    // the effect_manifest describing what will be reversed.
+    // the effect_manifest describing what will be reversed. The
+    // preconditions_hash binds this approval to the exact reverse_payload
+    // (the {moves: [...]} list) so post-hoc audit can verify what the user
+    // actually approved — prevents TOCTOU between approve and commit.
+    let preconditions_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(target_comp.reverse_payload.as_bytes());
+        format!("{:x}", hasher.finalize())
+    };
     let ctx = ApprovalContext {
         task_id: &input.task_id,
         step_id: &input.step_id,
-        destination: "(reverse)",
-        preconditions_hash: "(none)",
+        destination: &effect_manifest.destination,
+        preconditions_hash: &preconditions_hash,
         e_level: ELevel::E2,
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
