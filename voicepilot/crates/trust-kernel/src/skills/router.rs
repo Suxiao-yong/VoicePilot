@@ -57,8 +57,15 @@ impl SkillRouter {
         }
     }
 
+    /// W7 Plan 3: 若已存在同 id 的 Skill,覆盖(用户自定义 > built-in);
+    /// 否则 push。这保证用户在 `%APPDATA%\voicepilot\skills\` 放入同 id
+    /// 的 .md 文件后,能覆盖 built-in manifest。
     pub fn register(&mut self, manifest: SkillManifest) {
-        self.skills.push(manifest);
+        if let Some(existing) = self.skills.iter_mut().find(|s| s.id == manifest.id) {
+            *existing = manifest;
+        } else {
+            self.skills.push(manifest);
+        }
     }
 
     /// 同步路由(W6 行为,关键词匹配,不调 LLM)
@@ -153,6 +160,24 @@ mod tests {
         router.register(files_organize_manifest());
         let decision = router.route("totally unrelated text");
         assert!(matches!(decision, RouteDecision::Planner));
+    }
+
+    #[test]
+    fn register_same_id_overrides_built_in() {
+        let mut router = SkillRouter::new();
+        let mut built_in = files_organize_manifest();
+        built_in.title = "Built-in".to_string();
+        router.register(built_in);
+
+        let mut user = files_organize_manifest();
+        user.title = "User override".to_string();
+        router.register(user); // same id, should override
+
+        let decision = router.route("整理下载目录");
+        match decision {
+            RouteDecision::Skill(m) => assert_eq!(m.title, "User override"),
+            _ => panic!("expected Skill decision"),
+        }
     }
 
     #[cfg(feature = "llm")]

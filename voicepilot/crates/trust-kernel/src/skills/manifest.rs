@@ -16,6 +16,10 @@ pub struct SkillManifest {
     pub title: String,
     #[serde(default)]
     pub description: String,
+    /// W7 Plan 3: Markdown body 解析自 YAML frontmatter 之后的文本,
+    /// 仅用于用户自定义 Skill(.md 文件)。built-in manifest 不设此字段(None)。
+    #[serde(default)]
+    pub description_body: Option<String>,
     pub intent_examples: Vec<String>,
     /// Curated routing keywords — V1.1 §5.1 Skill Router matches these
     /// against the user goal (case-insensitive substring). Authors list
@@ -171,6 +175,7 @@ pub fn files_organize_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "整理文件".to_string(),
         description: "搜索文件 → 生成变更清单 → 一次性批次批准 → 移动并验证 → 生成 strong Compensation".to_string(),
+        description_body: None,
         intent_examples: vec![
             "把下载目录里的 PDF 移到论文文件夹".to_string(),
             "整理今天下载的文档".to_string(),
@@ -248,6 +253,7 @@ pub fn task_repeat_verified_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "重做上一步已验证的操作".to_string(),
         description: "重新执行上一次 files.organize 中已通过 verify_move 的移动操作".to_string(),
+        description_body: None,
         intent_examples: vec![
             "重做上一步".to_string(),
             "重复上次操作".to_string(),
@@ -311,6 +317,7 @@ pub fn task_explain_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "解释上一步操作".to_string(),
         description: "读取审计日志,展示最近 N 条操作记录与状态".to_string(),
+        description_body: None,
         intent_examples: vec![
             "解释上一步".to_string(),
             "刚才做了什么".to_string(),
@@ -371,6 +378,7 @@ pub fn task_compensate_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "撤销上一步操作".to_string(),
         description: "对指定 step 执行 auto_reverse 反向补偿".to_string(),
+        description_body: None,
         intent_examples: vec![
             "撤销上一步".to_string(),
             "回滚刚才的操作".to_string(),
@@ -435,6 +443,7 @@ pub fn app_control_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "控制 Windows 应用".to_string(),
         description: "启动 / 切换 / 关闭 Windows 应用(Plan 4 实现 UIA 适配器)".to_string(),
+        description_body: None,
         intent_examples: vec![
             "打开记事本".to_string(),
             "切换到浏览器".to_string(),
@@ -515,6 +524,7 @@ pub fn note_capture_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "用记事本记录笔记".to_string(),
         description: "打开记事本 → 写入文本 → 保存为 .txt(Plan 4 实现 UIA 适配器)".to_string(),
+        description_body: None,
         intent_examples: vec![
             "打开记事本写 TODO".to_string(),
             "记一下这个想法".to_string(),
@@ -593,6 +603,7 @@ pub fn research_save_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "把网页存为 Markdown".to_string(),
         description: "用 Playwright MCP 抓取网页内容 → 写入本地 .md 文件(Plan 5 实现)".to_string(),
+        description_body: None,
         intent_examples: vec![
             "把这个网页存为 Markdown".to_string(),
             "保存这个网页内容".to_string(),
@@ -669,6 +680,7 @@ pub fn form_prepare_manifest() -> SkillManifest {
         version: "1.0.0".to_string(),
         title: "填充网页表单(不提交)".to_string(),
         description: "用 Playwright MCP 导航 → 快照 → 填充表单字段,不点击 submit(Plan 5 实现)".to_string(),
+        description_body: None,
         intent_examples: vec![
             "帮我填这个表单".to_string(),
             "准备这个表单".to_string(),

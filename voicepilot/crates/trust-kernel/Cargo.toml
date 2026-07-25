@@ -19,7 +19,10 @@ cedar-policy = { workspace = true }
 walkdir = { workspace = true }
 similar = { workspace = true }
 ureq = { workspace = true, optional = true }
-dirs = { workspace = true, optional = true }
+# W7 Plan 3: `dirs` 用于定位 %APPDATA%\voicepilot\skills 目录。
+# 非 optional:tauri feature 不依赖 voice,所以 user-skill 加载不能
+# gated 在 voice feature 后面(项目 memory: feature 独立性)。
+dirs = { workspace = true }
 sherpa-rs = { workspace = true, optional = true }
 cpal = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
@@ -29,6 +32,8 @@ tar = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }
+# W7 Plan 3: user_loader.rs 用 regex 校验 skill id。
+regex = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
@@ -39,5 +44,5 @@ wiremock = "0.6"
 
 [features]
 default = ["llm"]
-voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:dirs", "dep:bzip2", "dep:tar"]
+voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:bzip2", "dep:tar"]
 llm = ["dep:reqwest"]

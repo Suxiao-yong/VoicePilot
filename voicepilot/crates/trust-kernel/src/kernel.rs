@@ -47,7 +47,7 @@ impl TrustKernel {
             crate::gateway::ActionGateway::new(cedar_src)
                 .expect("default cedar policy must parse"),
         );
-        Self {
+        let kernel = Self {
             conn: shared.clone(),
             task_repo: TaskRepo::new(),
             audit: Arc::new(SqliteAuditLogger::new(shared)),
@@ -56,7 +56,14 @@ impl TrustKernel {
             comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
             approval_repo: Arc::new(ApprovalRepo::new()),
             txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
+        };
+        // W7 Plan 3: best-effort user skill loading at boot. Errors are
+        // logged via tracing::warn! and never propagate — a malformed user
+        // skill file must not crash kernel construction.
+        if let Err(e) = kernel.load_user_skills() {
+            tracing::warn!(error = ?e, "load_user_skills failed at boot");
         }
+        kernel
     }
 
     /// Access the Action Gateway for policy decisions.
@@ -452,6 +459,53 @@ impl TrustKernel {
     pub fn toggle_skill(&self, skill_id: &str, enabled: bool) -> Result<()> {
         let conn = self.conn();
         crate::skills::repo::SkillRepo::new().toggle(&conn, skill_id, enabled)
+    }
+
+    /// W7 Plan 3: 扫描 `%APPDATA%\voicepilot\skills\*.md`,upsert 到
+    /// `skills` 表。Best-effort:错误经 tracing::warn! 记录,不向上传播
+    /// (一个损坏的用户文件不能让 kernel 构造失败)。返回成功加载的
+    /// 用户 Skill 数量。
+    pub fn load_user_skills(&self) -> Result<usize> {
+        let dir = match crate::skills::user_loader::user_skills_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(error = ?e, "user_skills_dir() failed; skipping user skill load");
+                return Ok(0);
+            }
+        };
+        let manifests = crate::skills::user_loader::scan_user_skills(&dir);
+        let repo = crate::skills::repo::SkillRepo::new();
+        {
+            let conn = self.conn();
+            for m in &manifests {
+                let rec = crate::skills::repo::SkillRecord {
+                    skill_id: m.id.clone(),
+                    // DB row version 是计数器(SkillRecord.version: i64);
+                    // manifest version 字符串保留在 manifest_json 内。
+                    version: 1,
+                    manifest_json: serde_json::to_string(m).map_err(|e| {
+                        KernelError::Skill(format!("serde_json failed: {}", e))
+                    })?,
+                    enabled: true,
+                    success_count: 0,
+                    avg_latency_ms: 0.0,
+                };
+                if let Err(e) = repo.upsert(&conn, &rec) {
+                    tracing::warn!(skill_id = %m.id, error = ?e, "failed to upsert user skill");
+                }
+            }
+        }
+        Ok(manifests.len())
+    }
+
+    /// W7 Plan 3:重新扫描 skills 目录,返回用户自定义 Skill manifests。
+    /// `route_text` 调用此方法把用户 Skill 注册到 fresh SkillRouter
+    /// (Task 3 覆盖语义保证用户 > built-in 优先级)。
+    pub fn list_user_skill_manifests(
+        &self,
+    ) -> Result<Vec<crate::skills::manifest::SkillManifest>> {
+        let dir = crate::skills::user_loader::user_skills_dir()?;
+        Ok(crate::skills::user_loader::scan_user_skills(&dir))
     }
 
     fn audit_append(
