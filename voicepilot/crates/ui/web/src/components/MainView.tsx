@@ -272,13 +272,12 @@ export function MainView() {
         <SlotEditDialog
           slot={editingSlot}
           onSubmit={(slot, newValue) => {
-            // 更新本地 slots 列表
+            // 更新本地 slots 列表的 raw 值（transcription 显示不变，规格允许简单替换）
             setSlots((prev) =>
               prev.map((s) =>
                 s === slot ? { ...s, raw: newValue } : s,
               ),
             );
-            // 同时更新 transcription 显示(简单替换)
             setEditingSlot(null);
           }}
           onClose={() => setEditingSlot(null)}

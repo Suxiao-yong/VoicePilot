@@ -885,6 +885,13 @@ html, body, #root {
 
 /* ===== W6b-3b Task 16: Chip + SlotEditDialog (§8.4) ===== */
 
+.chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
