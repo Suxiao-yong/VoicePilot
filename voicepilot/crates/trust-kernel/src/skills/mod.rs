@@ -7,5 +7,6 @@ pub mod executor;
 pub mod manifest;
 pub mod repo;
 pub mod router;
+pub mod task_compensate;
 pub mod task_explain;
 pub mod task_repeat;
