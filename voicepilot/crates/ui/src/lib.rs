@@ -42,5 +42,7 @@ pub mod voice_commands;
 #[cfg(feature = "tauri")]
 pub mod model_download_commands;
 
+pub mod slot_parser;
+
 pub use error::UiError;
 pub use state::AppState;
