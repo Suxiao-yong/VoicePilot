@@ -19,9 +19,15 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
                 .expect("hardcoded Ctrl+Alt+Space shortcut should always be valid")
                 .with_handler(move |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        let _ = app.emit("push-to-talk-start", ());
+                        // W6c P2 #4:emit 失败时记录到 stderr,避免静默吞错。
+                        // 不引入 tracing 依赖,保持简单(用户按快捷键无反馈时可在 stderr 排查)。
+                        if let Err(e) = app.emit("push-to-talk-start", ()) {
+                            eprintln!("[voice] emit push-to-talk-start failed: {}", e);
+                        }
                     } else if event.state == ShortcutState::Released {
-                        let _ = app.emit("push-to-talk-stop", ());
+                        if let Err(e) = app.emit("push-to-talk-stop", ()) {
+                            eprintln!("[voice] emit push-to-talk-stop failed: {}", e);
+                        }
                     }
                 })
                 .build(),
