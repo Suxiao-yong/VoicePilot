@@ -7,4 +7,6 @@
 //! `client` 模块在 `llm` feature 下编译(依赖 reqwest),Task 3 引入。
 
 pub mod types;
+#[cfg(feature = "llm")]
+pub mod client;
 
