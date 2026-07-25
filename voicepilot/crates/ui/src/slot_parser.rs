@@ -20,6 +20,10 @@ pub enum SlotKind {
     Recipient,
     /// 删除目标(高风险)。
     DeleteTarget,
+    /// W7 新增:时间范围(LLM 提取,如"昨天"/"上周")。
+    TimeRange,
+    /// W7 新增:URL(LLM 提取,浏览器自动化场景)。
+    Url,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -167,6 +171,69 @@ impl SlotParser {
         }
         result
     }
+
+    /// W7: regex 优先,0 命中时调 LLM fallback。
+    ///
+    /// 路由顺序:
+    ///   1. regex `SlotParser::parse` 命中 → 直接返回(regex 提取的 Slot 带精确 start/end)
+    ///   2. regex 0 命中且 `llm` 提供 + `is_enabled()` → 调 `classify_and_extract`
+    ///   3. LLM 返回的 `ExtractedSlot` 转为 `Slot`(start=0/end=raw.len(),LLM 不返回位置)
+    ///   4. LLM 失败 → 返回空 Vec(回退到 Planner)
+    ///
+    /// LLM 集成测试在 `tests/w7_router_llm_smoke.rs`(Task 16)端到端覆盖。
+    #[cfg(feature = "llm")]
+    pub async fn parse_with_llm_fallback(
+        text: &str,
+        llm: Option<&trust_kernel::llm::client::LlmClient>,
+        candidate_skills: &[trust_kernel::skills::manifest::SkillManifest],
+    ) -> Vec<Slot> {
+        // Step 1: regex 优先
+        let regex_slots = Self::parse(text);
+        if !regex_slots.is_empty() {
+            return regex_slots;
+        }
+
+        // Step 2-3: LLM fallback(regex 0 命中)
+        if let Some(llm) = llm {
+            if llm.is_enabled() {
+                if let Ok(resp) = llm.classify_and_extract(text, candidate_skills).await {
+                    return resp
+                        .slots
+                        .iter()
+                        .map(|s| Slot {
+                            kind: parse_slot_kind(&s.kind),
+                            raw: s.raw.clone(),
+                            // LLM 不返回字符位置,用 0..len 占位;UI 渲染时不依赖位置。
+                            start: 0,
+                            end: s.raw.chars().count(),
+                            high_risk: s.high_risk,
+                        })
+                        .collect();
+                }
+            }
+        }
+
+        // Step 4: 空Vec(回退到 Planner)
+        Vec::new()
+    }
+}
+
+/// W7: 将 LLM 返回的 `kind` 字符串映射为 `SlotKind`。
+///
+/// LLM 的 `ExtractedSlot.kind` 是开放字符串(由 prompt 约束为 7 种之一),
+/// 此处做白名单映射;未知 kind 默认 `App`(低风险,避免误判为 path/recipient)。
+#[cfg(feature = "llm")]
+fn parse_slot_kind(kind: &str) -> SlotKind {
+    match kind {
+        "path" => SlotKind::Path,
+        "app" => SlotKind::App,
+        "number" => SlotKind::Number,
+        "recipient" => SlotKind::Recipient,
+        "delete_target" => SlotKind::DeleteTarget,
+        "time_range" => SlotKind::TimeRange,
+        "url" => SlotKind::Url,
+        _ => SlotKind::App,
+    }
 }
 
 #[cfg(test)]
@@ -298,13 +365,15 @@ mod tests {
 
     #[test]
     fn slot_serializes_all_kinds_with_snake_case() {
-        // 验证所有 SlotKind 变体的 snake_case 序列化(特别是 delete_target)。
+        // 验证所有 SlotKind 变体的 snake_case 序列化(特别是 delete_target / time_range)。
         for (kind, expected) in [
             (SlotKind::Path, "path"),
             (SlotKind::App, "app"),
             (SlotKind::Number, "number"),
             (SlotKind::Recipient, "recipient"),
             (SlotKind::DeleteTarget, "delete_target"),
+            (SlotKind::TimeRange, "time_range"),
+            (SlotKind::Url, "url"),
         ] {
             let slot = Slot {
                 kind: kind.clone(),
