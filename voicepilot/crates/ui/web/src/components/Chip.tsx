@@ -21,6 +21,7 @@ export function Chip({ slot, onClick, lowConfidence }: ChipProps) {
     `chip-${slot.kind}`,
     slot.high_risk ? "chip-high-risk" : "",
     lowConfidence ? "chip-low-confidence" : "",
+    slot.modified ? "chip-modified" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -30,10 +31,11 @@ export function Chip({ slot, onClick, lowConfidence }: ChipProps) {
       type="button"
       className={className}
       onClick={() => onClick(slot)}
-      title={`${KIND_LABEL[slot.kind]}${slot.high_risk ? "(高风险,需确认)" : ""}`}
+      title={`${KIND_LABEL[slot.kind]}${slot.high_risk ? "(高风险,需确认)" : ""}${slot.modified ? "(已修改)" : ""}`}
     >
       <span className="chip-kind">{KIND_LABEL[slot.kind]}</span>
       <span className="chip-value">{slot.raw}</span>
+      {slot.modified && <span className="chip-modified-mark" aria-hidden="true">✓</span>}
     </button>
   );
 }

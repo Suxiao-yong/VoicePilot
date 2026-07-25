@@ -156,6 +156,45 @@ export function MainView() {
     }
   }
 
+  // W6c P1 #2:Apply Slot 修改 — 按 slot.end 降序替换 transcription,
+  // 生成新文本后调 routeText 重新路由,最后清空所有 modified 标记。
+  async function onApplySlotEdits() {
+    // 取当前 transcription(success / timeout-with-text)
+    const transcription =
+      voiceResult?.kind === "success"
+        ? voiceResult.transcription
+        : voiceResult?.kind === "timeout"
+          ? voiceResult.transcription ?? ""
+          : "";
+    if (!transcription) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // 1. 收集 modified slots,按 end 降序(从后往前替换避免偏移)
+      const modified = slots
+        .filter((s) => s.modified)
+        .sort((a, b) => b.end - a.end);
+      // 2. 逐段替换 [start, end) → slot.raw
+      let newText = transcription;
+      for (const slot of modified) {
+        newText =
+          newText.slice(0, slot.start) + slot.raw + newText.slice(slot.end);
+      }
+      // 3. 重新路由
+      const r = await routeText(newText);
+      setRouteResult(r);
+      // 4. 清空所有 modified 标记(不引入 applied 状态,保持简单)
+      setSlots((prev) => prev.map((s) => ({ ...s, modified: false })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onOrganize() {
     setBusy(true);
     setError(null);
@@ -305,13 +344,30 @@ export function MainView() {
             ))}
           </div>
         )}
+        {/* W6c P1 #2:Apply 修改按钮 — 有 modified slot 时显示,触发重新路由 */}
+        {slots.some((s) => s.modified) && (
+          <div className="slot-apply-row">
+            <button
+              type="button"
+              className="btn btn-primary slot-apply-btn"
+              onClick={onApplySlotEdits}
+              disabled={busy || listening}
+              aria-label="Apply 修改并重新路由"
+            >
+              Apply 修改
+            </button>
+          </div>
+        )}
         <SlotEditDialog
           slot={editingSlot}
           onSubmit={(slot, newValue) => {
-            // 更新本地 slots 列表的 raw 值（transcription 显示不变，规格允许简单替换）
+            // W6c P1 #2:更新本地 slots 列表的 raw 值 + 标记 modified: true
+            // (transcription 显示不变,Apply 时按 [start, end) 区间替换生成新文本)
             setSlots((prev) =>
               prev.map((s) =>
-                s === slot ? { ...s, raw: newValue } : s,
+                s.kind === slot.kind && s.start === slot.start && s.end === slot.end
+                  ? { ...s, raw: newValue, modified: true }
+                  : s,
               ),
             );
             setEditingSlot(null);

@@ -152,4 +152,6 @@ export interface Slot {
   start: number;
   end: number;
   high_risk: boolean;
+  // W6c P1 #2:前端状态标记,后端 Rust 不需要(用户修改后置 true,Apply 后清空)
+  modified?: boolean;
 }

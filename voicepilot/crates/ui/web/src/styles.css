@@ -914,6 +914,29 @@ html, body, #root {
   text-decoration: underline;
   text-decoration-style: dotted;
 }
+/* W6c P1 #2:已修改 Chip 样式 — 绿色边框 + ✓ 角标 */
+.chip-modified {
+  border-color: var(--success);
+  color: var(--success);
+}
+.chip-modified-mark {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--success);
+}
+/* W6c P1 #2:Apply 修改按钮容器 */
+.slot-apply-row {
+  margin-top: 12px;
+  display: flex;
+}
+.slot-apply-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 18px;
+}
 .chip-kind {
   font-size: 10px;
   opacity: 0.7;
