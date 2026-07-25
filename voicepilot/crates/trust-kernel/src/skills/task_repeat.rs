@@ -16,16 +16,12 @@
 //! level for write operations.
 
 use crate::approval::approver::Approver;
-use crate::compensation::types::CompensationLevel;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::policy::transaction::EffectManifest;
-use crate::policy::types::DLevel;
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{finalize_step_success, validate_input_against_manifest};
 use crate::skills::manifest::task_repeat_verified_manifest;
-use crate::toolresult::{EvidenceStrength, ToolResult, ToolStatus};
-use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -114,34 +110,18 @@ pub fn execute_repeat_verified(
     }
 
     // Step 6: verify the previous move's destination still has the files.
-    let verify_result = kernel.filesystem().verify_move(&prev_manifest)?;
+    let _verify_result = kernel
+        .filesystem()
+        .verify_move(&prev_manifest)
+        .inspect_err(|_e| {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+        })?;
 
-    // Step 7: build ToolResult V2 + finalize step as Succeeded.
-    // ToolResult is built for V2 compliance; the function returns task_id
-    // (ToolResult data is reflected in the step's evidence_strength via
-    // finalize_step_success).
-    let started_at = Utc::now();
-    let _tool_result = ToolResult {
-        status: ToolStatus::Succeeded,
-        data: serde_json::json!({
-            "source_count": found.len(),
-            "dest_verified": verify_result.verified,
-            "evidence_strength": "weak",
-        }),
-        evidence_strength: EvidenceStrength::Weak,
-        compensation_ref: None,
-        compensation_level: CompensationLevel::None,
-        preconditions_hash: None,
-        idempotency_key: format!("idem-{}", uuid::Uuid::new_v4()),
-        egress_performed: false,
-        data_classification: DLevel::D2,
-        error_code: None,
-        retryable: false,
-        safe_to_retry: true,
-        started_at,
-        finished_at: Utc::now(),
-    };
-    finalize_step_success(kernel, &input.step_id, "weak", None)?;
+    // Step 7: finalize step as Succeeded.
+    finalize_step_success(kernel, &input.step_id, "weak", None)
+        .inspect_err(|_e| {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+        })?;
 
     // Step 8: return the new task_id.
     Ok(input.task_id.clone())
