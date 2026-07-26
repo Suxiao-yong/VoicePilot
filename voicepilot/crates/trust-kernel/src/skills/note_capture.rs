@@ -185,6 +185,24 @@ pub fn execute_note_capture(
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
         })?;
     if let Some(handle) = window {
+        // Spec §2.6 line 305: "set_text 仅对窗口标题在白名单内的元素生效
+        // (防伪造窗口)". `find_window("Notepad")` may have matched a
+        // forged / spoofed window whose title contains "Notepad" but is
+        // not the real Notepad process. Verify "notepad" is in the
+        // kernel's `allowed_apps` whitelist before driving text into
+        // the returned handle. A mismatch indicates either a forged
+        // window or a Settings change that hasn't been re-confirmed —
+        // reject the set_text and mark step Failed.
+        let in_whitelist = kernel
+            .allowed_apps()
+            .iter()
+            .any(|app| app.eq_ignore_ascii_case("notepad"));
+        if !in_whitelist {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Uia(
+                "set_text rejected: window title not in allowed_apps whitelist".to_string(),
+            ));
+        }
         adapter
             .set_text(&handle, &input.content)
             .inspect_err(|_e| {
@@ -868,6 +886,67 @@ mod tests {
                 !file_path.exists(),
                 "file should not exist after fs::write failure"
             );
+        });
+    }
+
+    #[test]
+    fn set_text_rejected_when_window_not_in_allowed_apps() {
+        // Spec §2.6 line 305: "set_text 仅对窗口标题在白名单内的元素
+        // 生效(防伪造窗口)". When `find_window("Notepad")` returns
+        // Some(handle) but "notepad" is NOT in `kernel.allowed_apps()`,
+        // the executor must reject the set_text call, mark step Failed,
+        // and NOT call adapter.set_text. This catches forged windows
+        // whose title contains "Notepad" but which are not the real
+        // Notepad process.
+        with_temp_cwd(|temp| {
+            let kernel = TrustKernel::open_in_memory().unwrap();
+            // Whitelist only "explorer" — "notepad" is absent.
+            kernel.set_allowed_apps(vec!["explorer".to_string()]);
+
+            let approver = AutoApprover;
+            let mock = MockAdapter::new();
+            let state = mock.state_handle();
+            let adapter: &dyn UiaAdapter = &mock;
+
+            let save_path = format!("Documents/note-{}.txt", uuid::Uuid::new_v4());
+            let input = make_input(&save_path);
+            let result = execute_note_capture(&kernel, &input, &approver, adapter);
+
+            let err = result.unwrap_err();
+            assert!(
+                matches!(err, KernelError::Uia(ref m)
+                    if m == "set_text rejected: window title not in allowed_apps whitelist"),
+                "expected Uia whitelist rejection error, got {:?}",
+                err
+            );
+
+            // launch_app was called (whitelist check is after launch).
+            assert_eq!(state.borrow().launch_calls.len(), 1);
+            assert_eq!(state.borrow().launch_calls[0], "notepad");
+            // find_window was called and returned Some(handle).
+            assert_eq!(state.borrow().find_window_calls.len(), 1);
+            // set_text was NOT called (whitelist check rejected it).
+            assert!(
+                state.borrow().set_text_calls.is_empty(),
+                "set_text must not be called when window not in allowed_apps"
+            );
+
+            // Step is marked Failed.
+            let step = kernel.get_step("s1").unwrap().unwrap();
+            assert_eq!(step.status, StepStatus::Failed);
+
+            // No file written (whitelist rejection short-circuits before
+            // std::fs::write).
+            let file_path = temp.join(&save_path);
+            assert!(
+                !file_path.exists(),
+                "file should not exist after whitelist rejection"
+            );
+
+            // Approval was still recorded (PerStep — approval happens
+            // before the action branch).
+            let approvals = kernel.list_approvals_for_task("t1").unwrap();
+            assert_eq!(approvals.len(), 1);
         });
     }
 }
