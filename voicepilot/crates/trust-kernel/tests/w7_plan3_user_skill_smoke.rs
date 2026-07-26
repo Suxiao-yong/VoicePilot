@@ -135,3 +135,156 @@ fn user_skill_overrides_built_in_same_id() {
         other => panic!("expected Skill decision, got {:?}", other),
     }
 }
+
+// ---- W7 Plan 6 Task 3: route_with_llm strengthening ----
+
+/// W7 Plan 6 Task 3 Step 1: a user-custom Skill must appear in the
+/// candidate list sent to the LLM by `route_with_llm`. Proves this by
+/// mounting a wiremock that returns `matched_skill_id = "my.test"` —
+/// if the user manifest weren't registered, the LLM's response would
+/// fall through to Planner (skill id not found in `self.skills`).
+#[cfg(feature = "llm")]
+#[tokio::test]
+async fn user_skill_appears_as_llm_candidate_via_route_with_llm() {
+    use std::sync::Arc;
+    use trust_kernel::llm::client::LlmClient;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let dir = tmp_dir();
+    fs::write(dir.join("my-test.md"), build_md("my.test", "My Test Skill", "test")).unwrap();
+
+    let manifests = scan_user_skills(&dir);
+    assert_eq!(manifests.len(), 1, "expected exactly 1 valid manifest");
+    let user_manifest = manifests.into_iter().next().unwrap();
+    assert_eq!(user_manifest.id, "my.test");
+    assert_eq!(user_manifest.title, "My Test Skill");
+
+    // Mount wiremock returning the user skill id with high confidence.
+    // If the user manifest is in the candidate list, the router will
+    // find it by id and return RouteDecision::Skill.
+    let server = MockServer::start().await;
+    let arguments = serde_json::json!({
+        "matched_skill_id": "my.test",
+        "confidence": 0.9,
+        "slots": [],
+        "reasoning": "user wants to run my.test"
+    })
+    .to_string();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "route_skill",
+                        "arguments": arguments,
+                    }
+                }]
+            }
+        }]
+    });
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let llm = Arc::new(LlmClient::new(&server.uri(), "sk-test", "test-model"));
+    let mut router = SkillRouter::with_llm(llm);
+    router.register(user_manifest);
+
+    // Input "请执行操作" contains no substring "test" (the keyword) and
+    // no intent_example ("部署项目到生产环境") — falls through to LLM.
+    let decision = router.route_with_llm("请执行操作").await;
+    match decision {
+        RouteDecision::Skill(m) => {
+            assert_eq!(m.id, "my.test");
+            assert_eq!(m.title, "My Test Skill");
+        }
+        other => panic!("expected Skill decision, got {:?}", other),
+    }
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// W7 Plan 6 Task 3 Step 2: when a user manifest with the same id as a
+/// built-in is registered AFTER the built-in (override), and the LLM
+/// returns that shared id, the router must return the USER version
+/// (not the built-in). Proves the override also holds for the LLM
+/// fallback path, not just the keyword path covered by
+/// `user_skill_overrides_built_in_same_id`.
+#[cfg(feature = "llm")]
+#[tokio::test]
+async fn user_skill_overrides_built_in_when_llm_returns_same_id() {
+    use std::sync::Arc;
+    use trust_kernel::llm::client::LlmClient;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let dir = tmp_dir();
+    fs::write(
+        dir.join("files-organize.md"),
+        build_md("files.organize", "User Custom Organize", "整理"),
+    )
+    .unwrap();
+
+    let manifests = scan_user_skills(&dir);
+    assert_eq!(manifests.len(), 1, "expected exactly 1 valid manifest");
+    let user_manifest = manifests.into_iter().next().unwrap();
+    assert_eq!(user_manifest.id, "files.organize");
+    assert_eq!(user_manifest.title, "User Custom Organize");
+
+    // Mount wiremock returning the shared id with high confidence.
+    let server = MockServer::start().await;
+    let arguments = serde_json::json!({
+        "matched_skill_id": "files.organize",
+        "confidence": 0.9,
+        "slots": [],
+        "reasoning": "user wants to organize files"
+    })
+    .to_string();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "route_skill",
+                        "arguments": arguments,
+                    }
+                }]
+            }
+        }]
+    });
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let llm = Arc::new(LlmClient::new(&server.uri(), "sk-test", "test-model"));
+    let mut router = SkillRouter::with_llm(llm);
+    // Register built-in FIRST, then user version (same id, must override).
+    router.register(files_organize_manifest());
+    router.register(user_manifest);
+
+    // Input "perform the operation" contains no keyword from either the
+    // built-in (整理/归档/移动文件/下载目录) nor the user manifest (整理),
+    // and no intent_example substring — falls through to LLM.
+    let decision = router.route_with_llm("perform the operation").await;
+    match decision {
+        RouteDecision::Skill(m) => {
+            assert_eq!(m.id, "files.organize");
+            assert_eq!(
+                m.title, "User Custom Organize",
+                "user manifest must override built-in when LLM returns same id"
+            );
+        }
+        other => panic!("expected Skill decision, got {:?}", other),
+    }
+
+    fs::remove_dir_all(&dir).ok();
+}

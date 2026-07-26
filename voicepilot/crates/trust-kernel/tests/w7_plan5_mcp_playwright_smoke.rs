@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
 use trust_kernel::approval::approver::AutoApprover;
+use trust_kernel::error::KernelError;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::mcp::repo::McpServerRepo;
 use trust_kernel::repo::step_repo::StepStatus;
@@ -341,4 +342,76 @@ fn research_save_markdown_via_real_playwright_mcp() {
     let step = kernel.get_step("s1").unwrap().unwrap();
     assert_eq!(step.status, StepStatus::Succeeded);
     assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
+}
+
+// ---- Test D: MCP unavailable returns error and marks step Failed ----
+//
+// W7 Plan 6 Task 3 Step 4: when the playwright MCP server cannot be
+// spawned (e.g. command not on PATH), `execute_research_save` must
+// return `Err(KernelError::Mcp(_))` and the step must be marked
+// `Failed`. This mirrors the unit-level
+// `test_research_save_mcp_failure_marks_step_failed` in
+// `research_save.rs` but at the integration level.
+//
+// TODO(follow-up): map to `error_code = "mcp_playwright_unavailable"` in
+// the executor / SkillRouter. Current behavior returns `KernelError::Mcp(_)`
+// and marks the step `Failed`; the source doc comment in `research_save.rs`
+// already references this future mapping. Adding the mapping would change
+// executor behavior and is out of scope for Task 3 (test-only changes).
+
+#[test]
+fn mcp_unavailable_returns_error_and_marks_step_failed() {
+    if !python_available() {
+        eprintln!(
+            "skipping mcp_unavailable_returns_error_and_marks_step_failed: python not on PATH"
+        );
+        return;
+    }
+
+    let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = tempfile::tempdir().expect("tempdir");
+    let temp_root = temp.path().to_path_buf();
+    std::fs::create_dir_all(temp_root.join("Documents")).expect("create Documents dir");
+    let _cwd = CwdGuard::enter(&temp_root);
+
+    let kernel = TrustKernel::open_in_memory().expect("kernel must construct");
+    // Override playwright record with a guaranteed-to-fail command —
+    // spawn will fail with KernelError::Mcp(...), executor marks step
+    // Failed, no file written.
+    let mut rec = McpServerRepo::new()
+        .get(&kernel.conn(), "playwright")
+        .expect("playwright row must exist (kernel boot seeds it)")
+        .expect("playwright row must exist");
+    rec.command = Some("this-command-does-not-exist-12345".to_string());
+    rec.args = Some("[]".to_string());
+    McpServerRepo::new()
+        .update(&kernel.conn(), &rec)
+        .expect("update broken playwright record");
+
+    let approver = AutoApprover;
+    let input = ResearchSaveInput {
+        task_id: "t1".to_string(),
+        step_id: "s1".to_string(),
+        url: "https://example.com".to_string(),
+        save_path: "Documents/research-unavailable.md".to_string(),
+    };
+    let result = execute_research_save(&kernel, &input, &approver);
+
+    // MCP spawn failure maps to KernelError::Mcp.
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, KernelError::Mcp(_)),
+        "expected KernelError::Mcp, got {:?}",
+        err
+    );
+
+    // Step is Failed.
+    let step = kernel.get_step(&input.step_id).unwrap().unwrap();
+    assert_eq!(step.status, StepStatus::Failed);
+
+    // No file written (spawn failure short-circuits before fs::write).
+    assert!(
+        !temp_root.join(&input.save_path).exists(),
+        "no file should be written when MCP spawn fails"
+    );
 }
