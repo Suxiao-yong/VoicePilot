@@ -20,11 +20,14 @@ use crate::approval::types::{ApprovalRecord, ApprovalScope};
 use crate::compensation::types::{CompensationLevel, CompensationRecord, ConflictPolicy};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
+use crate::mcp::client::McpClient;
+use crate::mcp::repo::McpServerRepo;
 use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::StepStatus;
 use crate::skills::manifest::{SkillInput, SkillInputType, SkillManifest};
 use crate::tools::fs_paths::canonicalize;
+use crate::toolresult::{EvidenceStrength, ToolResult, ToolStatus};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -140,6 +143,95 @@ pub fn finalize_step_success(
     kernel.update_step_post_commit(step_id, evidence_strength, compensation_ref)?;
     kernel.update_step_status(step_id, StepStatus::Succeeded)?;
     Ok(())
+}
+
+// ===== MCP invocation =====
+
+/// Invoke a tool on an external MCP server (e.g. Playwright MCP).
+///
+/// Looks up the server record by `server_id` in the `mcp_servers` table,
+/// spawns the MCP subprocess via `McpClient::spawn`, performs the
+/// `initialize` handshake, and calls `tools/call` with the given tool name
+/// and arguments.
+///
+/// Returns `Ok(ToolResult { status: Succeeded, data: <parsed> })` on success.
+/// Returns `Err(KernelError::Mcp(...))` on any failure (server not found,
+/// server disabled, command missing, spawn failure, initialize failure,
+/// invoke failure). The Skill executor catches the error and constructs a
+/// `Failed` ToolResult with `error_code = "mcp_playwright_unavailable"`.
+///
+/// `idempotency_key` is generated as `mcp-{uuid}`. `started_at` / `finished_at`
+/// bracket the spawn+invoke lifecycle. `data` is the JSON returned by
+/// `McpClient::invoke_tool` (already parsed from `content[0].text`).
+pub fn invoke_mcp_tool(
+    kernel: &TrustKernel,
+    server_id: &str,
+    tool_name: &str,
+    args: serde_json::Value,
+) -> Result<ToolResult> {
+    let started_at = Utc::now();
+
+    // Look up the server config inside a block scope so the MutexGuard is
+    // dropped before we spawn the subprocess (avoids holding the DB lock
+    // across potentially slow MCP I/O).
+    let (command, args_vec, env_json) = {
+        let conn = kernel.conn();
+        let rec = McpServerRepo::new()
+            .get(&conn, server_id)?
+            .ok_or_else(|| {
+                KernelError::Mcp(format!(
+                    "MCP server '{server_id}' not found in mcp_servers table"
+                ))
+            })?;
+        if !rec.enabled {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{server_id}' is disabled"
+            )));
+        }
+        let command = rec.command.clone().ok_or_else(|| {
+            KernelError::Mcp(format!(
+                "MCP server '{server_id}' missing command field"
+            ))
+        })?;
+        let args_str = rec.args.clone().unwrap_or_else(|| "[]".to_string());
+        let args_vec: Vec<String> = serde_json::from_str(&args_str).map_err(|e| {
+            KernelError::Mcp(format!(
+                "MCP server '{server_id}' args parse error: {e}"
+            ))
+        })?;
+        let env_str = rec.env.clone().unwrap_or_else(|| "{}".to_string());
+        let env_json: serde_json::Value = serde_json::from_str(&env_str).map_err(|e| {
+            KernelError::Mcp(format!(
+                "MCP server '{server_id}' env parse error: {e}"
+            ))
+        })?;
+        (command, args_vec, env_json)
+    };
+
+    // Spawn the MCP subprocess, run the initialize handshake, and invoke
+    // the tool. All errors here are already KernelError::Mcp(...).
+    let mut client = McpClient::spawn(&command, &args_vec, &env_json)?;
+    client.initialize()?;
+    let result = client.invoke_tool(tool_name, args)?;
+
+    let finished_at = Utc::now();
+    let tool_result = ToolResult {
+        status: ToolStatus::Succeeded,
+        data: result,
+        evidence_strength: EvidenceStrength::Weak,
+        compensation_ref: None,
+        compensation_level: CompensationLevel::None,
+        preconditions_hash: None,
+        idempotency_key: format!("mcp-{}", uuid::Uuid::new_v4()),
+        egress_performed: false,
+        data_classification: DLevel::D2,
+        error_code: None,
+        retryable: false,
+        safe_to_retry: false,
+        started_at,
+        finished_at,
+    };
+    Ok(tool_result)
 }
 
 // ===== Input validation =====
@@ -275,6 +367,7 @@ mod tests {
     use crate::approval::approver::{AutoApprover, AutoDenier};
     use crate::approval::types::ApprovalDecision;
     use crate::kernel::TrustKernel;
+    use crate::mcp::repo::McpServerRecord;
     use crate::policy::transaction::EffectManifest;
     use crate::policy::types::{DLevel, ELevel};
     use crate::repo::step_repo::{StepRecord, StepStatus};
@@ -780,5 +873,193 @@ mod tests {
         // Approval still recorded.
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
         assert_eq!(approvals.len(), 1);
+    }
+
+    // ===== invoke_mcp_tool tests (W7 Plan 5 Task 3) =====
+
+    #[test]
+    fn invoke_mcp_tool_server_not_found_returns_err() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let result =
+            invoke_mcp_tool(&kernel, "nonexistent-server", "echo", serde_json::json!({}));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found"),
+            "error should mention 'not found', got: {err}"
+        );
+    }
+
+    #[test]
+    fn invoke_mcp_tool_disabled_server_returns_err() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = McpServerRecord {
+            server_id: "disabled-server".to_string(),
+            name: "Disabled".to_string(),
+            version: "1.0.0".to_string(),
+            transport: "stdio".to_string(),
+            enabled: false,
+            trusted: false,
+            protocol_version: None,
+            allowed_origins: None,
+            allowed_paths: None,
+            command: Some("python".to_string()),
+            args: Some("[]".to_string()),
+            env: Some("{}".to_string()),
+        };
+        McpServerRepo::new()
+            .create(&kernel.conn(), &rec)
+            .expect("insert must succeed");
+        let result =
+            invoke_mcp_tool(&kernel, "disabled-server", "echo", serde_json::json!({}));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("disabled"),
+            "error should mention 'disabled', got: {err}"
+        );
+    }
+
+    #[test]
+    fn invoke_mcp_tool_missing_command_returns_err() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = McpServerRecord {
+            server_id: "no-cmd-server".to_string(),
+            name: "NoCmd".to_string(),
+            version: "1.0.0".to_string(),
+            transport: "stdio".to_string(),
+            enabled: true,
+            trusted: false,
+            protocol_version: None,
+            allowed_origins: None,
+            allowed_paths: None,
+            command: None,
+            args: Some("[]".to_string()),
+            env: Some("{}".to_string()),
+        };
+        McpServerRepo::new()
+            .create(&kernel.conn(), &rec)
+            .expect("insert must succeed");
+        let result =
+            invoke_mcp_tool(&kernel, "no-cmd-server", "echo", serde_json::json!({}));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("missing command"),
+            "error should mention 'missing command', got: {err}"
+        );
+    }
+
+    #[test]
+    fn invoke_mcp_tool_success_via_python_mock() {
+        // Probe Python availability. Skip (pass) if absent — not fail.
+        let python_probe = std::process::Command::new("python").arg("--version").output();
+        let python_available = match python_probe {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        };
+        if !python_available {
+            eprintln!("skipping invoke_mcp_tool_success_via_python_mock: python not on PATH");
+            return;
+        }
+
+        // Mock MCP server: for tools/call with name="echo", echoes back
+        // arguments.msg as {"echo": <msg>}. This verifies args round-trip
+        // through McpServerRecord.args JSON encoding → invoke_mcp_tool
+        // decode → McpClient::spawn → MCP server → response payload.
+        let mock_script = r#"
+import sys, json
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        emit({
+            "jsonrpc": "2.0",
+            "id": msg.get("id"),
+            "result": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "serverInfo": {"name": "mock", "version": "0.1.0"}
+            }
+        })
+    elif msg.get("method") == "notifications/initialized":
+        pass
+    elif msg.get("method") == "tools/call":
+        name = msg.get("params", {}).get("name")
+        args = msg.get("params", {}).get("arguments", {})
+        if name == "echo":
+            text_payload = json.dumps({"echo": args.get("msg")})
+            emit({
+                "jsonrpc": "2.0",
+                "id": msg.get("id"),
+                "result": {
+                    "content": [{"type": "text", "text": text_payload}],
+                    "isError": False
+                }
+            })
+        else:
+            emit({
+                "jsonrpc": "2.0",
+                "id": msg.get("id"),
+                "error": {"code": -32601, "message": f"unknown tool {name}"}
+            })
+    else:
+        emit({
+            "jsonrpc": "2.0",
+            "id": msg.get("id"),
+            "error": {"code": -32601, "message": "method not found"}
+        })
+"#;
+
+        // Build args JSON via serde_json so the embedded script's double
+        // quotes are properly escaped in the JSON string column.
+        let args_json = serde_json::json!(["-c", mock_script]).to_string();
+
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = McpServerRecord {
+            server_id: "mock-python".to_string(),
+            name: "Mock Python".to_string(),
+            version: "1.0.0".to_string(),
+            transport: "stdio".to_string(),
+            enabled: true,
+            trusted: false,
+            protocol_version: Some("2025-11-25".to_string()),
+            allowed_origins: None,
+            allowed_paths: None,
+            command: Some("python".to_string()),
+            args: Some(args_json),
+            env: Some("{}".to_string()),
+        };
+        McpServerRepo::new()
+            .create(&kernel.conn(), &rec)
+            .expect("insert must succeed");
+
+        let result = invoke_mcp_tool(
+            &kernel,
+            "mock-python",
+            "echo",
+            serde_json::json!({"msg": "hello"}),
+        )
+        .expect("invoke_mcp_tool must succeed");
+
+        assert_eq!(result.status, ToolStatus::Succeeded);
+        // The mock echoes arguments.msg back as {"echo": <msg>}. This
+        // assertion is the load-bearing check that args were propagated.
+        assert_eq!(result.data, serde_json::json!({"echo": "hello"}));
+        assert!(
+            result.idempotency_key.starts_with("mcp-"),
+            "idempotency_key must start with 'mcp-', got: {}",
+            result.idempotency_key
+        );
+        assert!(result.error_code.is_none());
+        assert!(result.started_at <= result.finished_at);
     }
 }
