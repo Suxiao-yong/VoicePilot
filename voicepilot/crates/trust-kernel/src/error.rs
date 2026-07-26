@@ -41,6 +41,9 @@ pub enum KernelError {
     Mcp(String),
     #[error("path not allowed: {0}")]
     PathNotAllowed(String),
+    /// W7 Plan 4: Windows UIA automation error (wraps `uiautomation::Error`).
+    #[error("uia error: {0}")]
+    Uia(String),
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;

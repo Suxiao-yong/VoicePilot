@@ -23,3 +23,10 @@ pub mod llm;
 
 #[cfg(feature = "voice")]
 pub mod voice;
+
+// W7 Plan 4 Task 2: Windows UIA adapter — opt-in via `uia` feature, Windows-only.
+// `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`) so
+// that enabling `--all-features` on Linux/macOS doesn't try to compile the
+// `uiautomation` crate (which is Windows-only). See Task 1 reviewer note.
+#[cfg(all(windows, feature = "uia"))]
+pub mod uiautomation;
