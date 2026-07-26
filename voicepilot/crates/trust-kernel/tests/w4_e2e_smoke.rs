@@ -99,12 +99,10 @@ fn end_to_end_allowed_paths_enforced_after_replace() {
     let allowed = AllowedPaths::new(vec!["C:/Users".to_string()]);
     kernel.replace_filesystem_with_allowed_paths(allowed);
 
-    // Path outside whitelist must be rejected. Use a path that's clearly
-    // outside C:/Users on all platforms. On Windows, C:/Windows is outside
-    // C:/Users (but may require admin to read). On Unix, /etc is outside
-    // any C:/Users. The assertion is that search_files returns Err —
-    // either from allowed_paths rejection or from missing path, both
-    // demonstrate that the whitelist is in effect (the default tool would
+    // Path outside whitelist must be rejected. We use `E:/definitely_nonexistent`,
+    // which is clearly outside C:/Users. The assertion is that search_files
+    // returns Err — either from allowed_paths rejection or from missing path,
+    // both demonstrate that the whitelist is in effect (the default tool would
     // also return Err for a missing path, but for a DIFFERENT reason).
     // To make the test meaningful, verify the error is specifically
     // PathNotAllowed, not "search root missing".

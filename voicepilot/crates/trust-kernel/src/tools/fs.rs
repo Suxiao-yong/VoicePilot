@@ -275,7 +275,7 @@ impl FilesystemTool {
     /// Walk `root` recursively, return all files whose name matches `pattern`.
     ///
     /// Pattern is a simple glob: `*` matches any chars, `?` matches one char.
-    /// Case-insensitive on Windows, case-sensitive on Unix (matches filesystem behavior).
+    /// Case-insensitive on Windows (matches NTFS filesystem behavior).
     /// Returns paths in walkdir's natural order (depth-first, directory then contents).
     pub fn search_files(&self, root: &Path, pattern: &str) -> Result<Vec<std::path::PathBuf>> {
         if let Some(allowed) = &self.allowed_paths {

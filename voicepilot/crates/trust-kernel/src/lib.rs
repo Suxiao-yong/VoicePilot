@@ -24,9 +24,10 @@ pub mod llm;
 #[cfg(feature = "voice")]
 pub mod voice;
 
-// W7 Plan 4 Task 2: Windows UIA adapter — opt-in via `uia` feature, Windows-only.
-// `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`) so
-// that enabling `--all-features` on Linux/macOS doesn't try to compile the
-// `uiautomation` crate (which is Windows-only). See Task 1 reviewer note.
+// W7 Plan 4 Task 2: Windows UIA adapter — opt-in via `uia` feature.
+// Project is Windows-only (user decision 2026-07-26); the `all(windows, ...)`
+// gate is retained as a compile-time guard so a stray `--features uia` on a
+// non-Windows target fails fast instead of trying to compile the
+// `uiautomation` crate.
 #[cfg(all(windows, feature = "uia"))]
 pub mod uiautomation;

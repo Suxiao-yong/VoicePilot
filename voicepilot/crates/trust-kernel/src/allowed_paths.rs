@@ -4,15 +4,9 @@
 //! checks prefix match against any allowed root. Backward slashes are
 //! normalized so Windows paths match regardless of separator.
 //!
-//! # Known limitation (Unix)
-//!
-//! `fs_paths::canonicalize` strips the leading `/` from absolute Unix paths
-//! (e.g., `/foo` becomes `foo`). This means a root of `/foo` would
-//! spuriously match `/foobar/baz` on Unix because `foobar/baz` starts with
-//! `foo/`. On Windows, the drive prefix (`c:`) preserves absoluteness, so
-//! the bug does not manifest. This is tracked as spec issue #36 for V1.1.2
-//! and should be fixed in `fs_paths::canonicalize` directly. For W3b PoC on
-//! Windows, the whitelist is correct.
+//! Project is Windows-only (user decision 2026-07-26); the Windows drive
+//! prefix (`c:`) preserved by `fs_paths::canonicalize` keeps absoluteness,
+//! so the whitelist is correct on Windows.
 
 use crate::error::{KernelError, Result};
 use crate::tools::fs_paths::canonicalize;

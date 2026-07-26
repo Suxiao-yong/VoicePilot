@@ -31,7 +31,7 @@ pub struct ModelRegistry {
 }
 
 impl ModelRegistry {
-    /// Use the user's home directory from $HOME (Unix) or %USERPROFILE% (Windows).
+    /// Use the user's home directory from %USERPROFILE% (Windows-only).
     pub fn new() -> Self {
         let home_dir = dirs_or_fallback();
         Self { home_dir }

@@ -117,7 +117,7 @@
 
 - [ ] **Step 1:** 更新 W7 章节:8 项工作全部完成
 - [ ] **Step 2:** 加测试统计:总数 + 按 crate 分布
-- [ ] **Step 3:** 加已知偏离(参照 spec §8):本地 LLM / Skill 编排 / macOS UIA / Node 打包等延后项
+- [ ] **Step 3:** 加已知偏离(参照 spec §8):Skill 编排 / Node 打包等延后项;本地 LLM + macOS UIA 标记为"永久放弃"(用户决策 2026-07-26:Windows-only + 云端 LLM only)
 - [ ] **Step 4:** 加 commit hash 列表(Plan 1-6 各自的 head commit)
 - [ ] **Step 5:** commit `docs(w7p6): update PROGRESS.md with W7 completion + test stats + deferrals`
 

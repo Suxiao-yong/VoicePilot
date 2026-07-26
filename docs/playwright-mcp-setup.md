@@ -21,20 +21,7 @@ node --version  # 应输出 v18.x.x 或更高
 # 或直接下载 LTS 安装包:https://nodejs.org/dist/latest-v18.x/
 ```
 
-**macOS(推荐 Homebrew):**
-
-```bash
-brew install node@18
-node --version
-```
-
-**Linux(推荐 NodeSource):**
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node --version
-```
+> VoicePilot 永久 Windows-only(用户决策 2026-07-26),不提供 macOS / Linux 安装说明。
 
 ### 1.2 网络访问
 

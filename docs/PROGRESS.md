@@ -1046,10 +1046,10 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 
 **已知偏离 / 延后项:**
 - **P2 #5 CSP nonce 跳过(用户选择 A):** Tauri 2 CSP nonce 自动注入仅对 `index.html` 静态 `<style>` / `<script>` 标签生效,不对 React 运行时 `style={{...}}` prop 有效;当前 MainView 等组件大量使用 inline style prop,移除 `'unsafe-inline'` 会导致 UI 渲染失败;W7+ 评估"移除所有 React inline style prop"重构后再启用 nonce
-- **macOS / Linux 打包延后 W7+:** 仍只 Windows NSIS(用户明确 Windows-only)
+- **macOS / Linux 打包永久放弃:** 仍只 Windows NSIS(用户决策 2026-07-26:Windows-only)
 - **trust-kernel voice feature link.exe 内存失败:** 环境限制未变(W6b-3b 已记录),voice 单测在 ui crate 中通过
 
-**下一步:** W7(LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 / Tauri macOS+Linux 打包 三选一)
+**下一步:** W7(LLM Planner 预研 + 8 Skills 完整实现 / Stronghold 加密预研 二选一;macOS+Linux 打包已永久放弃)
 
 ---
 
@@ -1332,7 +1332,7 @@ voicepilot/crates/trust-kernel/tests/
 | `294dc1a` | fix(w7p4): gate UiaElementHandle::mock() behind cfg(any(test, feature=uia)) (follow-up #6) |
 
 **核心架构决策:**
-- **`UiaAdapter` trait 抽象:** 用 trait 对象隔离 UIA 实现细节,允许 `MockAdapter` 用于单元测试 + 未来 alternative adapter(macOS Accessibility API / Linux AT-SPI)。trait 是 `!Send` / `!Sync`(COM apartment 限制,文档化)
+- **`UiaAdapter` trait 抽象:** 用 trait 对象隔离 UIA 实现细节,允许 `MockAdapter` 用于单元测试。trait 是 `!Send` / `!Sync`(COM apartment 限制,文档化)。项目永久 Windows-only(用户决策 2026-07-26),不提供 macOS AXUIElement / Linux AT-SPI 适配
 - **`uia` feature 默认关闭 + Windows-only:** `cfg(all(windows, feature = "uia"))` 双重门控;非 Windows 平台即使开启 `uia` feature 也不编译 UIA 代码;默认构建无 `uiautomation-rs` 依赖
 - **`allowed_apps` 三层语义:** (1) Settings UI 编辑 → KV 持久化;(2) boot-time 从 KV 加载到 `TrustKernel.allowed_apps`;(3) executor 在 launch / set_text 前咨询 + 决定是否 skip approval。三层均被独立测试覆盖
 - **`set_text` 白名单边界(spec §2.6 第 305 行):** `note_capture` 在 `find_window` 返回 `Some(window)` 后、`set_text` 前断言 `kernel.allowed_apps().contains("notepad")`,不通过则 `StepStatus::Failed` + `KernelError::Uia`,防伪造窗口攻击(攻击者用同名非白名单进程截获文本)
@@ -1568,10 +1568,12 @@ voicepilot/crates/ui/
 
 **已知偏离 / 延后项(参照 spec §8):**
 
-- **本地 LLM 路径不实现:** W7 选云端 OpenAI 兼容 API,本地 LLM(ollama / llama.cpp)延后 W8+(性能 < 2s 端到端门槛不可达)
+> **用户决策(2026-07-26):** 项目永久 Windows-only + 永久只用云端 LLM(OpenAI 兼容 API)。下列"延后 W8+"措辞中,涉及"本地 LLM"和"macOS/Linux"的项均改为"永久放弃";其余项保留为延后。
+
+- **本地 LLM 路径永久放弃:** W7 选云端 OpenAI 兼容 API,本地 LLM(ollama / llama.cpp)永久不实现(用户决策 2026-07-26:只用云端 LLM)
 - **Skill 之间不组合:** W7 LLM Planner 仅做单 Skill 路由,Skill 编排(如 `note.capture` + `files.move` 两步链)延后 W8+(需 DAG 调度器)
 - **`task.explain` 不接 LLM:** 当前仅展示 audit log + 步骤状态,不让 LLM 解释失败原因(避免幻觉),延后 W8+
-- **macOS / Linux UIA:** `uiautomation-rs` 仅支持 Windows,macOS AXUIElement / Linux AT-SPI 延后 W8+
+- **macOS / Linux UIA 永久放弃:** `uiautomation-rs` 仅支持 Windows,项目永久 Windows-only(用户决策 2026-07-26),macOS AXUIElement / Linux AT-SPI 不实现
 - **Playwright MCP Node 依赖:** 不打包 Node.js,用户首次使用时弹提示(`docs/playwright-mcp-setup.md`),打包内置 Node runtime 延后 W8+
 - **用户自定义 Skill 的 inputs 运行时校验:** W7 仅做 `serde_yaml` 反序列化校验,`allowed_roots` / `allowed_values` 运行时校验延后 W8
 - **LLM 调用计费 / 速率限制:** W7 不实现 token 计数 / 速率限制(用户在 LLM provider 侧管理),延后 W8+
@@ -1692,31 +1694,29 @@ W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
 
 **W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
 
-**W8 候选方向(三选一,等用户决策):**
+**用户决策(2026-07-26)项目永久约束:**
+- **Windows-only:** 永久不支持 macOS / Linux(已删除 `fs_snapshot.rs` unix fallback,非 Windows 平台无法编译)
+- **云端 LLM only:** 永久不实现本地 LLM(ollama / llama.cpp / ort 等),只用 OpenAI 兼容 API
+
+**W8 候选方向(二选一,等用户决策):**
 
 1. **Stronghold 加密 + Taint Tracking(§7.2 snapshot_encrypted W8 准备)**
    - `snapshot_encrypted` 从明文 JSON 升级为 stronghold 加密
    - Taint Tracking 污点传播(用户输入 → Skill 输出 → 文件系统)
    - 关键依赖:stronghold-rs 集成、密钥管理策略
-   - W7 spec §8 已列延后项(`task.explain` 接 LLM / Skill 编排 / 本地 LLM 路径)可同步评估纳入 W8
+   - W7 spec §8 已列延后项(`task.explain` 接 LLM / Skill 编排)可同步评估纳入 W8
 
 2. **Skill 编排 + DAG 调度器(W7 spec §8 延后项)**
    - 当前 LLM Planner 仅做单 Skill 路由,W8 引入 Skill 编排(如"打开记事本写 TODO 然后保存到桌面" 拆分为 `note.capture` + `files.move` 两步)
    - 关键依赖:DAG 调度器 + Slot 流水(前一步输出 → 后一步输入)+ 事务边界
    - `form.prepare` submit 点击 / `playwright.click` 链路补全
 
-3. **Tauri macOS + Linux 打包(§11.1 跨平台)**
-   - 当前仅 Windows NSIS bundle,sherpa-rs 在 macOS/Linux 上预编译库可用
-   - 需 CI runner(macOS arm64 + Linux x64)+ 代码签名
-   - 跨平台路径处理(`fs_paths::canonicalize` 已实现 POSIX/Windows 统一)
-   - macOS AXUIElement / Linux AT-SPI 适配器(W7 spec §8 延后项)
-
 **W8 不在范围(留到 W9+):**
 - 真实 Silero VAD(目前 W6b-1 用能量阈值 VAD)
 - LLM 调用计费 / 速率限制(用户在 LLM provider 侧管理)
 - Skill 版本升级 / 回滚(W7 仅 `version` 字段记录)
 
-**W7 已知偏离 / 延后项汇总(详见 §二 W7 Plan 6 段落 "已知偏离 / 延后项"):** 本地 LLM / Skill 编排 / `task.explain` LLM 解释 / macOS+Linux UIA / Playwright MCP Node 打包 / 用户 Skill inputs 运行时校验 / LLM 计费速率限制 / Skill 版本管理 / D3+E3 红色高亮 / 真实 Playwright + GUI 测试手动运行 / `form.prepare` 不点击 submit / MCP spawn 错误码细化 / `playwright.eval` 脚本硬编码 — 共 13 项,全部记录在 spec §8 + 本文件 W7 Plan 6 段落。
+**W7 已知偏离 / 延后项汇总(详见 §二 W7 Plan 6 段落 "已知偏离 / 延后项"):** Skill 编排 / `task.explain` LLM 解释 / Playwright MCP Node 打包 / 用户 Skill inputs 运行时校验 / LLM 计费速率限制 / Skill 版本管理 / D3+E3 红色高亮 / 真实 Playwright + GUI 测试手动运行 / `form.prepare` 不点击 submit / MCP spawn 错误码细化 / `playwright.eval` 脚本硬编码 — 共 11 项延后;另 2 项(本地 LLM / macOS+Linux UIA)已永久放弃。全部记录在 spec §8 + 本文件 W7 Plan 6 段落。
 
 ### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
@@ -1796,10 +1796,11 @@ cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed +
 
 W6 系列全部完成并验证通过(最新 commit `4f9e200`,W6c Fast-Follow P1/P2 修复)。**`cargo test --workspace --no-default-features` + `cargo test -p voicepilot-ui --features tauri` 全部通过(2026-07-25)**。详见 §二 W6c Fast-Follow 段落。
 
-**Step 1: 与用户决策 W7 方向(三选一,见 §4.1):**
+**Step 1: 与用户决策 W7 方向(二选一,见 §4.1):**
 - LLM Planner 预研 + 8 Skills 完整实现
 - Stronghold 加密预研(W8 准备)
-- Tauri macOS + Linux 打包
+
+> Tauri macOS + Linux 打包已永久放弃(用户决策 2026-07-26:Windows-only)。
 
 **Step 2: W7 计划编写:**
 
@@ -1812,7 +1813,7 @@ d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w7-<chosen-direction>.md
 **W7 计划应包含的 TDD 任务(根据用户决策方向调整):**
 
 LLM Planner 方向示例(12-16 个):
-1. LLM 模型加载(本地推理,llama.cpp / ort)
+1. 云端 LLM 客户端(OpenAI 兼容 API,本地 LLM 永久放弃 — 用户决策 2026-07-26)
 2. Skill Router LLM fallback(关键词 miss 时调用 LLM)
 3. 8 Skills struct literal → YAML 文件 + serde_yaml
 4. LLM Planner 参数填充(从 transcription → Skill 调用)

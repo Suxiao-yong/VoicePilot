@@ -2,7 +2,7 @@
 //!
 //! Captures the four-field snapshot used in `EffectManifest`:
 //!   - canonical_path: via fs_paths::canonicalize()
-//!   - file_id: OS-level file identity (Win: volume+index, Unix: inode)
+//!   - file_id: OS-level file identity (Win: volume+index, via GetFileInformationByHandle)
 //!   - size: file length in bytes
 //!   - last_write_time: RFC3339 string
 //!   - sha256: hex digest prefixed with "sha256:"
@@ -136,17 +136,6 @@ fn file_identity(path: &Path, _meta: &fs::Metadata) -> Result<String> {
         "win:{}:{}:{}",
         info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow
     ))
-}
-
-#[cfg(unix)]
-fn file_identity(_path: &Path, meta: &fs::Metadata) -> Result<String> {
-    use std::os::unix::fs::MetadataExt;
-    Ok(format!("unix:{}:{}", meta.dev(), meta.ino()))
-}
-
-#[cfg(not(any(windows, unix)))]
-fn file_identity(_path: &Path, _meta: &fs::Metadata) -> Result<String> {
-    Ok("unknown:0".to_string())
 }
 
 // Suppress unused-import warning for SqlValue on non-windows; we keep it for future use.

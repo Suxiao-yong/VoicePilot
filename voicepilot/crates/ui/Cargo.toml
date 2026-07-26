@@ -45,11 +45,12 @@ llm = ["trust-kernel/llm"]
 # 调用 UIA 适配器;启用此 feature 才能在 Windows 上真正驱动应用。
 uia = ["trust-kernel/uia"]
 # Tauri UI shell only — no voice subsystem dependency.
-# This decouples W6a UI work from the W5 voice environment (whisper-rs bindgen
-# issue #49), allowing the desktop shell to compile and run on systems where
-# voice is unavailable. Voice commands in the UI are gated with #[cfg(feature = "voice")].
+# This decouples W6a UI work from the voice subsystem (sherpa-rs, W6b-3b 迁移后
+# 用 download-binaries feature 走预编译库,无需 CMake/bindgen),allowing the
+# desktop shell to compile and run on systems where voice is unavailable.
+# Voice commands in the UI are gated with #[cfg(feature = "voice")].
 tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "dep:tracing-subscriber", "dep:tauri-plugin-dialog"]
-# Opt-in voice subsystem (requires whisper-rs build environment).
+# Opt-in voice subsystem (sherpa-rs with download-binaries feature,无需 CMake/bindgen)。
 # Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
 voice = ["tauri", "trust-kernel/voice", "llm"]
 

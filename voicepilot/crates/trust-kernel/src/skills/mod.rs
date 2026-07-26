@@ -16,8 +16,8 @@ pub mod user_loader;
 // `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`)
 // for the same reason as `crate::uiautomation` (see lib.rs): the file
 // `use`s `crate::uiautomation::UiaAdapter`, which only exists on Windows
-// with the `uia` feature. Enabling `--features uia` on Linux/macOS must
-// not try to compile this module.
+// with the `uia` feature. Project is Windows-only (user decision 2026-07-26);
+// the `all(windows, ...)` gate is retained as a compile-time guard.
 #[cfg(all(windows, feature = "uia"))]
 pub mod app_control;
 

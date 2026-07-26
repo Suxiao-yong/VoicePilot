@@ -33,10 +33,12 @@ fn repo_create_and_get_round_trips() {
 fn repo_list_returns_all_rows() {
     let k = TrustKernel::open_in_memory().unwrap();
     let repo = McpServerRepo::new();
+    // boot() already inserted the `playwright` default row (W7 Plan 5 Task 2),
+    // so the table starts with 1 row; we add 2 more and expect 3 total.
     repo.create(&k.conn(), &sample("s1")).unwrap();
     repo.create(&k.conn(), &sample("s2")).unwrap();
     let list = repo.list(&k.conn()).unwrap();
-    assert_eq!(list.len(), 2);
+    assert_eq!(list.len(), 3);
 }
 
 #[test]
@@ -207,9 +209,10 @@ fn repo_seed_builtin_is_idempotent() {
 fn repo_insert_default_servers_creates_playwright_row() {
     let k = TrustKernel::open_in_memory().unwrap();
     let repo = McpServerRepo::new();
-    // Confirm row does not exist yet.
-    assert!(repo.get(&k.conn(), "playwright").unwrap().is_none());
-    // Insert defaults.
+    // boot() already inserted the `playwright` default row (W7 Plan 5 Task 2),
+    // so the row exists before we call insert_default_servers again here.
+    // This test verifies the row's fields match the spec §2.7 spawn contract;
+    // idempotency (re-insert does not overwrite) is covered by the next test.
     repo.insert_default_servers(&k.conn()).unwrap();
     let rec = repo.get(&k.conn(), "playwright")
         .unwrap()

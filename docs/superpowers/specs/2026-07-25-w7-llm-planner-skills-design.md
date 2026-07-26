@@ -500,11 +500,13 @@ pub struct SettingsDto {
 
 ## 8. 已知偏离 / 延后项
 
-- **本地 LLM 路径不实现:** V1.1 §5.4 提及"LLM Planner",但未规定本地 vs 云端。W7 选云端 OpenAI 兼容 API(用户决策),本地 LLM(ollama / llama.cpp)延后 W8+(性能 < 2s 端到端门槛在当前硬件下不可达)。
+> **用户决策(2026-07-26)项目永久约束:** Windows-only + 云端 LLM only。下列"延后 W8+"措辞中,涉及"本地 LLM"和"macOS/Linux"的项均改为"永久放弃";其余项保留为延后。
+
+- **本地 LLM 路径永久放弃:** V1.1 §5.4 提及"LLM Planner",但未规定本地 vs 云端。W7 选云端 OpenAI 兼容 API,本地 LLM(ollama / llama.cpp)永久不实现(用户决策 2026-07-26:只用云端 LLM)。
 - **Skill 之间不组合:** W7 LLM Planner 仅做单 Skill 路由,不做 Skill 编排(如"打开记事本写 TODO 然后保存到桌面" 拆分为 `note.capture` + `files.move` 两步)。Skill 编排延后 W8+(需 DAG 调度器)。
 - **LLM 不直接驱动文件操作:** LLM 仅做路由 + Slot 提取,Skill 执行仍走 prepare→approve→commit 强约束。LLM 不可绕过审批。
 - **`task.explain` 不接 LLM:** 当前 `task.explain` 仅展示 audit log + 步骤状态,不让 LLM 解释"为什么这一步失败"(避免 LLM 幻觉)。延后 W8+ 接 LLM 解释。
-- **macOS / Linux UIA:** `uiautomation-rs` 仅支持 Windows。macOS 用 AXUIElement / Linux 用 AT-SPI 延后 W8+。
+- **macOS / Linux UIA 永久放弃:** `uiautomation-rs` 仅支持 Windows,项目永久 Windows-only(用户决策 2026-07-26),macOS AXUIElement / Linux AT-SPI 不实现。
 - **Playwright MCP Node 依赖:** 不打包 Node.js,用户首次使用时弹提示。延后 W8+ 探讨打包内置 Node runtime。
 - **用户自定义 Skill 的 inputs 校验:** W7 仅做 `serde_yaml` 反序列化校验,不做 `allowed_roots` / `allowed_values` 的运行时校验(W6b-2 已有 schema,运行时校验延后 W8)。
 - **LLM 调用计费 / 速率限制:** W7 不实现 token 计数 / 速率限制(用户在 LLM provider 侧管理)。延后 W8+ 探讨本地速率限制。
