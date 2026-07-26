@@ -23,12 +23,13 @@
 //! is NO LONGER enforced by the manifest's `app_name` `allowed_values`
 //! (the input is now free-form Text). The runtime whitelist lives in
 //! `kernel.allowed_apps()` (Settings-persisted in KV "uia.allowed_apps").
-//! Per Plan 4 §2.6, PerStep approval is mandatory for ALL launches
-//! regardless of whitelist membership — the approval gate is the
-//! security boundary, never skipped. The whitelist is advisory: it
-//! tells the user "these apps are pre-approved" but does not change
-//! the approval flow. A future enhancement could skip approval for
-//! in-whitelist apps (out of scope for Plan 4 Task 5).
+//! W7 Plan 4 final review (must-fix #2): per spec §2.6 line 304
+//! "超出白名单需 PerStep approval", the executor consults the whitelist
+//! for `Action::Launch` — in-whitelist launches SKIP approval (advisory
+//! whitelist); out-of-whitelist launches require PerStep approval.
+//! `Action::Focus` and `Action::Close` always require approval regardless
+//! of whitelist membership (they drive UIA into an existing window,
+//! which the whitelist does not cover).
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
@@ -129,10 +130,16 @@ pub fn execute_app_control(
     // Step 5: update step → Running.
     kernel.update_step_status(&input.step_id, StepStatus::Running)?;
 
-    // Step 6: record approval decision (E2 + PerStep). The approver sees
-    // the effect_manifest describing what will happen. The
-    // preconditions_hash binds this approval to the exact {action, app_name}
-    // pair so post-hoc audit can verify what the user actually approved.
+    // Step 6: record approval decision (E2 + PerStep) — UNLESS the launch
+    // target is in the kernel's `allowed_apps` whitelist. Spec §2.6 line
+    // 304: "超出白名单需 PerStep approval" — apps outside the whitelist
+    // require PerStep approval; in-whitelist launches are pre-approved
+    // and skip the approval gate. Focus and Close always require approval
+    // (they drive UIA into an existing window, which the whitelist does
+    // not cover). The approver sees the effect_manifest describing what
+    // will happen; the preconditions_hash binds this approval to the
+    // exact {action, app_name} pair so post-hoc audit can verify what
+    // the user actually approved.
     let preconditions_hash = {
         let mut hasher = Sha256::new();
         hasher.update(input.action.as_bytes());
@@ -149,21 +156,37 @@ pub fn execute_app_control(
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
     };
-    let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
+    let skip_approval = input.action == "launch"
+        && kernel.allowed_apps().iter().any(|a| a == &input.app_name);
+    let approval = if skip_approval {
+        // App is in the whitelist — approval skipped (advisory whitelist,
+        // per spec §2.6 line 304). No approval record is persisted.
+        tracing::info!(
+            target = "skills.app_control",
+            app = %input.app_name,
+            "app in whitelist, approval skipped"
+        );
+        None
+    } else {
+        Some(record_approval_decision(kernel, approver, &effect_manifest, &ctx)?)
+    };
 
     // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    match approval.user_decision {
-        ApprovalDecision::Deny => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill("user denied app_control".to_string()));
+    // Only consulted when approval was required (skip_approval == false).
+    if let Some(approval) = &approval {
+        match approval.user_decision {
+            ApprovalDecision::Deny => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill("user denied app_control".to_string()));
+            }
+            ApprovalDecision::Modify => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill(
+                    "modify not supported for app_control".to_string(),
+                ));
+            }
+            ApprovalDecision::Allow => { /* proceed to commit */ }
         }
-        ApprovalDecision::Modify => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill(
-                "modify not supported for app_control".to_string(),
-            ));
-        }
-        ApprovalDecision::Allow => { /* proceed to commit */ }
     }
 
     // Step 7: branch on action.
@@ -171,12 +194,10 @@ pub fn execute_app_control(
     // Plan 4 §2.6 specifies an `allowed_apps` whitelist
     // (`["notepad", "explorer", "calc"]` by default; Task 5 makes it
     // Settings-configurable via `kernel.set_allowed_apps()`). The
-    // whitelist is ADVISORY — PerStep approval above is mandatory for
-    // ALL launches regardless of whitelist membership, so no separate
-    // whitelist branch is needed here. (Task 5 review fix: manifest
-    // `app_name` is now free-form Text; the whitelist lives in
-    // `kernel.allowed_apps()` and is checked nowhere in the executor —
-    // a future enhancement could skip approval for in-whitelist apps.)
+    // whitelist is consulted in Step 6 above for `Action::Launch` —
+    // in-whitelist launches skip approval; out-of-whitelist launches
+    // require PerStep approval. `Action::Focus` and `Action::Close`
+    // always require approval regardless of whitelist membership.
     match input.action.as_str() {
         "launch" => {
             adapter
@@ -363,11 +384,14 @@ mod tests {
 
     #[test]
     fn test_app_control_launch_action_with_mock_adapter() {
-        // launch action: PerStep approval (Allow) → adapter.launch_app.
-        // Verify launch_app is called once with "notepad", step is
-        // Succeeded with weak evidence, and an approval record is
-        // persisted.
+        // launch action with app OUTSIDE the whitelist: PerStep approval
+        // (Allow) → adapter.launch_app. Verify launch_app is called once
+        // with "notepad", step is Succeeded with weak evidence, and an
+        // approval record is persisted. `allowed_apps = []` forces the
+        // out-of-whitelist path (default whitelist contains "notepad",
+        // which would skip approval — see `launch_in_whitelist_skips_approval`).
         let kernel = TrustKernel::open_in_memory().unwrap();
+        kernel.set_allowed_apps(vec![]);
         let approver = AutoApprover;
         let mock = MockAdapter::new();
         let state = mock.state_handle();
@@ -396,6 +420,78 @@ mod tests {
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
         assert_eq!(approvals.len(), 1);
         assert_eq!(approvals[0].e_level, ELevel::E2);
+    }
+
+    #[test]
+    fn launch_in_whitelist_skips_approval() {
+        // Spec §2.6 line 304: in-whitelist launches skip PerStep approval.
+        // `allowed_apps = ["notepad"]`, `app_name = "notepad"` → no
+        // approval record persisted, `launch_app` called, step Succeeded.
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        kernel.set_allowed_apps(vec!["notepad".to_string()]);
+        let approver = AutoApprover;
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let input = make_input("launch");
+        let result = execute_app_control(&kernel, &input, &approver, adapter);
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+        assert_eq!(result.unwrap(), "t1");
+
+        // launch_app was called once with "notepad".
+        assert_eq!(state.borrow().launch_calls.len(), 1);
+        assert_eq!(state.borrow().launch_calls[0], "notepad");
+
+        // Step is Succeeded with weak evidence.
+        let step = kernel.get_step("s1").unwrap().unwrap();
+        assert_eq!(step.status, StepStatus::Succeeded);
+        assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
+
+        // NO approval record was persisted (in-whitelist launch skips
+        // approval per spec §2.6 line 304).
+        let approvals = kernel.list_approvals_for_task("t1").unwrap();
+        assert!(
+            approvals.is_empty(),
+            "expected no approval record for in-whitelist launch, got {} records",
+            approvals.len()
+        );
+    }
+
+    #[test]
+    fn launch_outside_whitelist_requires_approval() {
+        // Spec §2.6 line 304: out-of-whitelist launches require PerStep
+        // approval. `allowed_apps = []`, `app_name = "notepad"` → AutoApprover
+        // consulted, approval record persisted, `launch_app` called, step
+        // Succeeded. (Using AutoApprover here; AutoDenier would cancel the
+        // step — see existing `test_app_control_*` deny-path coverage.)
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        kernel.set_allowed_apps(vec![]);
+        let approver = AutoApprover;
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let input = make_input("launch");
+        let result = execute_app_control(&kernel, &input, &approver, adapter);
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+
+        // launch_app was called once with "notepad".
+        assert_eq!(state.borrow().launch_calls.len(), 1);
+        assert_eq!(state.borrow().launch_calls[0], "notepad");
+
+        // Step is Succeeded.
+        let step = kernel.get_step("s1").unwrap().unwrap();
+        assert_eq!(step.status, StepStatus::Succeeded);
+
+        // Approval record WAS persisted (out-of-whitelist launch requires
+        // PerStep approval per spec §2.6 line 304).
+        let approvals = kernel.list_approvals_for_task("t1").unwrap();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].e_level, ELevel::E2);
+        assert_eq!(approvals[0].user_decision, ApprovalDecision::Allow);
     }
 
     #[test]
