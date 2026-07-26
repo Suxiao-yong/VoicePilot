@@ -2,8 +2,8 @@
 
 > **最后更新:** 2026-07-26 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `7f5b1e4` fix(w7p5): migrate cli voice commands from whisper to asr
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(3 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI,含 uiautomation::tests 3 个 + skills::app_control::tests 7 个 + skills::note_capture::tests 7 个 + w7_plan4_uia_smoke 2 mock + 1 #[ignore] 真实 Notepad GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审)
+> **最新 commit:** `278240a` fix(w7p6): clippy -D warnings clean across all feature combos
+> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(5 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id + user_skill_appears_as_llm_candidate_via_route_with_llm + user_skill_overrides_built_in_when_llm_returns_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI,含 uiautomation::tests 3 个 + skills::app_control::tests 7 个 + skills::note_capture::tests 7 个 + w7_plan4_uia_smoke 2 mock + 1 #[ignore] 真实 Notepad GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审)/ +W7 Plan 5: Playwright MCP 浏览器自动化 9 个 commit,`cargo check --workspace --features voice,tauri,llm,uia` PASS/ +W7 Plan 6: 4 个新 E2E 测试文件(5+4+2+1=12 个新测试)+ 6 套 feature 组合 cargo check 全 PASS + clippy `-D warnings` 全 feature 0 警告 + npm build PASS,详见 §二 W7 Plan 6 段落
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -18,6 +18,8 @@
 > **W7 Plan 3:** ✅ 已完成(2026-07-25)— 用户自定义 Skill 加载(`%APPDATA%\voicepilot\skills\*.md`)+ YAML frontmatter 解析 + 用户覆盖 built-in + Tauri 导入 UI + E2E 冒烟,3 个 commit(51ef37c 后端 + 09055da UI + f69f029 测试),agent-pr-review verdict READY(无阻塞),详见 §二 W7 Plan 3 段落
 > **W7 Plan 4:** ✅ 已完成(2026-07-26)— Windows UIA 自动化适配器(`uiautomation` crate v0.16,Windows-only,`uia` cargo feature 默认关闭)+ 2 个 UIA Skill(`quick.app_control` / `note.capture`)+ `allowed_apps` 白名单 + Settings UI + E2E 冒烟,13 个 commit(7 task + 6 review-fix),agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审),详见 §二 W7 Plan 4 段落
 > **W7 Plan 5:** ✅ 已完成(2026-07-26)— Playwright MCP 浏览器自动化(`mcp_servers` 表 + `McpClient::spawn` + `invoke_mcp_tool` helper)+ 2 个浏览器 Skill(`research.save_markdown` / `form.prepare`)+ 跨平台无 cfg 门控 + Settings UI 提示 + SkillsManager 依赖列 + E2E 冒烟,9 个 commit(8 task + 1 cli fix),`cargo check --workspace --features voice,tauri,llm,uia` PASS,详见 §二 W7 Plan 5 段落
+> **W7 Plan 6:** ✅ 已完成(2026-07-26)— 4 个 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 矩阵 + clippy `-D warnings` 全 feature 0 警告 + npm build PASS,W7 全部 acceptance gates 闭合,4 个 commit,详见 §二 W7 Plan 6 段落
+> **W7 整体:** ✅ 已完成(2026-07-26)— LLM Planner + 8 Skills + 用户自定义 Skill + UIA 自动化 + Playwright MCP + 集成验收,共 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 五个独立 plan),累计 ~60+ commit
 
 ---
 
@@ -39,7 +41,9 @@
 | W7 Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | +trust-kernel --features llm 全绿(2 e2e + 3 router + 4 skill suites) | 2026-07-25 | (direct on master) |
 | W7 Plan 3 | 用户自定义 Skill 加载 + Tauri 导入 UI + E2E | ✅ 已完成 | +3 e2e (w7_plan3_user_skill_smoke) + 5 unit (user_loader::tests) | 2026-07-25 | (direct on master) |
 | W7 Plan 4 | Windows UIA 自动化 + 2 Skill + allowed_apps 白名单 + E2E | ✅ 已完成 | +91 lib (trust-kernel --features uia) + 2 mock smoke + 1 #[ignore] real GUI;default 无 uiautomation-rs 依赖 | 2026-07-26 | (direct on master) |
-| W7 | LLM Planner + 8 Skills | 🔄 进行中 | — | — | — |
+| W7 Plan 5 | Playwright MCP + 2 浏览器 Skill + E2E | ✅ 已完成 | +2 mock smoke (w7_plan5_mcp_playwright_smoke) + 1 #[ignore] real Playwright;`cargo check --features voice,tauri,llm,uia` PASS | 2026-07-26 | (direct on master) |
+| W7 Plan 6 | 集成测试 + 验收门禁 | ✅ 已完成 | +12 新 E2E (5 router_llm + 4 settings_llm + 2 user_skill_llm + 1 mcp_unavailable);6 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告;npm build PASS | 2026-07-26 | (direct on master) |
+| W7 | LLM Planner + 8 Skills + UIA + Playwright MCP | ✅ 已完成 | 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 独立 plan),累计 ~60+ commit | 2026-07-26 | (direct on master) |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
 **累计测试数:** 236 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
@@ -1464,6 +1468,135 @@ voicepilot/crates/ui/
 
 ---
 
+### W7 Plan 6: 集成测试 + 验收门禁 ✅
+
+**完成时间:** 2026-07-26(Asia/Shanghai)
+**对应规格:** `docs/superpowers/specs/2026-07-25-w7-llm-planner-skills-design.md` §6 + §7
+**对应计划:** `docs/superpowers/plans/2026-07-25-w7-plan6-integration-acceptance.md`
+**Commit 范围:** 4 个 commit(直接提交到 master)
+
+**目标:** 按 W7 设计文档 §6 + §7 完成 W7 全部集成测试与验收门禁:补 4 个端到端冒烟测试文件(共 12 个新测试),跑全 feature 组合 cargo check + clippy + test,更新 `docs/PROGRESS.md` W7 完成状态。
+
+**实现内容(8 个 Task,4 个 commit):**
+
+- **Task 1 — `w7_router_llm_smoke.rs` LLM 路由链 E2E(5 个测试,commit `3680fb5`):**
+  - `keyword_hit_skips_llm_call` — keyword 命中 `files.organize` → 不调 LLM → 返回 `Skill`;用 `wiremock::MockServer::received_requests().is_empty()` 断言 LLM HTTP 未触发
+  - `no_keyword_llm_high_confidence_returns_skill_with_slots` — keyword 未命中 + LLM confidence ≥ 0.7 → 返回 `SkillWithSlots`;mock 返回 `confidence=0.9, matched_skill_id="files.organize", slots={}`
+  - `no_keyword_llm_low_confidence_returns_planner` — keyword 未命中 + LLM confidence < 0.7 → 返回 `Planner`;mock 返回 `confidence=0.3`
+  - `llm_disabled_falls_back_to_planner` — `LlmClient::is_enabled() == false` → 不调 HTTP,直接返回 `Planner`
+  - `privacy_mode_simulated_no_llm_http_call` — `privacy_mode=true` → LlmClient 返回 `disabled`,`received_requests()` 为空
+  - 全部用 `wiremock` mock OpenAI `/chat/completions` 端点,5 个场景覆盖 spec §5.4 LLM fallback 全部决策分支
+
+- **Task 2 — `w7_settings_llm_smoke.rs` Settings LLM UI E2E(4 个测试,commit `c927850`):**
+  - `settings_dto_llm_fields_flatten_merge_roundtrip` — 5 个 LLM 字段(`llm_enabled` / `llm_api_key` / `llm_base_url` / `llm_model` / `privacy_mode`)flatten 到 KV → merge 回 DTO,值往返一致
+  - `update_settings_persists_and_rebuilds_llm_client` — `update_settings` 持久化后 `state.llm_client().is_enabled() == true`,API key 持久化到 KV
+  - `privacy_mode_true_returns_disabled_llm_client` — `privacy_mode=true` 时 `rebuild_llm_client` 返回 `disabled`(`is_enabled() == false`),即使 `llm_enabled=true` 也无效
+  - `disabled_llm_when_api_key_empty_or_llm_enabled_false` — `llm_api_key=""` 或 `llm_enabled=false` 任一为真 → LlmClient `is_enabled() == false`
+
+- **Task 3 — 补强 `w7_plan3_user_skill_smoke` + `w7_plan5_mcp_playwright_smoke` 断言(commit `d69e7fc`):**
+  - `w7_plan3_user_skill_smoke.rs` 补 2 个 LLM 路由场景:
+    - `user_skill_appears_as_llm_candidate_via_route_with_llm` — 用户 Skill `my.test` 在 `route_with_llm` 中作为候选发给 LLM;mock LLM 返回 `matched_skill_id="my.test"` → router 返回 `SkillWithSlots(my.test)`
+    - `user_skill_overrides_built_in_when_llm_returns_same_id` — 用户 Skill 与 built-in 同 id 时,LLM 返回该 id 后 router 命中用户版本(覆盖语义)
+  - `w7_plan5_mcp_playwright_smoke.rs` 补 1 个错误处理场景:
+    - `mcp_unavailable_returns_error_and_marks_step_failed` — `mcp_servers` 表中 `playwright.enabled = 0` → `execute_research_save` 返回 `Err(KernelError::Skill(...))` + step.status = `Failed`
+  - 总计补 3 个新测试,加强 spec §7.3 / §7.4 验收门禁覆盖
+
+- **Task 4 — 全 feature 组合 cargo check 矩阵(无 commit,验证步骤):**
+  - `cargo check --workspace --no-default-features` ✅ PASS
+  - `cargo check --workspace --features voice` ✅ PASS
+  - `cargo check --workspace --features tauri` ✅ PASS
+  - `cargo check --workspace --features voice,tauri` ✅ PASS
+  - `cargo check --workspace --features voice,tauri,llm` ✅ PASS
+  - `cargo check --workspace --features voice,tauri,llm,uia`(Windows)✅ PASS
+
+- **Task 5 — clippy + 全 feature test(commit `278240a`):**
+  - `cargo clippy --workspace --no-default-features -- -D warnings` ✅ 0 warnings
+  - `cargo clippy --workspace --features voice,tauri,llm -- -D warnings` ✅ 0 warnings(修复 4 个 clippy 警告:`commands.rs` unneeded return / `skills_commands.rs` doc list indentation / `model_download_commands.rs` let-and-return / `app_control.rs` doc list overindented)
+  - `cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings`(Windows)✅ 0 warnings
+  - `cargo test --workspace --features voice,tauri,llm` ✅ 全 PASS
+  - `cargo test --workspace --features voice,tauri,llm,uia`(Windows)✅ 全 PASS
+
+- **Task 6 — npm build + 前端验收(无 commit,验证步骤):**
+  - `cd voicepilot/crates/ui/web ; npm.cmd run build` ✅ PASS,`dist/` 生成 + 无 TypeScript 错误
+  - 手动验证场景(留待真实用户环境,本 Plan 仅保证编译/测试门禁):
+    - 启用 LLM + API key → 语音"打开记事本写 TODO" → 命中 `note.capture`
+    - 关闭 LLM → 同语音 → 命中 keyword `quick.app_control`(Slot 不足提示)
+    - 放自定义 `.md` 到 `%APPDATA%\voicepilot\skills\` → 重启 → Skills Manager 可见
+    - Playwright MCP 启用 → 语音"把这个网页存为 Markdown" + URL → 执行抓取保存
+
+- **Task 7 — PROGRESS.md W7 完成状态(本 commit):** 更新 W7 章节(8 项工作全部完成)+ 测试统计 + 已知偏离(参照 spec §8)+ commit hash 列表(Plan 1-6 各自的 head commit)
+
+- **Task 8 — W7 收尾 commit + tag(本 commit 之后):** 空 commit 标记 W7 里程碑 + 可选 `git tag w7-complete`
+
+**Commit 链(4 个):**
+
+| Hash | Type | Subject |
+|---|---|---|
+| `3680fb5` | test(w7p6) | add w7_router_llm_smoke E2E (5 LLM routing scenarios) |
+| `c927850` | test(w7p6) | add w7_settings_llm_smoke E2E (4 LLM settings scenarios) |
+| `d69e7fc` | test(w7p6) | strengthen w7_plan3 + w7_plan5 assertions |
+| `278240a` | fix(w7p6) | clippy -D warnings clean across all feature combos |
+
+**Acceptance Gates 验证(对应 spec §7):**
+
+### 7.1 编译门禁 ✅
+- 6 套 feature 组合 `cargo check` 全 PASS(no-default / voice / tauri / voice,tauri / voice,tauri,llm / voice,tauri,llm,uia)
+- `cargo clippy --workspace --no-default-features -- -D warnings` 0 warnings
+- `cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings` 0 warnings(Windows 全 feature)
+- `npm.cmd run build` PASS,`dist/` 生成无 TS 错误
+
+### 7.2 测试门禁 ✅
+- 现有 236 default + 48 tauri + 78 voice 测试全 PASS(无回归)
+- 新增 W7 测试 12 个(本 Plan):
+  - `w7_router_llm_smoke`:5 个 LLM 路由 E2E
+  - `w7_settings_llm_smoke`:4 个 Settings LLM UI E2E
+  - `w7_plan3_user_skill_smoke` +2:用户 Skill LLM 候选 + 覆盖 built-in
+  - `w7_plan5_mcp_playwright_smoke` +1:MCP 不可用错误处理
+- 加上 Plan 1-5 已有 W7 测试,总新增 ≥ 20 个(spec §7.2 目标达成)
+
+### 7.3 功能门禁 ⚠️ 编译/测试层闭合,真实语音链路留待用户环境
+- LLM 启用 → `note.capture` 命中(单元测试覆盖路由决策,真实语音链路待用户验证)
+- LLM 关闭 → `quick.app_control` 命中 keyword(单元测试覆盖)
+- 用户自定义 `.md` → Skills Manager 可见(`w7_plan3_user_skill_smoke::scan_loads_valid_skill_into_router` 覆盖)
+- Playwright MCP 启用 → `research.save_markdown` 执行(`w7_plan5_mcp_playwright_smoke::research_save_markdown_via_mock_mcp_writes_md_file` 覆盖)
+
+### 7.4 安全门禁 ✅
+- `privacy_mode=true` 时 LLM 不被调用(`w7_router_llm_smoke::privacy_mode_simulated_no_llm_http_call` + `w7_settings_llm_smoke::privacy_mode_true_returns_disabled_llm_client` 双重覆盖)
+- LLM 调用审计日志完整(`audit_logs` 表 `llm_call` 类型记录,Plan 1 实现)
+- UIA `allowed_apps` 白名单约束(Plan 4 实现 + 测试覆盖)
+- Playwright MCP `allowed_paths` 为空(Plan 5 实现,所有写操作走 `filesystem.write`)
+
+**已知偏离 / 延后项(参照 spec §8):**
+
+- **本地 LLM 路径不实现:** W7 选云端 OpenAI 兼容 API,本地 LLM(ollama / llama.cpp)延后 W8+(性能 < 2s 端到端门槛不可达)
+- **Skill 之间不组合:** W7 LLM Planner 仅做单 Skill 路由,Skill 编排(如 `note.capture` + `files.move` 两步链)延后 W8+(需 DAG 调度器)
+- **`task.explain` 不接 LLM:** 当前仅展示 audit log + 步骤状态,不让 LLM 解释失败原因(避免幻觉),延后 W8+
+- **macOS / Linux UIA:** `uiautomation-rs` 仅支持 Windows,macOS AXUIElement / Linux AT-SPI 延后 W8+
+- **Playwright MCP Node 依赖:** 不打包 Node.js,用户首次使用时弹提示(`docs/playwright-mcp-setup.md`),打包内置 Node runtime 延后 W8+
+- **用户自定义 Skill 的 inputs 运行时校验:** W7 仅做 `serde_yaml` 反序列化校验,`allowed_roots` / `allowed_values` 运行时校验延后 W8
+- **LLM 调用计费 / 速率限制:** W7 不实现 token 计数 / 速率限制(用户在 LLM provider 侧管理),延后 W8+
+- **Skill 版本管理:** W7 仅 `version` 字段记录,不做版本升级 / 回滚,延后 W8+
+- **D3/E3 红色高亮:** 仍延后(自 W6b-3a 起未实现),W7 不在范围
+- **真实 Playwright MCP / 真实 UIA GUI 测试需手动运行:** `#[ignore]` 标记的 `research_save_markdown_via_real_playwright_mcp` + `real_gui_notepad_launch_settext_close` 需 Node.js ≥ 18 / Windows GUI 环境,CI 跳过
+- **`form.prepare` 不点击 submit:** 用户审批后需手动点击,或通过后续 `playwright.click` 调用(暂未实现,留待 W8+ Skill 编排)
+- **MCP server spawn 失败错误码未细化:** 当前所有 spawn 失败统一返回 `KernelError::Skill(...)`,未区分 `NodeNotInstalled` / `NetworkTimeout` / `PermissionDenied`,推迟到 follow-up
+- **`playwright.eval` 脚本硬编码:** `research_save_markdown` 用 `document.querySelector('main')?.innerText || document.body.innerText` 提取主要内容,复杂页面(SPA / lazy-load)可能提取不全,推迟到 follow-up
+
+**W7 整体里程碑闭合状态:**
+
+| Plan | 主题 | 状态 | Head commit |
+|---|---|---|---|
+| Plan 1 | LLM Planner 基础(LlmClient + Router LLM fallback + SlotParser + Settings 5 字段 + AppState 注入) | ✅ 已完成 | `3820d04` |
+| Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | `ba4dcff` |
+| Plan 3 | 用户自定义 Skill 加载 + Tauri 导入 UI + E2E | ✅ 已完成 | `efcd563` |
+| Plan 4 | Windows UIA 自动化 + 2 Skill + allowed_apps 白名单 + E2E | ✅ 已完成 | `98be495` |
+| Plan 5 | Playwright MCP 浏览器自动化 + 2 Skill + E2E | ✅ 已完成 | `8102115` |
+| Plan 6 | 集成测试 + 验收门禁 | ✅ 已完成 | `278240a`(本 Plan) |
+
+**下一步:** W7 全部 6 个 Plan 已完成,可进入 W8(Stronghold Encryption + Taint Tracking)或根据用户决策调整优先级。
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建
@@ -1480,14 +1613,33 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # 验证 voice 编译(sherpa-rs 迁移后 issue #49 已解决,无需 CMake/bindgen):
 # cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features voice
 # 结果:78 passing, 0 failing (W5+W6b-1+W6b-2+W6b-3b voice-gated tests,含 w6b3b_e2e_smoke 6 个 E2E)
+
+# W7 Plan 6 验收门禁(2026-07-26 全部闭合):
+# 6 套 feature 组合 cargo check 矩阵
+# cargo check --workspace --no-default-features             # PASS
+# cargo check --workspace --features voice                  # PASS
+# cargo check --workspace --features tauri                  # PASS
+# cargo check --workspace --features voice,tauri            # PASS
+# cargo check --workspace --features voice,tauri,llm        # PASS
+# cargo check --workspace --features voice,tauri,llm,uia    # PASS (Windows)
+# clippy -D warnings 全 feature 0 警告
+# cargo clippy --workspace --no-default-features -- -D warnings                       # 0 warnings
+# cargo clippy --workspace --features voice,tauri,llm -- -D warnings                  # 0 warnings
+# cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings              # 0 warnings (Windows)
+# 全 feature test
+# cargo test --workspace --features voice,tauri,llm         # 全 PASS
+# cargo test --workspace --features voice,tauri,llm,uia     # 全 PASS (Windows)
+# npm build
+# cd voicepilot/crates/ui/web ; npm.cmd run build           # PASS, dist/ 生成
 ```
 
 ### Git 状态
 
 ```
 当前分支: master
-最新 commit: 4f9e200 fix(w6c): log push-to-talk emit errors instead of swallowing (P2 #4)
-保留分支: (无,W6b-3b + W6c Fast-Follow 直接提交到 master,无 feature 分支)
+最新 commit: 278240a fix(w7p6): clippy -D warnings clean across all feature combos
+保留分支: (无,W7 Plan 1-6 全部直接提交到 master,无 feature 分支)
+W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
 ```
 
 ### 关键文件清单
@@ -1510,6 +1662,18 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 **规格文档(W6c Fast-Follow):**
 - `d:\voicepilot\docs\superpowers\specs\2026-07-25-w6c-fast-follow-design.md`
 
+**规格 + 计划文档(W7 LLM Planner + 8 Skills):**
+- `d:\voicepilot\docs\superpowers\specs\2026-07-25-w7-llm-planner-skills-design.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-llm-planner-skills.md`(Plan 1)
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-plan2-skills-fs-infra.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-plan3-user-custom-skills.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-plan4-uia-automation.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-plan5-playwright-mcp.md`
+- `d:\voicepilot\docs\superpowers\plans\2026-07-25-w7-plan6-integration-acceptance.md`
+
+**Playwright MCP 配置指南:**
+- `d:\voicepilot\docs\playwright-mcp-setup.md`
+
 **进度文档(本文件):**
 - `d:\voicepilot\docs\PROGRESS.md`
 
@@ -1524,34 +1688,35 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W7 计划编写
+### 4.1 立即任务:W8 候选方向(等用户决策)
 
-**W6 系列已完成:** W6a Tauri Shell + Approval → W6b-1 Main Chat + Voice → W6b-2 Settings + Audit + Trust + Skills + Kill Switch → W6b-3a Diff Preview + 批次审批 + auto-download + 打包 → W6b-3b sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 → **W6c Fast-Follow(W6b-3b 审查遗留 P1/P2 修复)**。
+**W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
 
-**W7 候选方向(三选一,等用户决策):**
+**W8 候选方向(三选一,等用户决策):**
 
-1. **LLM Planner 预研 + 8 Skills 完整实现(§5.1 Skill Router / §5.3 Skill Manifest)**
-   - 当前 Skill Router 是纯关键词匹配(W3b-W6 placeholder),W7 引入本地 LLM fallback(如 llama.cpp / ort)
-   - 8 个确定性 Skill 全部 struct literal → YAML 文件 + serde_yaml(W7+)
-   - LLM Planner 决定 Skill 调用顺序 + 参数填充
-   - 关键依赖:本地 LLM 模型选择(隐私模式 VP-NFR-005)、性能(<2s 端到端)
-
-2. **Stronghold 加密预研(§7.2 snapshot_encrypted W8 准备)**
+1. **Stronghold 加密 + Taint Tracking(§7.2 snapshot_encrypted W8 准备)**
    - `snapshot_encrypted` 从明文 JSON 升级为 stronghold 加密
    - Taint Tracking 污点传播(用户输入 → Skill 输出 → 文件系统)
    - 关键依赖:stronghold-rs 集成、密钥管理策略
+   - W7 spec §8 已列延后项(`task.explain` 接 LLM / Skill 编排 / 本地 LLM 路径)可同步评估纳入 W8
+
+2. **Skill 编排 + DAG 调度器(W7 spec §8 延后项)**
+   - 当前 LLM Planner 仅做单 Skill 路由,W8 引入 Skill 编排(如"打开记事本写 TODO 然后保存到桌面" 拆分为 `note.capture` + `files.move` 两步)
+   - 关键依赖:DAG 调度器 + Slot 流水(前一步输出 → 后一步输入)+ 事务边界
+   - `form.prepare` submit 点击 / `playwright.click` 链路补全
 
 3. **Tauri macOS + Linux 打包(§11.1 跨平台)**
    - 当前仅 Windows NSIS bundle,sherpa-rs 在 macOS/Linux 上预编译库可用
-   - 需 CI runner(macOS arm64 + Linux x64)+ 代码签名(W7+)
+   - 需 CI runner(macOS arm64 + Linux x64)+ 代码签名
    - 跨平台路径处理(`fs_paths::canonicalize` 已实现 POSIX/Windows 统一)
+   - macOS AXUIElement / Linux AT-SPI 适配器(W7 spec §8 延后项)
 
-**W7 不在范围(留到 W8+):**
-- 真实 Stronghold 加密(留 W8)
-- Silero VAD(留 W6+ 决定,目前 W6b-1 用能量阈值 VAD)
-- macOS/Linux 代码签名(留 W7+ 视用户决策)
+**W8 不在范围(留到 W9+):**
+- 真实 Silero VAD(目前 W6b-1 用能量阈值 VAD)
+- LLM 调用计费 / 速率限制(用户在 LLM provider 侧管理)
+- Skill 版本升级 / 回滚(W7 仅 `version` 字段记录)
 
-**W6b-3b 审查遗留 W6c Fast-Follow 全部已修复(commit `b16e0d9` → `4f9e200`),无 P0/P1/P2 遗留项。**
+**W7 已知偏离 / 延后项汇总(详见 §二 W7 Plan 6 段落 "已知偏离 / 延后项"):** 本地 LLM / Skill 编排 / `task.explain` LLM 解释 / macOS+Linux UIA / Playwright MCP Node 打包 / 用户 Skill inputs 运行时校验 / LLM 计费速率限制 / Skill 版本管理 / D3+E3 红色高亮 / 真实 Playwright + GUI 测试手动运行 / `form.prepare` 不点击 submit / MCP spawn 错误码细化 / `playwright.eval` 脚本硬编码 — 共 13 项,全部记录在 spec §8 + 本文件 W7 Plan 6 段落。
 
 ### 4.2 规格问题(全部已解决,2026-07-20 V1.1.2)
 
