@@ -200,3 +200,45 @@ fn repo_seed_builtin_is_idempotent() {
     let loaded = repo.get(&k.conn(), "voicepilot-filesystem").unwrap().unwrap();
     assert_eq!(loaded.allowed_paths.as_deref(), Some(r#"["D:/custom"]"#));
 }
+
+// W7 Plan 5 Task 1: insert_default_servers (playwright)
+
+#[test]
+fn repo_insert_default_servers_creates_playwright_row() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    // Confirm row does not exist yet.
+    assert!(repo.get(&k.conn(), "playwright").unwrap().is_none());
+    // Insert defaults.
+    repo.insert_default_servers(&k.conn()).unwrap();
+    let rec = repo.get(&k.conn(), "playwright")
+        .unwrap()
+        .expect("playwright row must exist after insert_default_servers");
+    assert_eq!(rec.server_id, "playwright");
+    assert_eq!(rec.name, "Playwright MCP");
+    assert_eq!(rec.transport, "stdio");
+    assert!(rec.enabled);
+    assert!(!rec.trusted);
+    assert_eq!(rec.protocol_version.as_deref(), Some("2025-11-25"));
+    // allowed_paths is empty array — Playwright MCP has no filesystem access.
+    assert_eq!(rec.allowed_paths.as_deref(), Some("[]"));
+    // Spawn spec per spec §2.7.
+    assert_eq!(rec.command.as_deref(), Some("npx"));
+    assert_eq!(rec.args.as_deref(), Some(r#"["-y","@playwright/mcp@latest"]"#));
+    assert_eq!(rec.env.as_deref(), Some("{}"));
+}
+
+#[test]
+fn repo_insert_default_servers_is_idempotent_and_preserves_user_customization() {
+    let k = TrustKernel::open_in_memory().unwrap();
+    let repo = McpServerRepo::new();
+    repo.insert_default_servers(&k.conn()).unwrap();
+    // User disables playwright via Trust Center.
+    let mut rec = repo.get(&k.conn(), "playwright").unwrap().unwrap();
+    rec.enabled = false;
+    repo.update(&k.conn(), &rec).unwrap();
+    // Insert defaults again — must NOT overwrite the user's `enabled = false`.
+    repo.insert_default_servers(&k.conn()).unwrap();
+    let loaded = repo.get(&k.conn(), "playwright").unwrap().unwrap();
+    assert!(!loaded.enabled);
+}

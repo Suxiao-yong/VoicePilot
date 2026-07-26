@@ -185,6 +185,42 @@ impl McpServerRepo {
         };
         self.create(conn, &rec)
     }
+
+    /// Ensure the default `playwright` MCP server row exists.
+    /// Idempotent — does not overwrite an existing row (preserves user
+    /// customizations such as `enabled = false` from Settings Trust Center).
+    ///
+    /// W7 Plan 5 Task 1: per spec §2.7, inserts the spawn spec
+    /// `npx -y @playwright/mcp@latest`. `allowed_paths` is `[]` (empty)
+    /// because Playwright MCP must NOT directly access the filesystem —
+    /// all write operations go through `filesystem.write` (V1.1 §4.4).
+    ///
+    /// Plan deviation: the plan text says "if mcp_servers table is empty",
+    /// but `seed_builtin_filesystem` always inserts `voicepilot-filesystem`
+    /// first, so the table is never empty when this runs. The right
+    /// behavior is "if playwright row does not exist" — matches the
+    /// `seed_builtin_filesystem` pattern and preserves user customizations.
+    pub fn insert_default_servers(&self, conn: &Connection) -> Result<()> {
+        if self.get(conn, "playwright")?.is_some() {
+            return Ok(());
+        }
+        let rec = McpServerRecord {
+            server_id: "playwright".to_string(),
+            name: "Playwright MCP".to_string(),
+            version: "latest".to_string(),
+            transport: "stdio".to_string(),
+            enabled: true,
+            trusted: false,
+            protocol_version: Some("2025-11-25".to_string()),
+            allowed_origins: None,
+            // Empty array — Playwright MCP has no filesystem access.
+            allowed_paths: Some("[]".to_string()),
+            command: Some("npx".to_string()),
+            args: Some(r#"["-y","@playwright/mcp@latest"]"#.to_string()),
+            env: Some("{}".to_string()),
+        };
+        self.create(conn, &rec)
+    }
 }
 
 impl Default for McpServerRepo {
