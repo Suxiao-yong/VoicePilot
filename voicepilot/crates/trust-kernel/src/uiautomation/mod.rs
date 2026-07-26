@@ -46,9 +46,12 @@ impl UiaElementHandle {
         Self { inner: Some(element) }
     }
 
-    /// Construct a mock handle with no underlying `UIElement`. Test-only.
-    #[cfg(test)]
-    pub(crate) fn mock() -> Self {
+    /// Construct a mock handle with no underlying `UIElement`. Test-only —
+    /// production code should always obtain a handle from `launch_app` /
+    /// `find_window` / `find_element`. Exposed as `pub` (rather than
+    /// `pub(crate)`) so integration tests in `tests/` can construct mock
+    /// adapters without re-implementing the `UiaElementHandle` wrapper.
+    pub fn mock() -> Self {
         Self { inner: None }
     }
 
