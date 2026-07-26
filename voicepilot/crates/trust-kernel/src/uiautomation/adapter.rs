@@ -11,7 +11,10 @@
 //!   needed despite the `&self` receiver on trait methods.
 //! * `find_window` / `find_element` use `UIMatcher` with `timeout(0)` (no
 //!   retry) and treat any `find_first` error as "not found" → `Ok(None)`.
-//!   A future task can differentiate "no match" from "real UIA error".
+//!   W7 Plan 4 final review (follow-up #4): swallowed errors are now
+//!   logged via `tracing::warn!` so they're observable. A future task can
+//!   differentiate "no match" from "real UIA error" by inspecting
+//!   `uiautomation::Error` variants.
 //! * `set_text` / `get_text` go through `UIValuePattern`. Elements that don't
 //!   support the pattern (e.g. static labels) yield `KernelError::Uia`.
 //! * `screenshot` returns `KernelError::Uia` because the `uiautomation`
@@ -104,7 +107,24 @@ impl UiaAdapter for WindowsUiaAdapter {
             .timeout(0);
         match matcher.find_first() {
             Ok(element) => Ok(Some(UiaElementHandle::from_element(element))),
-            Err(_) => Ok(None),
+            Err(e) => {
+                // W7 Plan 4 final review (follow-up #4): previously all
+                // `find_first` errors were silently mapped to `Ok(None)`,
+                // making "no match" indistinguishable from COM failure /
+                // permission denied / etc. Log the swallowed error so it
+                // is observable in tracing. We still return `Ok(None)`
+                // (not `Err`) to preserve the existing contract: callers
+                // treat `Ok(None)` as "window not found" and `Err` as a
+                // hard failure — a UIA `find_first` error is recoverable
+                // (the window may appear later), so we don't escalate it.
+                tracing::warn!(
+                    target = "uiautomation",
+                    error = %e,
+                    title_contains = %title_contains,
+                    "find_window: find_first failed; returning None"
+                );
+                Ok(None)
+            }
         }
     }
 
@@ -138,7 +158,18 @@ impl UiaAdapter for WindowsUiaAdapter {
         };
         match matcher.find_first() {
             Ok(element) => Ok(Some(UiaElementHandle::from_element(element))),
-            Err(_) => Ok(None),
+            Err(e) => {
+                // W7 Plan 4 final review (follow-up #4): same rationale as
+                // `find_window` — log the swallowed error so it's observable
+                // without changing the `Ok(None)` contract.
+                tracing::warn!(
+                    target = "uiautomation",
+                    error = %e,
+                    selector = ?selector,
+                    "find_element: find_first failed; returning None"
+                );
+                Ok(None)
+            }
         }
     }
 
