@@ -51,6 +51,12 @@ impl UiaElementHandle {
     /// `find_window` / `find_element`. Exposed as `pub` (rather than
     /// `pub(crate)`) so integration tests in `tests/` can construct mock
     /// adapters without re-implementing the `UiaElementHandle` wrapper.
+    ///
+    /// Feature gate: `cfg(any(test, feature = "uia"))` ensures the mock
+    /// constructor is only available in test builds or when the `uia` feature
+    /// is enabled (follow-up #6). Production builds without `uia` won't link
+    /// the symbol.
+    #[cfg(any(test, feature = "uia"))]
     pub fn mock() -> Self {
         Self { inner: None }
     }
