@@ -556,7 +556,7 @@ pub fn note_capture_manifest() -> SkillManifest {
             "笔记".to_string(),
         ],
         inputs,
-        risk_ceiling: ELevel::E1,
+        risk_ceiling: ELevel::E2,
         data_class_ceiling: DLevel::D2,
         egress: EgressKind::LocalOnly,
         max_steps: 3,

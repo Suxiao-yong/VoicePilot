@@ -20,3 +20,8 @@ pub mod user_loader;
 // not try to compile this module.
 #[cfg(all(windows, feature = "uia"))]
 pub mod app_control;
+
+// W7 Plan 4 Task 4: note.capture executor (notepad + set_text + save).
+// Same cfg gate as app_control — uses `crate::uiautomation::UiaAdapter`.
+#[cfg(all(windows, feature = "uia"))]
+pub mod note_capture;
