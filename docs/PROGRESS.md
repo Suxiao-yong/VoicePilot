@@ -2,7 +2,7 @@
 
 > **最后更新:** 2026-07-26 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `294dc1a` fix(w7p4): gate UiaElementHandle::mock() behind cfg(any(test, feature=uia))
+> **最新 commit:** `7f5b1e4` fix(w7p5): migrate cli voice commands from whisper to asr
 > **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(3 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI,含 uiautomation::tests 3 个 + skills::app_control::tests 7 个 + skills::note_capture::tests 7 个 + w7_plan4_uia_smoke 2 mock + 1 #[ignore] 真实 Notepad GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审)
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
@@ -17,6 +17,7 @@
 > **W7 Plan 2:** ✅ 已完成(2026-07-25)— 3 个新 fs Skill(task.repeat_verified / task.explain / task.compensate)+ 共享 helpers + 路由注册 + E2E 冒烟,agent-pr-review verdict APPROVED_WITH_NITS,详见 §二 W7 Plan 2 段落
 > **W7 Plan 3:** ✅ 已完成(2026-07-25)— 用户自定义 Skill 加载(`%APPDATA%\voicepilot\skills\*.md`)+ YAML frontmatter 解析 + 用户覆盖 built-in + Tauri 导入 UI + E2E 冒烟,3 个 commit(51ef37c 后端 + 09055da UI + f69f029 测试),agent-pr-review verdict READY(无阻塞),详见 §二 W7 Plan 3 段落
 > **W7 Plan 4:** ✅ 已完成(2026-07-26)— Windows UIA 自动化适配器(`uiautomation` crate v0.16,Windows-only,`uia` cargo feature 默认关闭)+ 2 个 UIA Skill(`quick.app_control` / `note.capture`)+ `allowed_apps` 白名单 + Settings UI + E2E 冒烟,13 个 commit(7 task + 6 review-fix),agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审),详见 §二 W7 Plan 4 段落
+> **W7 Plan 5:** ✅ 已完成(2026-07-26)— Playwright MCP 浏览器自动化(`mcp_servers` 表 + `McpClient::spawn` + `invoke_mcp_tool` helper)+ 2 个浏览器 Skill(`research.save_markdown` / `form.prepare`)+ 跨平台无 cfg 门控 + Settings UI 提示 + SkillsManager 依赖列 + E2E 冒烟,9 个 commit(8 task + 1 cli fix),`cargo check --workspace --features voice,tauri,llm,uia` PASS,详见 §二 W7 Plan 5 段落
 
 ---
 
@@ -1398,9 +1399,68 @@ voicepilot/crates/ui/
 - **`UiaElementHandle::mock()` 内层 cfg 为冗余防御:** 外层 `cfg(all(windows, feature = "uia"))` 已包住整个模块,内层 `cfg(any(test, feature = "uia"))` 实际不收紧 surface;保留为防御性文档
 - **真实 GUI 测试需手动运行:** `#[ignore]` 标记的 `real_gui_notepad_launch_settext_close` 需 Windows GUI 环境 + `cargo test --ignored --features uia`,CI 跳过
 - **`allowed_apps` 白名单编辑 UI 无下拉:** 当前为逗号分隔文本输入,未来可加常用应用下拉选择(notepad / explorer / calc / code / terminal 等)
-- **预存 CLI voice bug(非 W7 Plan 4 引入):** `crates/cli/src/main.rs:399,488` 仍 import `trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine}`,W6b-3b 改名遗留(whisper→asr)。阻塞 `cargo check --workspace --features voice,tauri,llm,uia` 全 feature 验证。需单独修复
+- **预存 CLI voice bug(非 W7 Plan 4 引入,已在 W7 Plan 5 修复):** `crates/cli/src/main.rs:399,488` 原 import `trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine}`,W6b-3b 改名遗留(whisper→asr)。W7 Plan 5 已迁移到 `asr::{SherpaAsrConfig, SherpaAsrEngine}`,`cargo check --workspace --features voice,tauri,llm,uia` 全 feature 编译通过
 
-**下一步:** W7 Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
+**下一步:** W7 Plan 6(Integration Acceptance)— 4 个 E2E 测试 + 全 feature 矩阵 + clippy + npm build
+
+---
+
+### W7 Plan 5: Playwright MCP 浏览器自动化 + 2 Skill + E2E ✅
+
+**完成时间:** 2026-07-26(Asia/Shanghai)
+
+**目标:** 按 W7 设计文档 §2.7 实现 Playwright MCP 浏览器自动化:`mcp_servers` 表插入 `playwright` 默认记录,2 个浏览器 Skill(`research.save_markdown` / `form.prepare`)通过 `McpClient::invoke_tool` 调用链驱动 Playwright MCP stdio server。
+
+**实现要点:**
+
+1. **mcp_servers schema 扩展 + McpClient 实现(Task 0):** `003_mcp_servers_command.sql` 迁移加 `command` / `args` / `env` 三列(幂等:`duplicate column name` 视为成功);`McpClient` 实现 `spawn` + `initialize` + `invoke_tool`,通过子进程 stdio 收发 JSON-RPC 2.0 NDJSON 帧。
+2. **insert_default_servers(Task 1):** `McpServerRepo::insert_default_servers(conn)` 在内核启动时若 `playwright` 记录不存在则插入(`server_id='playwright', command='npx', args='["-y","@playwright/mcp@latest"]', enabled=1`)。**关键决策:** 改为"playwright 不存在则插入"而非"表为空才插入",与 `seed_builtin_filesystem` 模式一致,保留用户自定义。
+3. **kernel boot 集成(Task 2):** `boot()` 末尾调 `McpServerRepo::insert_default_servers(&conn)?`,所有模式(in-memory / file-backed)启动后 `mcp_servers` 表均有 `playwright` 记录。
+4. **invoke_mcp_tool helper(Task 3):** `skills/common.rs::invoke_mcp_tool(kernel, server_id, tool_name, args)` 封装 `McpClient::spawn` + `initialize` + `invoke_tool` 三步,统一 Skill 调用 MCP 的接口。
+5. **research.save_markdown executor(Task 4):** `skills/research_save.rs` 实现 `execute_research_save`:`validate_input_against_manifest` → `create_task` / `create_step` → `EffectManifest` 构建 → `record_approval_decision` → 调 `playwright.navigate` + `playwright.snapshot` + `playwright.eval`(提取 `main` 或 `body` innerText)→ `filesystem.write` 保存 `.md` → `finalize_step_success(evidence="strong")`。
+6. **form.prepare executor(Task 5):** `skills/form_prepare.rs` 实现 `execute_form_prepare`:同上审批流程 → 调 `playwright.navigate` + `playwright.snapshot` + 遍历 `fields` 调 `playwright.fill`(**不**调 `playwright.click` submit)→ `finalize_step_success(evidence="weak")`。`fields` 用 `BTreeMap` 排序保证 `preconditions_hash` 确定性。
+7. **SkillRouter 注册(Task 6):** `voice/router_bridge.rs` + `ui/src/commands.rs`(llm + non-llm 分支)均 `router.register(research_save_manifest())` + `router.register(form_prepare_manifest())`。
+8. **E2E 冒烟 + UI 提示(Task 7):** `tests/w7_plan5_mcp_playwright_smoke.rs` 3 个测试:
+   - `research_save_markdown_via_mock_mcp_writes_md_file` — Python mock MCP server 返回 snapshot + eval,验证 `.md` 文件生成 + step status Succeeded + evidence="strong"
+   - `form_prepare_via_mock_mcp_no_click_submit` — Python mock 记录所有 tool calls,验证 navigate + snapshot + fill×2,**无 click**
+   - `#[ignore] research_save_markdown_via_real_playwright_mcp` — 真实 Playwright MCP 抓 example.com,需 Node.js ≥ 18 + 网络
+   - `SettingsView.tsx` 加"Playwright MCP 配置"fieldset(Node.js ≥ 18 提示 + 故障排查链接)
+   - `SkillsManagerView.tsx` 加"依赖"列,为 2 个浏览器 Skill 显示 `Playwright MCP` pill
+
+9. **CLI 修复:** `crates/cli/src/main.rs` 把 `voice transcribe` / `voice listen` 命令的 `whisper::{WhisperConfig, WhisperEngine}` 迁移到 `asr::{SherpaAsrConfig, SherpaAsrEngine}`,与 W6b-3b sherpa-rs 迁移对齐。修复后 `cargo check --workspace --features voice,tauri,llm,uia` 全 feature 编译通过。
+
+**Commit 链(9 个):**
+
+| Hash | Type | Subject |
+|---|---|---|
+| `dfc2aca` | feat(w7p5) | mcp_servers schema migration + McpClient impl (Task 0) |
+| `23a5039` | feat(w7p5) | add insert_default_servers (playwright on missing row, idempotent) |
+| `7241438` | feat(w7p5) | add invoke_mcp_tool helper in skills/common.rs |
+| `dc57b40` | feat(w7p5) | wire insert_default_servers into kernel boot + add boot seeding test |
+| `c35c641` | feat(w7p5) | implement research.save_markdown executor (navigate + snapshot + eval + write) |
+| `10e85d5` | feat(w7p5) | implement form.prepare executor (navigate + fill, no submit) |
+| `f93656d` | feat(w7p5) | register 2 browser skills in SkillRouter |
+| `333e975` | test(w7p5) | add e2e smoke tests (mock + #[ignore] real) + UI hints |
+| `7f5b1e4` | fix(w7p5) | migrate cli voice commands from whisper to asr |
+
+**Acceptance Gates 验证:**
+
+- ✅ `mcp_servers` 表首次启动有 `playwright` 记录(`boot_seeds_playwright_record` 测试)
+- ✅ 2 个浏览器 Skill 各至少 1 个 mock 单元测试通过(`research_save::tests` + `form_prepare::tests`)
+- ✅ `form.prepare` 不调用 `playwright.click` submit(`form_prepare_via_mock_mcp_no_click_submit` 断言 `!calls.contains("click")`)
+- ✅ 真实 Playwright MCP 测试标 `#[ignore]`,本地可手动验证(`research_save_markdown_via_real_playwright_mcp`)
+- ✅ 全 workspace `cargo check --workspace --features voice,tauri,llm` PASS(1.62s)
+- ✅ 全 workspace `cargo check --workspace --features voice,tauri,llm,uia` PASS(cli whisper→asr 修复后)
+
+**已知偏离 / 延后项:**
+
+- **真实 Playwright MCP 测试需手动运行:** `#[ignore]` 标记的 `research_save_markdown_via_real_playwright_mcp` 需 Node.js ≥ 18 + 网络,CI 跳过
+- **`form.prepare` 不点击 submit:** 用户审批后需手动点击,或通过后续 `playwright.click` 调用(暂未实现,留待 W7+ Skill 编排)
+- **MCP server spawn 失败错误码未细化:** 当前所有 spawn 失败统一返回 `KernelError::Skill(...)`,未区分 `NodeNotInstalled` / `NetworkTimeout` / `PermissionDenied`。推迟到 follow-up
+- **`playwright.eval` 脚本硬编码:** `research_save_markdown` 用 `document.querySelector('main')?.innerText || document.body.innerText` 提取主要内容,未配置化。复杂页面(SPA / lazy-load)可能提取不全,推迟到 follow-up
+- **`mcp_servers.args` 编辑 UI 无下拉:** 当前为 JSON 文本输入,未来可加常用 MCP server 预设(playwright / filesystem / git 等)
+
+**下一步:** W7 Plan 6(Integration Acceptance)— 4 个 E2E 测试 + 全 feature 矩阵 + clippy + npm build
 
 ---
 
