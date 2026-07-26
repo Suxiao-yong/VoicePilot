@@ -420,6 +420,11 @@ pub fn task_compensate_manifest() -> SkillManifest {
 
 /// The built-in quick.app_control Skill manifest — W7 Plan 2 Task 2 stub.
 /// UIA adapter implementation deferred to Plan 4.
+///
+/// W7 Plan 4 Task 3: added `action` input (launch|focus|close) with default
+/// "launch". The `app_name` enum whitelist stays as-is — Plan 4 §2.6 lists
+/// `allowed_apps` as a security property, and an enum input provides a
+/// stronger whitelist than a free-form string.
 pub fn app_control_manifest() -> SkillManifest {
     let mut inputs = HashMap::new();
     inputs.insert(
@@ -435,6 +440,21 @@ pub fn app_control_manifest() -> SkillManifest {
             ],
             max_length: None,
             default: None,
+        },
+    );
+    inputs.insert(
+        "action".to_string(),
+        SkillInput {
+            input_type: SkillInputType::Enum,
+            required: false,
+            allowed_roots: vec![],
+            allowed_values: vec![
+                "launch".to_string(),
+                "focus".to_string(),
+                "close".to_string(),
+            ],
+            max_length: None,
+            default: Some(serde_json::json!("launch")),
         },
     );
 
