@@ -394,17 +394,17 @@ fn handle_voice_list_models_command() {
 
 #[cfg(feature = "voice")]
 fn handle_voice_transcribe_command(path: &str) -> anyhow::Result<()> {
-    use trust_kernel::voice::model::ModelRegistry;
+    use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
+    use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
     use trust_kernel::voice::wav::read_wav;
-    use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
 
     let registry = ModelRegistry::new();
-    let model_path = registry
-        .resolve("ggml-tiny.bin")
+    let model_dir = registry
+        .resolve(SENSE_VOICE_DIR_NAME)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir,
         language: None, // auto-detect
         ..Default::default()
     })
@@ -482,10 +482,10 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
 fn handle_voice_listen_command() -> anyhow::Result<()> {
     use trust_kernel::approval::approver::AutoApprover;
     use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
-    use trust_kernel::voice::model::ModelRegistry;
+    use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
     use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
     use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
-    use trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine};
+    use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
     use trust_kernel::kernel::TrustKernel;
 
     // 1. Record up to 5 seconds of audio.
@@ -507,15 +507,15 @@ fn handle_voice_listen_command() -> anyhow::Result<()> {
         }
     }
 
-    // 3. Load Whisper model.
+    // 3. Load Sherpa ASR model.
     let registry = ModelRegistry::new();
-    let model_path = registry
-        .resolve("ggml-tiny.bin")
+    let model_dir = registry
+        .resolve(SENSE_VOICE_DIR_NAME)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // 4. Transcribe.
-    let engine = WhisperEngine::new(WhisperConfig {
-        model_path,
+    let engine = SherpaAsrEngine::new(SherpaAsrConfig {
+        model_dir,
         language: None,
         ..Default::default()
     })
