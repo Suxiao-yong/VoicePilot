@@ -25,3 +25,7 @@ pub mod app_control;
 // Same cfg gate as app_control — uses `crate::uiautomation::UiaAdapter`.
 #[cfg(all(windows, feature = "uia"))]
 pub mod note_capture;
+
+// W7 Plan 5 Task 4: research.save_markdown executor (navigate + snapshot
+// + eval + write). Cross-platform — only depends on the MCP client.
+pub mod research_save;
