@@ -499,7 +499,12 @@ pub fn app_control_manifest() -> SkillManifest {
             conflict_policy: ConflictPolicy::RequireConfirmation,
         },
         verifier: VerifierConfig {
-            strategy: "strong".to_string(),
+            // W7 Plan 4 final review (follow-up #5): UIA ops produce no
+            // file artifact — strong verifier is inappropriate. Use "weak"
+            // (verification by step success / failure only). Strong
+            // verifier deferred to Plan 5 screenshot capture, which can
+            // produce a PNG artifact and hash it as evidence.
+            strategy: "weak".to_string(),
             recheck_after_seconds: 0,
         },
         failure_policy: FailurePolicy {
