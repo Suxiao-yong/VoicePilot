@@ -4,6 +4,11 @@
 //! and security config (allowed_origins, allowed_paths). W4 loads
 //! allowed_paths at startup and injects into FilesystemTool via
 //! new_with_allowed_paths(), resolving spec issue #31.
+//!
+//! W7 Plan 5 Task 0: extended with `command` / `args` / `env` columns to
+//! support spawning external MCP server subprocesses (e.g.
+//! `npx @playwright/mcp@latest`). In-process servers (e.g. the builtin
+//! voicepilot-filesystem) leave these as `None`.
 
 use crate::allowed_paths::AllowedPaths;
 use crate::error::Result;
@@ -21,6 +26,12 @@ pub struct McpServerRecord {
     pub protocol_version: Option<String>,
     pub allowed_origins: Option<String>, // JSON array, raw text
     pub allowed_paths: Option<String>,   // JSON array, raw text
+    /// W7 Plan 5: spawn command (e.g. "npx"). `None` for in-process servers.
+    pub command: Option<String>,
+    /// W7 Plan 5: JSON array of args (e.g. '["-y","@playwright/mcp@latest"]').
+    pub args: Option<String>,
+    /// W7 Plan 5: JSON object of env overrides (e.g. '{"FOO":"bar"}').
+    pub env: Option<String>,
 }
 
 pub struct McpServerRepo;
@@ -34,8 +45,9 @@ impl McpServerRepo {
         conn.execute(
             r#"INSERT INTO mcp_servers
                (server_id, name, version, transport, enabled, trusted,
-                protocol_version, allowed_origins, allowed_paths)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+                protocol_version, allowed_origins, allowed_paths,
+                command, args, env)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
             params![
                 rec.server_id,
                 rec.name,
@@ -46,6 +58,9 @@ impl McpServerRepo {
                 rec.protocol_version,
                 rec.allowed_origins,
                 rec.allowed_paths,
+                rec.command,
+                rec.args,
+                rec.env,
             ],
         )?;
         Ok(())
@@ -54,7 +69,8 @@ impl McpServerRepo {
     pub fn get(&self, conn: &Connection, server_id: &str) -> Result<Option<McpServerRecord>> {
         let mut stmt = conn.prepare(
             r#"SELECT server_id, name, version, transport, enabled, trusted,
-                      protocol_version, allowed_origins, allowed_paths
+                      protocol_version, allowed_origins, allowed_paths,
+                      command, args, env
                FROM mcp_servers WHERE server_id = ?1"#,
         )?;
         let mut rows = stmt.query(params![server_id])?;
@@ -68,7 +84,8 @@ impl McpServerRepo {
     pub fn list(&self, conn: &Connection) -> Result<Vec<McpServerRecord>> {
         let mut stmt = conn.prepare(
             r#"SELECT server_id, name, version, transport, enabled, trusted,
-                      protocol_version, allowed_origins, allowed_paths
+                      protocol_version, allowed_origins, allowed_paths,
+                      command, args, env
                FROM mcp_servers ORDER BY server_id"#,
         )?;
         let records = stmt
@@ -92,7 +109,7 @@ impl McpServerRepo {
             r#"UPDATE mcp_servers SET
                  name = ?2, version = ?3, transport = ?4, enabled = ?5,
                  trusted = ?6, protocol_version = ?7, allowed_origins = ?8,
-                 allowed_paths = ?9
+                 allowed_paths = ?9, command = ?10, args = ?11, env = ?12
                WHERE server_id = ?1"#,
             params![
                 rec.server_id,
@@ -104,6 +121,9 @@ impl McpServerRepo {
                 rec.protocol_version,
                 rec.allowed_origins,
                 rec.allowed_paths,
+                rec.command,
+                rec.args,
+                rec.env,
             ],
         )?;
         Ok(())
@@ -141,6 +161,9 @@ impl McpServerRepo {
     /// Ensure the builtin voicepilot-filesystem server row exists.
     /// Idempotent — does not overwrite an existing row (preserves user
     /// customizations to allowed_paths).
+    ///
+    /// W7 Plan 5: `command` / `args` / `env` are `None` because the
+    /// voicepilot-filesystem server runs in-process (no subprocess).
     pub fn seed_builtin_filesystem(&self, conn: &Connection) -> Result<()> {
         if self.get(conn, "voicepilot-filesystem")?.is_some() {
             return Ok(());
@@ -156,6 +179,9 @@ impl McpServerRepo {
             protocol_version: Some("2025-11-25".to_string()),
             allowed_origins: None,
             allowed_paths: Some(default_paths),
+            command: None,
+            args: None,
+            env: None,
         };
         self.create(conn, &rec)
     }
@@ -178,5 +204,8 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<McpServerRecord> {
         protocol_version: row.get(6)?,
         allowed_origins: row.get(7)?,
         allowed_paths: row.get(8)?,
+        command: row.get(9)?,
+        args: row.get(10)?,
+        env: row.get(11)?,
     })
 }

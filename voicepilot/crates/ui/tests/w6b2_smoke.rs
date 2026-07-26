@@ -61,6 +61,9 @@ fn trust_center_toggle_mcp_server() {
         protocol_version: Some("2025-11-25".to_string()),
         allowed_origins: None,
         allowed_paths: Some("[]".to_string()),
+        command: None,
+        args: None,
+        env: None,
     };
     // conn 锁必须先释放再调用 kernel.toggle_mcp_server —— 后者内部
     // 会再次 self.conn() 获取同一 Mutex(Rust Mutex 不可重入,否则死锁)。

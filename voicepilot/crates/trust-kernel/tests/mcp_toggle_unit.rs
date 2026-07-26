@@ -20,6 +20,9 @@ fn make_record(id: &str) -> McpServerRecord {
         protocol_version: Some("2025-11-25".to_string()),
         allowed_origins: None,
         allowed_paths: Some(r#"["C:/Users"]"#.to_string()),
+        command: None,
+        args: None,
+        env: None,
     }
 }
 

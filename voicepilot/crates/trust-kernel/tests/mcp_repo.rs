@@ -15,6 +15,9 @@ fn repo_create_and_get_round_trips() {
         protocol_version: Some("2025-11-25".to_string()),
         allowed_origins: None,
         allowed_paths: Some(r#"["C:/Users","D:/"]"#.to_string()),
+        command: None,
+        args: None,
+        env: None,
     };
     repo.create(&k.conn(), &rec).unwrap();
     let loaded = repo.get(&k.conn(), "voicepilot-filesystem").unwrap().expect("must exist");
@@ -77,6 +80,9 @@ fn sample(id: &str) -> McpServerRecord {
         protocol_version: Some("2025-11-25".to_string()),
         allowed_origins: None,
         allowed_paths: None,
+        command: None,
+        args: None,
+        env: None,
     }
 }
 
@@ -96,6 +102,9 @@ fn load_allowed_paths_returns_canonicalized_roots() {
         protocol_version: Some("2025-11-25".to_string()),
         allowed_origins: None,
         allowed_paths: Some(r#"["C:/Users","D:/voicepilot"]"#.to_string()),
+        command: None,
+        args: None,
+        env: None,
     };
     repo.create(&k.conn(), &rec).unwrap();
 
@@ -120,6 +129,9 @@ fn load_allowed_paths_returns_none_when_column_empty() {
         protocol_version: None,
         allowed_origins: None,
         allowed_paths: None,
+        command: None,
+        args: None,
+        env: None,
     };
     repo.create(&k.conn(), &rec).unwrap();
     assert!(repo.load_allowed_paths(&k.conn(), "s2").unwrap().is_none());
@@ -146,6 +158,9 @@ fn load_allowed_paths_returns_err_on_invalid_json() {
         protocol_version: None,
         allowed_origins: None,
         allowed_paths: Some("not valid json".to_string()),
+        command: None,
+        args: None,
+        env: None,
     };
     repo.create(&k.conn(), &rec).unwrap();
     assert!(repo.load_allowed_paths(&k.conn(), "s3").is_err());
