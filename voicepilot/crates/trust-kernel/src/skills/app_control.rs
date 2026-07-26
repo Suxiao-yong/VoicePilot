@@ -15,7 +15,9 @@
 //!   6. Branch on action:
 //!      - launch → adapter.launch_app(app_name)
 //!      - focus  → adapter.find_window(app_name) → adapter.click(handle)
-//!      - close  → TODO: not yet implemented (returns Uia error)
+//!      - close  → adapter.find_window(app_name) →
+//!                 adapter.find_element(window, ByName("Close")) →
+//!                 adapter.click(close_btn)
 //!   7. Finalize step as Succeeded with Weak evidence (no file evidence).
 //!
 //! W7 Plan 4 Task 5 (review fix): the `allowed_apps` whitelist
@@ -43,7 +45,7 @@ use crate::skills::common::{
     ApprovalContext,
 };
 use crate::skills::manifest::app_control_manifest;
-use crate::uiautomation::UiaAdapter;
+use crate::uiautomation::{UiaAdapter, UiaSelector};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
@@ -229,18 +231,45 @@ pub fn execute_app_control(
                 })?;
         }
         "close" => {
-            // TODO(Plan 5+): implement close — either send a WM_CLOSE
-            // event via `uiautomation::UIElement::send_close` (if added
-            // to the trait), or locate the window's Close button via
-            // `find_element(root, ByName("Close"))` and `click` it. For
-            // now, return a Uia error so callers can detect the
-            // unimplemented path without a panic. find_window is NOT
-            // called — the close action is a stub and would waste a
-            // UIA round-trip.
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-            return Err(KernelError::Uia(
-                "close action not yet implemented".to_string(),
-            ));
+            // W7 Plan 4 final review (follow-up #3): real implementation.
+            // Locate the app's window via `find_window`, then find its
+            // Close button via `find_element(ByName("Close"))` and click
+            // it. If the window isn't found, return a descriptive Uia
+            // error so callers can distinguish "app not running" from
+            // "Close button not visible / not clickable".
+            let window = adapter
+                .find_window(&input.app_name)
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })?;
+            let window = match window {
+                Some(h) => h,
+                None => {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                    return Err(KernelError::Uia(
+                        "close failed: window not found".to_string(),
+                    ));
+                }
+            };
+            let close_btn = adapter
+                .find_element(&window, &UiaSelector::ByName("Close".to_string()))
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })?;
+            let close_btn = match close_btn {
+                Some(h) => h,
+                None => {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                    return Err(KernelError::Uia(
+                        "close failed: Close button not found".to_string(),
+                    ));
+                }
+            };
+            adapter
+                .click(&close_btn)
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })?;
         }
         // Unreachable: ALLOWED_ACTIONS check above filters this. Kept for
         // exhaustiveness so future actions force an explicit branch.
@@ -292,11 +321,16 @@ mod tests {
     struct MockState {
         launch_calls: Vec<String>,
         find_window_calls: Vec<String>,
+        find_element_calls: Vec<UiaSelector>,
         click_calls: usize,
         /// When `Some`, every fallible method returns `Err(KernelError::Uia(msg))`.
         next_error: Option<&'static str>,
         /// When `true`, `find_window` returns `Ok(None)` instead of `Ok(Some(handle))`.
         find_window_returns_none: bool,
+        /// When `true`, `find_element` returns `Ok(None)` instead of
+        /// `Ok(Some(handle))`. Used to test the "Close button not found"
+        /// path in `close` action.
+        find_element_returns_none: bool,
     }
 
     /// Mock adapter that records calls into a shared `Rc<RefCell<MockState>>`.
@@ -344,11 +378,18 @@ mod tests {
         fn find_element(
             &self,
             _root: &UiaElementHandle,
-            _selector: &UiaSelector,
+            selector: &UiaSelector,
         ) -> Result<Option<UiaElementHandle>> {
-            // Unused by app_control executor; return a mock handle for
-            // trait completeness.
-            Ok(Some(UiaElementHandle::mock()))
+            let mut s = self.state.borrow_mut();
+            s.find_element_calls.push(selector.clone());
+            if let Some(msg) = s.next_error {
+                return Err(KernelError::Uia(msg.to_string()));
+            }
+            if s.find_element_returns_none {
+                Ok(None)
+            } else {
+                Ok(Some(UiaElementHandle::mock()))
+            }
         }
 
         fn click(&self, _element: &UiaElementHandle) -> Result<()> {
@@ -526,9 +567,9 @@ mod tests {
 
     #[test]
     fn test_app_control_close_action() {
-        // close action is not yet implemented — returns Uia error and
-        // marks step Failed. find_window is NOT called (close is a stub;
-        // calling find_window would waste a UIA round-trip).
+        // close action: find_window → find_element(ByName("Close")) →
+        // click on the close button. Verify all three adapter calls
+        // fire in order, step is Succeeded, and approval is recorded.
         let kernel = TrustKernel::open_in_memory().unwrap();
         let approver = AutoApprover;
         let mock = MockAdapter::new();
@@ -538,28 +579,102 @@ mod tests {
         let input = make_input("close");
         let result = execute_app_control(&kernel, &input, &approver, adapter);
 
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+
+        // find_window was called once with "notepad".
+        assert_eq!(state.borrow().find_window_calls.len(), 1);
+        assert_eq!(state.borrow().find_window_calls[0], "notepad");
+        // find_element was called once with ByName("Close").
+        assert_eq!(state.borrow().find_element_calls.len(), 1);
+        assert_eq!(
+            state.borrow().find_element_calls[0],
+            UiaSelector::ByName("Close".to_string())
+        );
+        // click was called once on the close button handle.
+        assert_eq!(state.borrow().click_calls, 1);
+        // launch_app was NOT called (close uses find_window, not launch).
+        assert!(state.borrow().launch_calls.is_empty());
+
+        // Step is Succeeded with weak evidence.
+        let step = kernel.get_step("s1").unwrap().unwrap();
+        assert_eq!(step.status, StepStatus::Succeeded);
+        assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
+
+        // Approval was recorded (PerStep — close always requires approval).
+        let approvals = kernel.list_approvals_for_task("t1").unwrap();
+        assert_eq!(approvals.len(), 1);
+    }
+
+    #[test]
+    fn test_app_control_close_fails_when_window_not_found() {
+        // close action with find_window returning Ok(None) → step Failed
+        // with "close failed: window not found". find_element and click
+        // are NOT called (window not found short-circuits).
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        state.borrow_mut().find_window_returns_none = true;
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let input = make_input("close");
+        let result = execute_app_control(&kernel, &input, &approver, adapter);
+
         let err = result.unwrap_err();
         assert!(
-            matches!(err, KernelError::Uia(ref m) if m.contains("close action not yet implemented")),
-            "expected Uia 'close action not yet implemented' error, got {:?}",
+            matches!(err, KernelError::Uia(ref m) if m == "close failed: window not found"),
+            "expected Uia 'close failed: window not found' error, got {:?}",
             err
         );
+
+        // find_window was called.
+        assert_eq!(state.borrow().find_window_calls.len(), 1);
+        // find_element was NOT called (window not found short-circuits).
+        assert!(state.borrow().find_element_calls.is_empty());
+        // click was NOT called.
+        assert_eq!(state.borrow().click_calls, 0);
 
         // Step is marked Failed.
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Failed);
+    }
 
-        // find_window was NOT called (close stub returns early).
-        assert!(state.borrow().find_window_calls.is_empty());
-        // launch_app and click were NOT called either.
-        assert!(state.borrow().launch_calls.is_empty());
+    #[test]
+    fn test_app_control_close_fails_when_close_button_not_found() {
+        // close action with find_element returning Ok(None) → step
+        // Failed with "close failed: Close button not found". click
+        // is NOT called (button not found short-circuits).
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        state.borrow_mut().find_element_returns_none = true;
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let input = make_input("close");
+        let result = execute_app_control(&kernel, &input, &approver, adapter);
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, KernelError::Uia(ref m) if m == "close failed: Close button not found"),
+            "expected Uia 'close failed: Close button not found' error, got {:?}",
+            err
+        );
+
+        // find_window was called (returned Some(handle)).
+        assert_eq!(state.borrow().find_window_calls.len(), 1);
+        // find_element was called (returned None).
+        assert_eq!(state.borrow().find_element_calls.len(), 1);
+        assert_eq!(
+            state.borrow().find_element_calls[0],
+            UiaSelector::ByName("Close".to_string())
+        );
+        // click was NOT called (button not found short-circuits).
         assert_eq!(state.borrow().click_calls, 0);
 
-        // Approval was still recorded (PerStep — approval happens before
-        // the action branch, so the user's Allow decision is persisted
-        // even though the action failed).
-        let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
+        // Step is marked Failed.
+        let step = kernel.get_step("s1").unwrap().unwrap();
+        assert_eq!(step.status, StepStatus::Failed);
     }
 
     #[test]
