@@ -53,7 +53,14 @@ pub fn route_text(
     // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
     router.register(task_compensate_manifest());
     router.register(task_explain_manifest());
-    // Plan 4/5: register UIA + Playwright stub skills once executors exist.
+    // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
+    // Playwright (research_save, form_prepare) still deferred to Plan 5.
+    #[cfg(all(windows, feature = "uia"))]
+    {
+        use crate::skills::manifest::{app_control_manifest, note_capture_manifest};
+        router.register(app_control_manifest());
+        router.register(note_capture_manifest());
+    }
 
     match router.route(trimmed) {
         RouteDecision::Skill(manifest) => Ok(RouteOutcome::Routed {
@@ -68,5 +75,43 @@ pub fn route_text(
         RouteDecision::Planner => Ok(RouteOutcome::Unmatched {
             text: trimmed.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::approval::approver::AutoApprover;
+    use crate::kernel::TrustKernel;
+
+    /// W7 Plan 4 Task 6: `quick.app_control` 注册后,`route_text` 应将
+    /// "打开记事本" 路由到该 Skill(intent_example 命中)。仅在 `uia` feature
+    /// 开启时验证 —— 无 uia 时 manifest 未注册,路由会落到 Planner。
+    #[cfg(all(windows, feature = "uia"))]
+    #[test]
+    fn route_text_recognizes_app_control_intent() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let result = route_text(&kernel, &approver, "打开记事本").unwrap();
+        assert!(
+            matches!(result, RouteOutcome::Routed { ref skill_id } if skill_id == "quick.app_control"),
+            "expected Routed to quick.app_control, got {:?}",
+            result
+        );
+    }
+
+    /// W7 Plan 4 Task 6: `note.capture` 注册后,`route_text` 应将
+    /// "用记事本记录这个想法" 路由到该 Skill(intent_example "用记事本记录" 命中)。
+    #[cfg(all(windows, feature = "uia"))]
+    #[test]
+    fn route_text_recognizes_note_capture_intent() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let result = route_text(&kernel, &approver, "用记事本记录这个想法").unwrap();
+        assert!(
+            matches!(result, RouteOutcome::Routed { ref skill_id } if skill_id == "note.capture"),
+            "expected Routed to note.capture, got {:?}",
+            result
+        );
     }
 }
