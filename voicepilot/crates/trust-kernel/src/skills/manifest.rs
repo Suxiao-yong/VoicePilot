@@ -422,23 +422,24 @@ pub fn task_compensate_manifest() -> SkillManifest {
 /// UIA adapter implementation deferred to Plan 4.
 ///
 /// W7 Plan 4 Task 3: added `action` input (launch|focus|close) with default
-/// "launch". The `app_name` enum whitelist stays as-is — Plan 4 §2.6 lists
-/// `allowed_apps` as a security property, and an enum input provides a
-/// stronger whitelist than a free-form string.
+/// "launch".
+/// W7 Plan 4 Task 5 (review fix): changed `app_name` from Enum whitelist
+/// to free-form Text. The static enum prevented Settings-saved whitelists
+/// from taking effect (manifest validation rejected unknown apps before
+/// the executor ran). Runtime whitelist is now `kernel.allowed_apps()`
+/// (Settings-configurable, persisted in KV "uia.allowed_apps"). Per Plan 4
+/// §2.6, PerStep approval is mandatory for ALL launches regardless of
+/// whitelist membership — the whitelist is advisory.
 pub fn app_control_manifest() -> SkillManifest {
     let mut inputs = HashMap::new();
     inputs.insert(
         "app_name".to_string(),
         SkillInput {
-            input_type: SkillInputType::Enum,
+            input_type: SkillInputType::Text,
             required: true,
             allowed_roots: vec![],
-            allowed_values: vec![
-                "notepad".to_string(),
-                "explorer".to_string(),
-                "calc".to_string(),
-            ],
-            max_length: None,
+            allowed_values: vec![],
+            max_length: Some(100),
             default: None,
         },
     );

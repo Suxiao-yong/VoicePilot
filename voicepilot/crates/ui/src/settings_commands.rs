@@ -34,6 +34,10 @@ pub struct SettingsDto {
     pub llm_model: String,
     /// "Get API Key" 链接(前端 <a href>,DeepSeek/OpenAI/Qwen/Kimi 等 provider 入口)。
     pub llm_provider_url: String,
+    // W7 Plan 4: UIA 应用白名单(quick.app_control / note.capture 可启动的应用列表)。
+    // 默认 ["notepad", "explorer", "calc"]。前端逗号分隔输入,KV 存 JSON 数组字符串。
+    // 即使 `uia` feature 关闭此字段也存在(纯数据,无害)——避免 DTO 形状随 feature 变化。
+    pub uia_allowed_apps: Vec<String>,
 }
 
 impl Default for SettingsDto {
@@ -63,6 +67,12 @@ impl Default for SettingsDto {
             llm_base_url: "https://api.deepseek.com/v1".to_string(),
             llm_model: "deepseek-chat".to_string(),
             llm_provider_url: "https://platform.deepseek.com/api_keys".to_string(),
+            // W7 Plan 4: V1.1 §8.1 quick.app_control / note.capture 默认白名单。
+            uia_allowed_apps: vec![
+                "notepad".to_string(),
+                "explorer".to_string(),
+                "calc".to_string(),
+            ],
         }
     }
 }
@@ -88,6 +98,12 @@ pub fn flatten_to_kv(dto: &SettingsDto) -> Vec<(String, String)> {
         ("llm.base_url".to_string(), dto.llm_base_url.clone()),
         ("llm.model".to_string(), dto.llm_model.clone()),
         ("llm.provider_url".to_string(), dto.llm_provider_url.clone()),
+        // W7 Plan 4: UIA 白名单 —— JSON 数组字符串(如 ["notepad","explorer","calc"])。
+        // serde_json::to_string 失败时存空串(理论上 Vec<String> 序列化不会失败)。
+        (
+            "uia.allowed_apps".to_string(),
+            serde_json::to_string(&dto.uia_allowed_apps).unwrap_or_default(),
+        ),
     ]
 }
 
@@ -114,6 +130,17 @@ pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsDto> {
             "llm.base_url" => dto.llm_base_url = v.clone(),
             "llm.model" => dto.llm_model = v.clone(),
             "llm.provider_url" => dto.llm_provider_url = v.clone(),
+            // W7 Plan 4: UIA 白名单 —— JSON 数组反序列化,解析失败返回 InvalidConfig。
+            // 空串视为空数组(向前兼容:旧版本无此 key 时 default 已预填默认值)。
+            "uia.allowed_apps" => {
+                dto.uia_allowed_apps = if v.is_empty() {
+                    Vec::new()
+                } else {
+                    serde_json::from_str(v).map_err(|e| {
+                        UiError::InvalidConfig(format!("uia.allowed_apps: {e}"))
+                    })?
+                };
+            }
             _ => {} // 忽略未知 key(前向兼容)
         }
     }
@@ -152,6 +179,9 @@ pub fn update_settings(state: &AppState, settings: &SettingsDto) -> UiResult<()>
 #[tauri::command]
 pub async fn update_settings_command(state: State<'_, AppState>, settings: SettingsDto) -> Result<(), String> {
     update_settings(&state, &settings).map_err(|e: crate::error::UiError| e.to_string())?;
+    // W7 Plan 4: 同步 UIA 白名单到运行时 TrustKernel(与 LlmClient 重建同理:
+    // KV 是 accepted/persisted,但 serving-applied 状态需显式刷新)。
+    state.kernel.set_allowed_apps(settings.uia_allowed_apps.clone());
     // W7: 重建 LlmClient 并写入 AppState 缓存。
     // - privacy_mode=true / llm_enabled=false / api_key 空 → LlmClient::disabled()
     // - 否则 → LlmClient::new(base_url, api_key, model)
@@ -205,5 +235,133 @@ mod tests {
         assert_eq!(dto.llm_base_url, "https://api.deepseek.com/v1");
         assert_eq!(dto.llm_model, "deepseek-chat");
         assert_eq!(dto.llm_provider_url, "https://platform.deepseek.com/api_keys");
+    }
+
+    // ===== W7 Plan 4: UIA 应用白名单 =====
+
+    #[test]
+    fn uia_allowed_apps_roundtrip() {
+        let mut dto = SettingsDto::default();
+        assert_eq!(
+            dto.uia_allowed_apps,
+            vec![
+                "notepad".to_string(),
+                "explorer".to_string(),
+                "calc".to_string(),
+            ]
+        );
+
+        dto.uia_allowed_apps = vec!["notepad".to_string(), "code".to_string()];
+        let kv = flatten_to_kv(&dto);
+        let restored = merge_from_kv(&kv).unwrap();
+        assert_eq!(
+            restored.uia_allowed_apps,
+            vec!["notepad".to_string(), "code".to_string()]
+        );
+    }
+
+    #[test]
+    fn uia_allowed_apps_default() {
+        let dto = SettingsDto::default();
+        assert_eq!(dto.uia_allowed_apps, vec!["notepad", "explorer", "calc"]);
+    }
+
+    #[test]
+    fn uia_allowed_apps_empty_serialization() {
+        let mut dto = SettingsDto::default();
+        dto.uia_allowed_apps = vec![];
+        let kv = flatten_to_kv(&dto);
+        let restored = merge_from_kv(&kv).unwrap();
+        assert!(restored.uia_allowed_apps.is_empty());
+    }
+
+    /// W7 Plan 4 Task 5 (review fix): `update_settings_command` 必须 sync
+    /// `uia_allowed_apps` 到运行时 `kernel.allowed_apps()`(B1 fix)。
+    ///
+    /// 测试设计:`tauri::State<'_, AppState>` 在 unit test 中难以构造(需要
+    /// Tauri runtime),所以本测试镜像 `update_settings_command` 的函数体 ——
+    /// 调 `update_settings`(KV persist)+ 手动调 `set_allowed_apps`(runtime sync),
+    /// 验证两者协作后 `kernel.allowed_apps()` 反映新值。完整的端到端契约
+    /// (Settings → KV → kernel boot load)由 `kernel::tests::allowed_apps_loads_from_kv_at_boot`
+    /// 覆盖。
+    #[test]
+    fn update_settings_syncs_allowed_apps_to_kernel() {
+        let state = crate::state::AppState::new_in_memory().expect("AppState::new_in_memory");
+
+        // 默认值应为 ["notepad", "explorer", "calc"]。
+        {
+            let apps = state.kernel.allowed_apps();
+            assert_eq!(
+                *apps,
+                vec![
+                    "notepad".to_string(),
+                    "explorer".to_string(),
+                    "calc".to_string(),
+                ]
+            );
+        }
+
+        // 调 update_settings 写入自定义白名单(仅 KV persist,不动 runtime)。
+        let mut dto = SettingsDto::default();
+        dto.uia_allowed_apps = vec!["code".to_string(), "terminal".to_string()];
+        update_settings(&state, &dto).expect("update_settings");
+
+        // 镜像 update_settings_command 函数体:显式调 set_allowed_apps
+        // 把 serving-applied 状态刷新(B1 fix 的核心契约)。
+        state.kernel.set_allowed_apps(dto.uia_allowed_apps.clone());
+
+        // kernel.allowed_apps() 应反映新值。
+        let apps = state.kernel.allowed_apps();
+        assert_eq!(
+            *apps,
+            vec!["code".to_string(), "terminal".to_string()],
+            "update_settings + set_allowed_apps must sync uia_allowed_apps to kernel.allowed_apps()"
+        );
+
+        // 验证 KV 也持久化了(boot load 才能恢复)。
+        let conn = state.kernel.conn();
+        let kv = state.kernel.config_repo().list(&conn).expect("config_repo list");
+        let uia_kv = kv
+            .iter()
+            .find(|(k, _)| k == "uia.allowed_apps")
+            .map(|(_, v)| v.clone())
+            .expect("uia.allowed_apps in KV");
+        assert!(uia_kv.contains("code") && uia_kv.contains("terminal"));
+    }
+
+    /// W7 Plan 4 Task 5 (review fix): `update_settings` 持久化 + boot reload
+    /// 端到端验证。Phase 1 写入 Settings → Phase 2 重新打开同一 DB,
+    /// kernel 应从 KV 加载 allowed_apps(B2 fix)。
+    #[test]
+    fn update_settings_persists_and_reloads_allowed_apps() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8").to_string();
+
+        // Phase 1: 通过 AppState::new_file 写入自定义白名单(镜像 command body)。
+        {
+            let state = crate::state::AppState::new_file(&path).expect("AppState::new_file");
+            let mut dto = SettingsDto::default();
+            dto.uia_allowed_apps = vec!["vim".to_string(), "emacs".to_string()];
+            update_settings(&state, &dto).expect("update_settings");
+            // 镜像 update_settings_command 函数体:显式刷新 runtime(B1 fix)。
+            state.kernel.set_allowed_apps(dto.uia_allowed_apps.clone());
+            let apps = state.kernel.allowed_apps();
+            assert_eq!(
+                *apps,
+                vec!["vim".to_string(), "emacs".to_string()]
+            );
+        }
+
+        // Phase 2: 模拟进程重启 —— 重新打开同一 DB 文件,新 kernel 应
+        // 从 KV 加载 allowed_apps(B2 fix)。
+        {
+            let state = crate::state::AppState::new_file(&path).expect("AppState::new_file phase 2");
+            let apps = state.kernel.allowed_apps();
+            assert_eq!(
+                *apps,
+                vec!["vim".to_string(), "emacs".to_string()],
+                "boot load must pick up KV-persisted uia_allowed_apps"
+            );
+        }
     }
 }

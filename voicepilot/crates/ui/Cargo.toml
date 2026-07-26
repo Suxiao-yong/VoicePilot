@@ -40,6 +40,10 @@ default = ["llm"]
 # voicepilot-ui 代码用 #[cfg(feature = "llm")] 门控 SkillWithSlots 匹配臂等,
 # 与 trust-kernel/llm 同步开闭。
 llm = ["trust-kernel/llm"]
+# W7 Plan 4: UIA 应用控制能力(Windows-only,与 trust-kernel/uia 同步开闭)。
+# voicepilot-ui 通过 trust-kernel 的 quick.app_control / note.capture Skill
+# 调用 UIA 适配器;启用此 feature 才能在 Windows 上真正驱动应用。
+uia = ["trust-kernel/uia"]
 # Tauri UI shell only — no voice subsystem dependency.
 # This decouples W6a UI work from the W5 voice environment (whisper-rs bindgen
 # issue #49), allowing the desktop shell to compile and run on systems where

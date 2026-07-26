@@ -18,10 +18,17 @@
 //!      - close  → TODO: not yet implemented (returns Uia error)
 //!   7. Finalize step as Succeeded with Weak evidence (no file evidence).
 //!
-//! The `allowed_apps` whitelist (`["notepad", "explorer", "calc"]`) is
-//! enforced by the `app_name` SkillInput's `allowed_values`. Per Plan 4
-//! §2.6, even apps outside this whitelist (added via Settings in Task 5)
-//! require PerStep approval — the approval gate is mandatory, never skipped.
+//! W7 Plan 4 Task 5 (review fix): the `allowed_apps` whitelist
+//! (`["notepad", "explorer", "calc"]` by default, Settings-configurable)
+//! is NO LONGER enforced by the manifest's `app_name` `allowed_values`
+//! (the input is now free-form Text). The runtime whitelist lives in
+//! `kernel.allowed_apps()` (Settings-persisted in KV "uia.allowed_apps").
+//! Per Plan 4 §2.6, PerStep approval is mandatory for ALL launches
+//! regardless of whitelist membership — the approval gate is the
+//! security boundary, never skipped. The whitelist is advisory: it
+//! tells the user "these apps are pre-approved" but does not change
+//! the approval flow. A future enhancement could skip approval for
+//! in-whitelist apps (out of scope for Plan 4 Task 5).
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
@@ -75,9 +82,9 @@ pub fn execute_app_control(
 ) -> Result<String> {
     // Step 1: validate input — reject empty app_name/action explicitly,
     // since validate_input_against_manifest only checks presence + type
-    // constraints (an empty string passes Enum validation if it happens
-    // to match an allowed_value, and an out-of-allow-list action is
-    // caught here with a clearer message than the manifest's generic one).
+    // constraints (an empty string passes Text validation, and an
+    // out-of-allow-list action is caught here with a clearer message than
+    // the manifest's generic one).
     if input.app_name.trim().is_empty() {
         return Err(KernelError::Skill(
             "validation failed for app_name: must not be empty".to_string(),
@@ -95,9 +102,11 @@ pub fn execute_app_control(
         )));
     }
 
-    // Step 2: validate the full input map against the manifest. Catches
-    // app_name ∉ {notepad, explorer, calc} once Task 5 loosens the
-    // explicit empty-check above (and acts as a defense-in-depth today).
+    // Step 2: validate the full input map against the manifest. With the
+    // Task 5 review fix, `app_name` is free-form Text (no allowed_values)
+    // — any non-empty string ≤ max_length passes. The runtime whitelist
+    // (`kernel.allowed_apps()`) is advisory and does not affect validation;
+    // PerStep approval below is the security boundary.
     let mut input_map: HashMap<String, serde_json::Value> = HashMap::new();
     input_map.insert("app_name".to_string(), serde_json::json!(input.app_name));
     input_map.insert("action".to_string(), serde_json::json!(input.action));
@@ -160,13 +169,14 @@ pub fn execute_app_control(
     // Step 7: branch on action.
     //
     // Plan 4 §2.6 specifies an `allowed_apps` whitelist
-    // (`["notepad", "explorer", "calc"]` for now; Task 5 makes it
-    // Settings-configurable). The whitelist is enforced by the `app_name`
-    // SkillInput's `allowed_values` in the manifest, so any app_name
-    // reaching this point is already in the whitelist. Per §2.6, even
-    // apps outside the whitelist (once Settings loosens the manifest)
-    // require PerStep approval — the approval above is mandatory and
-    // never skipped, so no separate whitelist branch is needed here.
+    // (`["notepad", "explorer", "calc"]` by default; Task 5 makes it
+    // Settings-configurable via `kernel.set_allowed_apps()`). The
+    // whitelist is ADVISORY — PerStep approval above is mandatory for
+    // ALL launches regardless of whitelist membership, so no separate
+    // whitelist branch is needed here. (Task 5 review fix: manifest
+    // `app_name` is now free-form Text; the whitelist lives in
+    // `kernel.allowed_apps()` and is checked nowhere in the executor —
+    // a future enhancement could skip approval for in-whitelist apps.)
     match input.action.as_str() {
         "launch" => {
             adapter

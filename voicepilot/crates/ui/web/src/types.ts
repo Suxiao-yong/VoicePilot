@@ -90,6 +90,9 @@ export interface Settings {
   llm_base_url: string;
   llm_model: string;
   llm_provider_url: string;
+  // W7 Plan 4: UIA allowed_apps 白名单(默认 ["notepad", "explorer", "calc"])。
+  // 逗号分隔输入,后端 KV 存 JSON 数组字符串。uia feature 关闭时仍可编辑(数据无害)。
+  uia_allowed_apps: string[];
 }
 
 export type View = "main" | "settings" | "audit" | "trust" | "skills";

@@ -251,6 +251,34 @@ export function SettingsView(): JSX.Element {
         </details>
       </fieldset>
 
+      {/* W7 Plan 4:UIA 白名单(quick.app_control / note.capture 可启动的应用列表)。
+          逗号分隔输入,后端 JSON 数组持久化。uia feature 关闭时仍可编辑(数据无害)。*/}
+      <fieldset className="settings-fieldset">
+        <legend>UIA 应用白名单</legend>
+        <div className="form-row">
+          <label htmlFor="uia_allowed_apps">允许的应用(逗号分隔)</label>
+          <input
+            id="uia_allowed_apps"
+            type="text"
+            value={settings.uia_allowed_apps.join(", ")}
+            onChange={(e) =>
+              handleField(
+                "uia_allowed_apps",
+                e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 0)
+              )
+            }
+            placeholder="notepad, explorer, calc"
+            aria-describedby="uia-allowed-apps-hint"
+          />
+        </div>
+        <p id="uia-allowed-apps-hint" className="settings-hint">
+          quick.app_control 与 note.capture 仅能启动此列表内的应用。超出列表的 launch 需 PerStep 审批。
+        </p>
+      </fieldset>
+
       <div className="form-actions">
         <button type="button" onClick={handleSave} disabled={saving}>
           {saving ? "保存中…" : "保存设置"}

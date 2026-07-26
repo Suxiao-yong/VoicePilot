@@ -25,6 +25,10 @@ pub struct TrustKernel {
     comp_repo: Arc<crate::compensation::repo::CompensationRepo>,
     approval_repo: Arc<ApprovalRepo>,
     txn_mgr: Arc<crate::policy::transaction::TransactionManager>,
+    // W7 Plan 4: UIA 应用白名单(quick.app_control / note.capture 可启动的应用列表)。
+    // 默认 ["notepad", "explorer", "calc"]。Settings 面板可编辑,持久化到 app_config。
+    // 即使 `uia` feature 关闭此字段也存在(纯数据,无害)——避免 DTO 形状随 feature 变化。
+    allowed_apps: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl TrustKernel {
@@ -56,7 +60,45 @@ impl TrustKernel {
             comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
             approval_repo: Arc::new(ApprovalRepo::new()),
             txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
+            // W7 Plan 4: UIA 白名单默认值 —— V1.1 §8.1 quick.app_control / note.capture
+            // 仅可启动此列表内应用。Settings 面板可改,持久化在 app_config "uia.allowed_apps"。
+            allowed_apps: Arc::new(std::sync::Mutex::new(vec![
+                "notepad".to_string(),
+                "explorer".to_string(),
+                "calc".to_string(),
+            ])),
         };
+        // W7 Plan 4: 从 KV 加载 allowed_apps(Settings 持久化值)覆盖默认值。
+        // 缺失 / 空串 / 反序列化失败时保持默认 ["notepad", "explorer", "calc"]。
+        // 错误经 tracing::warn! 记录,不向上传播(一个损坏的 KV 值不能让 kernel 构造失败)。
+        // 与 LlmClient 重建同理:KV 是 accepted/persisted,运行时 serving-applied
+        // 状态需显式刷新 —— 此处刷新保证 boot 后 allowed_apps 与 Settings 一致。
+        {
+            let conn_guard = kernel.conn.lock().unwrap();
+            match kernel.config_repo().get(&conn_guard, "uia.allowed_apps") {
+                Ok(Some(kv_str)) if !kv_str.is_empty() => {
+                    match serde_json::from_str::<Vec<String>>(&kv_str) {
+                        Ok(apps) => {
+                            drop(conn_guard);
+                            kernel.set_allowed_apps(apps);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = ?e,
+                                "failed to deserialize uia.allowed_apps from KV; using default whitelist"
+                            );
+                        }
+                    }
+                }
+                Ok(_) => { /* key missing or empty — keep default */ }
+                Err(e) => {
+                    tracing::warn!(
+                        error = ?e,
+                        "failed to read uia.allowed_apps from KV; using default whitelist"
+                    );
+                }
+            }
+        }
         // W7 Plan 3: best-effort user skill loading at boot. Errors are
         // logged via tracing::warn! and never propagate — a malformed user
         // skill file must not crash kernel construction.
@@ -86,6 +128,22 @@ impl TrustKernel {
     pub fn replace_filesystem_with_allowed_paths(&self, allowed: crate::allowed_paths::AllowedPaths) {
         let new_tool = crate::tools::fs::FilesystemTool::new_with_allowed_paths(allowed);
         *self.fs.lock().unwrap() = new_tool;
+    }
+
+    /// W7 Plan 4: 读取 UIA 应用白名单(quick.app_control / note.capture
+    /// 可启动的应用列表)。返回 `MutexGuard`,与 `filesystem()` / `conn()`
+    /// 模式一致 —— 调用方持有 guard 期间不要调用其它会锁 `allowed_apps`
+    /// 的 kernel 方法(无重入)。
+    pub fn allowed_apps(&self) -> std::sync::MutexGuard<'_, Vec<String>> {
+        self.allowed_apps.lock().unwrap()
+    }
+
+    /// W7 Plan 4: 替换 UIA 应用白名单。Settings 面板 `update_settings`
+    /// 调用此方法把 KV 中持久化的列表写入运行时状态。
+    /// 接受 `Vec<String>` 而非 `&[String]` —— 调用方通常已 own 数据
+    /// (从 `serde_json::from_str` 反序列化得到),传 Vec 避免额外 clone。
+    pub fn set_allowed_apps(&self, apps: Vec<String>) {
+        *self.allowed_apps.lock().unwrap() = apps;
     }
 
     /// Access the Compensation repository.
@@ -526,5 +584,119 @@ impl TrustKernel {
             hash: String::new(), // computed by logger
         };
         self.audit.append(&event)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allowed_apps_default_and_setter() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let apps = kernel.allowed_apps();
+        assert_eq!(
+            *apps,
+            vec![
+                "notepad".to_string(),
+                "explorer".to_string(),
+                "calc".to_string(),
+            ]
+        );
+        drop(apps);
+
+        kernel.set_allowed_apps(vec!["code".to_string(), "terminal".to_string()]);
+        let apps2 = kernel.allowed_apps();
+        assert_eq!(
+            *apps2,
+            vec!["code".to_string(), "terminal".to_string()]
+        );
+    }
+
+    /// W7 Plan 4: boot load —— Settings 持久化的 allowed_apps 必须在
+    /// `TrustKernel::open_file` 时从 KV 读取并覆盖默认值。用 tempfile
+    /// 模拟"先 Settings 写入 → 关闭进程 → 重启"流程。
+    #[test]
+    fn allowed_apps_loads_from_kv_at_boot() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8");
+
+        // Phase 1: 构造 kernel,把自定义白名单写入 KV(模拟 Settings 持久化)。
+        {
+            let kernel = TrustKernel::open_file(path).expect("open_file phase 1");
+            let conn = kernel.conn();
+            kernel
+                .config_repo()
+                .set(
+                    &conn,
+                    "uia.allowed_apps",
+                    r#"["code","terminal","vim"]"#,
+                )
+                .expect("set uia.allowed_apps");
+        }
+
+        // Phase 2: 重新打开同一个 DB 文件(模拟进程重启)。with_conn 应该
+        // 从 KV 加载 allowed_apps 并覆盖默认值。
+        {
+            let kernel = TrustKernel::open_file(path).expect("open_file phase 2");
+            let apps = kernel.allowed_apps();
+            assert_eq!(
+                *apps,
+                vec![
+                    "code".to_string(),
+                    "terminal".to_string(),
+                    "vim".to_string(),
+                ],
+                "boot load should pick up KV-persisted allowed_apps"
+            );
+        }
+    }
+
+    /// W7 Plan 4: boot load —— KV 中 allowed_apps 为空串或缺失时,
+    /// 保持默认 ["notepad", "explorer", "calc"]。
+    #[test]
+    fn allowed_apps_keeps_default_when_kv_missing() {
+        let kernel = TrustKernel::open_in_memory().expect("open_in_memory");
+        let apps = kernel.allowed_apps();
+        assert_eq!(
+            *apps,
+            vec![
+                "notepad".to_string(),
+                "explorer".to_string(),
+                "calc".to_string(),
+            ]
+        );
+    }
+
+    /// W7 Plan 4: boot load —— KV 中 allowed_apps 损坏(非 JSON)时,
+    /// 保持默认值并 warn!(不向上传播错误)。
+    #[test]
+    fn allowed_apps_keeps_default_when_kv_corrupted() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8");
+
+        // Phase 1: 写入损坏的 JSON 字符串到 KV。
+        {
+            let kernel = TrustKernel::open_file(path).expect("open_file phase 1");
+            let conn = kernel.conn();
+            kernel
+                .config_repo()
+                .set(&conn, "uia.allowed_apps", "not-a-json-array")
+                .expect("set corrupted uia.allowed_apps");
+        }
+
+        // Phase 2: 重新打开 —— 解析失败时保持默认值(不 panic、不返回 Err)。
+        {
+            let kernel = TrustKernel::open_file(path).expect("open_file phase 2");
+            let apps = kernel.allowed_apps();
+            assert_eq!(
+                *apps,
+                vec![
+                    "notepad".to_string(),
+                    "explorer".to_string(),
+                    "calc".to_string(),
+                ]
+            );
+        }
     }
 }
