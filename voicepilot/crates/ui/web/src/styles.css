@@ -528,6 +528,16 @@ html, body, #root {
 .risk-pill.risk-e1d1 { background: #064e3b; color: #10b981; }
 .risk-pill.risk-unknown { background: #1f2937; color: #64748b; }
 
+/* W7 Plan 5: 依赖标签(Playwright MCP) — 琥珀色调与工程控制台主题一致 */
+.dep-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: "IBM Plex Mono", monospace; border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
+.dep-none { color: #64748b; font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+
+/* W7 Plan 5: SettingsView Playwright MCP 配置提示列表 */
+.settings-list { list-style: disc; padding-left: 20px; color: #f1f5f9; font-size: 13px; line-height: 1.7; }
+.settings-list li { margin-bottom: 4px; }
+.settings-list code { background: #0a0e1a; border: 1px solid #1f2937; padding: 1px 6px; border-radius: 4px; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #fbbf24; }
+
+
 .route-outcome-feedback .val.warning {
   color: var(--accent);
 }

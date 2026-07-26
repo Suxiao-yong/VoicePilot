@@ -279,6 +279,20 @@ export function SettingsView(): JSX.Element {
         </p>
       </fieldset>
 
+      {/* W7 Plan 5: Playwright MCP 配置提示(research.save_markdown / form.prepare 依赖)*/}
+      <fieldset className="settings-fieldset">
+        <legend>Playwright MCP 配置</legend>
+        <p className="settings-hint">
+          浏览器自动化 Skill(<code>research.save_markdown</code>、<code>form.prepare</code>)依赖 Playwright MCP。
+        </p>
+        <ul className="settings-list">
+          <li>需 Node.js ≥ 18(运行 <code>node --version</code> 验证)</li>
+          <li>首次使用时 <code>npx -y @playwright/mcp@latest</code> 会自动下载,需网络</li>
+          <li>启用后浏览器实例由 MCP server 管理,关闭 VoicePilot 时自动清理</li>
+          <li>故障排查:见 <code>docs/playwright-mcp-setup.md</code></li>
+        </ul>
+      </fieldset>
+
       <div className="form-actions">
         <button type="button" onClick={handleSave} disabled={saving}>
           {saving ? "保存中…" : "保存设置"}

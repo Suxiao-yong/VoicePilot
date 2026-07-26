@@ -115,6 +115,7 @@ export function SkillsManagerView(): JSX.Element {
             <th scope="col">Skill ID</th>
             <th scope="col">版本</th>
             <th scope="col">风险</th>
+            <th scope="col">依赖</th>
             <th scope="col">成功次数</th>
             <th scope="col">平均延迟(ms)</th>
             <th scope="col">状态</th>
@@ -130,6 +131,13 @@ export function SkillsManagerView(): JSX.Element {
                 <span className={`risk-pill risk-${s.risk_label.toLowerCase()}`}>
                   {s.risk_label}
                 </span>
+              </td>
+              <td>
+                {s.skill_id === "research.save_markdown" || s.skill_id === "form.prepare" ? (
+                  <span className="dep-pill dep-playwright">Playwright MCP</span>
+                ) : (
+                  <span className="dep-none" aria-label="无依赖">—</span>
+                )}
               </td>
               <td className="mono">{s.success_count}</td>
               <td className="mono">{s.avg_latency_ms.toFixed(1)}</td>
@@ -153,7 +161,7 @@ export function SkillsManagerView(): JSX.Element {
           ))}
           {skills.length === 0 && (
             <tr>
-              <td colSpan={7} className="empty-state">
+              <td colSpan={8} className="empty-state">
                 暂无已保存 Skill(执行 Skill 后自动记录)
               </td>
             </tr>
