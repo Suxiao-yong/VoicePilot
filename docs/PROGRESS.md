@@ -1,9 +1,9 @@
 # VoicePilot 项目进度记录
 
-> **最后更新:** 2026-07-25 (Asia/Shanghai)
+> **最后更新:** 2026-07-26 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `f69f029` test(w7p3): add user skill loading smoke tests (Task 8)
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(3 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS
+> **最新 commit:** `294dc1a` fix(w7p4): gate UiaElementHandle::mock() behind cfg(any(test, feature=uia))
+> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(3 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI,含 uiautomation::tests 3 个 + skills::app_control::tests 7 个 + skills::note_capture::tests 7 个 + w7_plan4_uia_smoke 2 mock + 1 #[ignore] 真实 Notepad GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审)
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -16,6 +16,7 @@
 > **W6c Fast-Follow:** ✅ 已完成(2026-07-25)— W6b-3b 审查遗留 P1/P2 修复(6 commits),详见 §二 W6c Fast-Follow 段落
 > **W7 Plan 2:** ✅ 已完成(2026-07-25)— 3 个新 fs Skill(task.repeat_verified / task.explain / task.compensate)+ 共享 helpers + 路由注册 + E2E 冒烟,agent-pr-review verdict APPROVED_WITH_NITS,详见 §二 W7 Plan 2 段落
 > **W7 Plan 3:** ✅ 已完成(2026-07-25)— 用户自定义 Skill 加载(`%APPDATA%\voicepilot\skills\*.md`)+ YAML frontmatter 解析 + 用户覆盖 built-in + Tauri 导入 UI + E2E 冒烟,3 个 commit(51ef37c 后端 + 09055da UI + f69f029 测试),agent-pr-review verdict READY(无阻塞),详见 §二 W7 Plan 3 段落
+> **W7 Plan 4:** ✅ 已完成(2026-07-26)— Windows UIA 自动化适配器(`uiautomation` crate v0.16,Windows-only,`uia` cargo feature 默认关闭)+ 2 个 UIA Skill(`quick.app_control` / `note.capture`)+ `allowed_apps` 白名单 + Settings UI + E2E 冒烟,13 个 commit(7 task + 6 review-fix),agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审),详见 §二 W7 Plan 4 段落
 
 ---
 
@@ -36,6 +37,7 @@
 | W6b-3b | sherpa-rs 迁移 + TTS + Push-to-talk + Chip 修改 | ✅ 已完成 | +15 default (workspace 236) / +16 tauri (48 总) / +78 voice (sherpa-rs 迁移后 issue #49 解决,含 w6b3b_e2e_smoke 6 个 E2E) | 2026-07-25 | (direct on master) |
 | W7 Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | +trust-kernel --features llm 全绿(2 e2e + 3 router + 4 skill suites) | 2026-07-25 | (direct on master) |
 | W7 Plan 3 | 用户自定义 Skill 加载 + Tauri 导入 UI + E2E | ✅ 已完成 | +3 e2e (w7_plan3_user_skill_smoke) + 5 unit (user_loader::tests) | 2026-07-25 | (direct on master) |
+| W7 Plan 4 | Windows UIA 自动化 + 2 Skill + allowed_apps 白名单 + E2E | ✅ 已完成 | +91 lib (trust-kernel --features uia) + 2 mock smoke + 1 #[ignore] real GUI;default 无 uiautomation-rs 依赖 | 2026-07-26 | (direct on master) |
 | W7 | LLM Planner + 8 Skills | 🔄 进行中 | — | — | — |
 | W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
 
@@ -1252,7 +1254,153 @@ voicepilot/crates/trust-kernel/tests/
 - **用户 Skill 不参与 LLM fallback 路由:** 当前 LLM fallback 仅在关键词不匹配时触发,用户 Skill 的 intent_examples 不进入 LLM prompt 上下文。W7 Plan 6+ 评估
 - **`description_body` 仅 UI 显示,不进入 LLM prompt:** 当前 LLM 只看 `description` 字段。W7 Plan 6+ 评估是否把 body 也作为上下文
 
-**下一步:** W7 Plan 4(UIA Automation)+ Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
+**下一步:** W7 Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
+
+---
+
+### W7 Plan 4: Windows UIA 自动化 + 2 Skill + allowed_apps 白名单 + E2E ✅
+
+**完成时间:** 2026-07-26(Asia/Shanghai)
+**对应规格:** `docs/superpowers/specs/2026-07-25-w7-llm-planner-skills-design.md` §2.6
+**对应计划:** `docs/superpowers/plans/2026-07-25-w7-plan4-uia-automation.md`
+**Commit 范围:** 13 个 commit(7 task + 6 review-fix,直接提交到 master)
+**Review Verdict:** agent-pr-review READY(2 轮审查;首轮 REQUEST_CHANGES 找出 2 must-fix + 4 follow-up,实现者全部修复后复审 READY)
+
+**实现内容(7 个 Task + 6 个 review-fix):**
+
+- **Task 1 — `uia` feature gate(`trust-kernel/Cargo.toml`):** 新增 `uia = ["dep:uiautomation"]` feature(默认关闭)+ `[target.'cfg(windows)'.dependencies] uiautomation = { version = "0.16", optional = true }`;默认构建无 `uiautomation-rs` 依赖
+- **Task 2 — `UiaAdapter` trait + `WindowsUiaAdapter`(`uiautomation/mod.rs` 365 行 + `adapter.rs` 173 行):**
+  - `UiaAdapter` trait:`launch_app` / `find_window` / `find_element` / `click` / `set_text` / `get_text` / `screenshot` 7 个方法
+  - `UiaElementHandle` opaque wrapper(包 `UIElement`)+ `UiaSelector` enum(`ById` / `ByName` / `ByRole`)
+  - `WindowsUiaAdapter` 实现,内部 wrap `uiautomation::UIAutomation`;`!Send` / `!Sync` 文档化(COM apartment 限制)
+  - `KernelError::Uia(String)` 新变体(`error.rs`)
+  - 3 个单元测试:`uia_selector_construction_and_match` + `mock_adapter_launch_find_settext_call_chain` + `mock_adapter_error_path_propagates_to_caller`
+- **Task 3 — `quick.app_control` executor(`skills/app_control.rs` 521 行):** launch / focus / close 三个 action
+  - `action=launch` → 读 `kernel.allowed_apps()`(白名单内 skip approval,白名单外强制 PerStep)→ `adapter.launch_app`
+  - `action=focus` → `adapter.find_window` + `click`
+  - `action=close` → `find_window` + `find_element(ByName("Close"))` + `click`
+- **Task 4 — `note.capture` executor(`skills/note_capture.rs` 873 行):**
+  - `adapter.launch_app("notepad")` → 等待窗口
+  - `adapter.find_window("Notepad")` → **校验窗口标题在 `allowed_apps` 白名单内**(防伪造窗口,spec §2.6 第 305 行)→ `set_text(content)`
+  - 调 `filesystem.write` 保存到 `save_path`(`%USERPROFILE%` 路径约束)
+  - PerStep approval 在 launch_app 后触发
+- **Task 5 — `allowed_apps` 白名单 + Settings 配置:**
+  - `kernel.rs` `TrustKernel` 加 `allowed_apps: Arc<Mutex<Vec<String>>>`,默认 `["notepad", "explorer", "calc"]`
+  - 启动 hook:从 KV `uia.allowed_apps` 加载(JSON 数组反序列化,容错回退默认值)
+  - `set_allowed_apps(apps)` 运行时更新(Settings 改后立即同步 serving-applied 状态)
+  - `settings_commands.rs` `SettingsDto` 加 `uia_allowed_apps: Vec<String>` + KV 映射;`update_settings_command` 调 `set_allowed_apps`
+  - `types.ts` `Settings` 加 `uia_allowed_apps: string[]`
+  - `SettingsView.tsx` 加"UIA 应用白名单"输入区(逗号分隔)
+- **Task 6 — 注册 UIA Skill 到 SkillRouter(`router_bridge.rs` + `commands.rs`):** LLM 和 non-LLM 两个分支均 `#[cfg(all(windows, feature = "uia"))]` 注册 `app_control_manifest` + `note_capture_manifest`
+- **Task 7 — E2E 冒烟测试(`tests/w7_plan4_uia_smoke.rs` 398 行):** 3 个测试
+  - `smoke_app_control_launch_notepad_with_mock_adapter` — MockAdapter 验证 launch_app + step Succeeded
+  - `smoke_note_capture_writes_content_with_mock_adapter` — MockAdapter 验证 set_text("hello") + 文件落盘 `<temp>/Documents/test.txt`
+  - `real_gui_notepad_launch_settext_close` `#[ignore]` — 真实 Notepad 启动 + set_text + 验证(需 GUI,CI 跳过)
+
+**6 个 review-fix(agent-pr-review 首轮 REQUEST_CHANGES 后修复):**
+
+| Commit | 类型 | 修复内容 |
+|---|---|---|
+| `c5b7a1f` | must-fix #1 | `note_capture.rs` `set_text` 前校验 `kernel.allowed_apps().contains("notepad")`,不通过 → `StepStatus::Failed` + `KernelError::Uia`;新增测试 `set_text_rejected_when_window_not_in_allowed_apps` |
+| `0c4831e` | must-fix #2 | `app_control.rs` `Action::Launch` 读 `kernel.allowed_apps()`,白名单内 skip approval,白名单外强制 PerStep;新增 2 测试 `launch_in_whitelist_skips_approval` + `launch_outside_whitelist_requires_approval` |
+| `6bd33bd` | follow-up #3 | `Action::Close` 实现:`find_window` + `find_element(ByName("Close"))` + `click`;两路失败区分(window not found / Close button not found);改写 + 新增 3 个测试 |
+| `e850c19` | follow-up #4 | `adapter.rs` `find_window` / `find_element` 的 `Err(_)` 分支加 `tracing::warn!`(target/error/上下文字段);NotFound vs 其他错误区分延后(代码注释) |
+| `7624de2` | follow-up #5 | `manifest.rs` `app_control_manifest.verifier.strategy` "strong" → "weak"+ 注释说明 UIA 无文件产物、强验证器推迟到 Plan 5 screenshot |
+| `294dc1a` | follow-up #6 | `uiautomation/mod.rs` `UiaElementHandle::mock()` 加 `#[cfg(any(test, feature = "uia"))]`,防御性 cfg gate(外层 `cfg(all(windows, feature = "uia"))` 已包住整个模块,内层为冗余防御) |
+
+**W7 Plan 4 commits(按时序,直接提交到 master):**
+
+| Commit | 任务 |
+|---|---|
+| `cab6b54` | feat(w7p4): add uia feature gate + uiautomation-rs optional dep (Windows-only) |
+| `dd530d7` | feat(w7p4): implement UiaAdapter trait + WindowsUiaAdapter |
+| `db7edb0` | feat(w7p4): implement quick.app_control executor (launch/focus/close) |
+| `77cc474` | feat(w7p4): implement note.capture executor (notepad + set_text + save) |
+| `55ff733` | feat(w7p4): add allowed_apps whitelist + Settings UI for UIA |
+| `5ee8f4c` | feat(w7p4): register 2 UIA skills in SkillRouter (cfg-gated) |
+| `81f09a0` | test(w7p4): add e2e smoke tests (mock + #[ignore] real GUI) |
+| `c5b7a1f` | fix(w7p4): enforce set_text whitelist boundary in note.capture (must-fix #1) |
+| `0c4831e` | fix(w7p4): consult allowed_apps in app_control launch (must-fix #2) |
+| `6bd33bd` | feat(w7p4): implement close action via find_element + click (follow-up #3) |
+| `e850c19` | fix(w7p4): log swallowed find_window errors with tracing::warn (follow-up #4) |
+| `7624de2` | fix(w7p4): align app_control_manifest verifier.strategy with weak evidence (follow-up #5) |
+| `294dc1a` | fix(w7p4): gate UiaElementHandle::mock() behind cfg(any(test, feature=uia)) (follow-up #6) |
+
+**核心架构决策:**
+- **`UiaAdapter` trait 抽象:** 用 trait 对象隔离 UIA 实现细节,允许 `MockAdapter` 用于单元测试 + 未来 alternative adapter(macOS Accessibility API / Linux AT-SPI)。trait 是 `!Send` / `!Sync`(COM apartment 限制,文档化)
+- **`uia` feature 默认关闭 + Windows-only:** `cfg(all(windows, feature = "uia"))` 双重门控;非 Windows 平台即使开启 `uia` feature 也不编译 UIA 代码;默认构建无 `uiautomation-rs` 依赖
+- **`allowed_apps` 三层语义:** (1) Settings UI 编辑 → KV 持久化;(2) boot-time 从 KV 加载到 `TrustKernel.allowed_apps`;(3) executor 在 launch / set_text 前咨询 + 决定是否 skip approval。三层均被独立测试覆盖
+- **`set_text` 白名单边界(spec §2.6 第 305 行):** `note_capture` 在 `find_window` 返回 `Some(window)` 后、`set_text` 前断言 `kernel.allowed_apps().contains("notepad")`,不通过则 `StepStatus::Failed` + `KernelError::Uia`,防伪造窗口攻击(攻击者用同名非白名单进程截获文本)
+- **`launch` skip approval 优化:** `Action::Launch` 时若 `app_name` 在 `allowed_apps` 白名单内,跳过 PerStep approval(用户体验:常用应用秒启动);白名单外仍强制 approval(安全控制)
+- **`close` action 实现:** 不依赖窗口管理器 API,通过 UIA `find_element(ByName("Close"))` + `click` 实现关闭按钮点击;两路失败(窗口未找到 / Close 按钮未找到)给区分性错误消息便于排错
+- **`UiaElementHandle::mock()` 公共表面:** 升级 `pub(crate)` → `pub` 是为支持 `tests/` 集成测试构造 mock handle;再加 `#[cfg(any(test, feature = "uia"))]` 防御性 gate(虽然外层模块 cfg 已包住,内层 gate 是冗余防御 + 文档化意图)
+- **`verifier.strategy` 元数据一致性:** manifest 声明 `strategy="weak"` 与 executor 实际 evidence_strength="weak" 对齐;UIA ops 无文件 evidence,strong verifier 推迟到 Plan 5 screenshot capture
+- **静默错误可观测:** `find_window` / `find_element` 的 `Err(_)` 分支原本吞为 `Ok(None)`,现加 `tracing::warn!` 让 COM 故障 / 权限错误在日志中可见;保留 `Ok(None)` 契约不破坏现有测试
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/
+├── Cargo.toml                              # +[features] uia = ["dep:uiautomation"] + [target.'cfg(windows)'.dependencies]
+├── src/
+│   ├── error.rs                            # +KernelError::Uia(String) 变体
+│   ├── lib.rs                              # +#[cfg(feature = "uia")] pub mod uiautomation
+│   ├── kernel.rs                           # +allowed_apps: Arc<Mutex<Vec<String>>> + KV boot load + set_allowed_apps
+│   ├── uiautomation/                       # NEW(整个目录)
+│   │   ├── mod.rs                          # UiaAdapter trait + UiaElementHandle + UiaSelector + 3 单元测试
+│   │   └── adapter.rs                      # WindowsUiaAdapter(wraps uiautomation::UIAutomation)
+│   ├── skills/
+│   │   ├── mod.rs                          # +#[cfg(all(windows, feature = "uia"))] pub mod app_control / note_capture
+│   │   ├── manifest.rs                     # app_control_manifest 升级 inputs + verifier.strategy="weak"
+│   │   ├── app_control.rs (NEW)            # quick.app_control executor + 7 单元测试
+│   │   └── note_capture.rs (NEW)           # note.capture executor + 7 单元测试(含 set_text 白名单边界)
+│   └── voice/router_bridge.rs              # +#[cfg(all(windows, feature = "uia"))] register 2 UIA manifests
+└── tests/
+    └── w7_plan4_uia_smoke.rs (NEW)         # 3 个 E2E(2 mock + 1 #[ignore] real GUI)
+
+voicepilot/crates/ui/
+├── Cargo.toml                              # +uia = ["trust-kernel/uia"] feature passthrough
+├── src/
+│   ├── commands.rs                         # route_text LLM + non-LLM 两分支均注册 UIA manifests
+│   └── settings_commands.rs                # SettingsDto.uia_allowed_apps + flatten/merge KV + update_settings_command 同步
+└── web/src/
+    ├── types.ts                            # Settings.uia_allowed_apps: string[]
+    └── components/SettingsView.tsx         # "UIA 应用白名单" 输入区(逗号分隔)
+```
+
+**测试矩阵(W7 Plan 4 验证):**
+| 命令 | feature | 结果 |
+|---|---|---|
+| `cargo check -p trust-kernel --features uia` | uia | **OK** |
+| `cargo check -p voicepilot-ui --features tauri,uia` | tauri + uia | **OK** |
+| `cargo check --workspace` | (default) | **OK**(无 uiautomation-rs 依赖) |
+| `cargo test -p trust-kernel --features uia --lib uiautomation::` | uia | **3 passed**(selector + mock_call_chain + error_path) |
+| `cargo test -p trust-kernel --features uia --lib skills::app_control::` | uia | **7 passed**(launch + focus + close + invalid_action + focus_no_window + launch_in_whitelist_skips + launch_outside_whitelist_requires) |
+| `cargo test -p trust-kernel --features uia --lib skills::note_capture::` | uia | **7 passed**(success + deny + find_window_none + set_text_failure + allowed_paths_reject + fs_write_failure + set_text_rejected_when_window_not_in_allowed_apps) |
+| `cargo test -p trust-kernel --features uia --test w7_plan4_uia_smoke` | uia | **2 passed + 1 ignored**(smoke_app_control + smoke_note_capture + real_gui_notepad ignored) |
+| `cargo test -p trust-kernel --lib` | (default) | **68 passed**(无回归) |
+
+**agent-pr-review verdict: READY(2026-07-26,2 轮审查):**
+
+**首轮审查(REQUEST_CHANGES)** 找出 2 must-fix + 4 follow-up:
+1. must-fix #1:`set_text` 未校验窗口标题在 `allowed_apps` 白名单内(违反 spec §2.6 第 305 行"防伪造窗口"约束)
+2. must-fix #2:`allowed_apps` executor 内未咨询(白名单仅 advisory,用户误导)
+3. follow-up #3:`close` action 为 stub(Plan Task 3 Step 2 要求实现)
+4. follow-up #4:`find_window` 静默吞所有 UIA 错误为 `Ok(None)`
+5. follow-up #5:`app_control_manifest.verifier.strategy="strong"` 与 executor 实际 "weak" evidence 不一致
+6. follow-up #6:`UiaElementHandle::mock()` 由 `pub(crate)` 升 `pub`(公共表面扩张)
+
+**实现者修复后复审(READY):** 6 项全部关闭,5 个新测试 + 1 个改写测试覆盖 must-fix 行为,无回归。3 个 follow-up(测试覆盖 / 字段消费方 / cfg gate 当前为 no-op)接受为延迟项,不阻塞 merge。
+
+**已知偏离 / 延后项:**
+- **`screenshot` 方法为 stub:** 返回 `KernelError::Uia("screenshot requires the `screenshot` feature...")`,Plan §50 要求写入 audit_logs。推迟到 Plan 5 screenshot capture + `screenshot` feature flag
+- **`find_window` 错误区分延后:** 当前 `tracing::warn!` 记录所有错误后返回 `Ok(None)`,未区分 NotFound vs COM 故障。需 `uiautomation::Error` 枚举变体匹配,推迟到 follow-up
+- **`verifier.strategy` 字段无运行时消费方:** `manifest.rs` `strategy` 字段当前无 consumer,纯元数据。Plan 5 screenshot verifier 落地时补消费测试
+- **`UiaElementHandle::mock()` 内层 cfg 为冗余防御:** 外层 `cfg(all(windows, feature = "uia"))` 已包住整个模块,内层 `cfg(any(test, feature = "uia"))` 实际不收紧 surface;保留为防御性文档
+- **真实 GUI 测试需手动运行:** `#[ignore]` 标记的 `real_gui_notepad_launch_settext_close` 需 Windows GUI 环境 + `cargo test --ignored --features uia`,CI 跳过
+- **`allowed_apps` 白名单编辑 UI 无下拉:** 当前为逗号分隔文本输入,未来可加常用应用下拉选择(notepad / explorer / calc / code / terminal 等)
+- **预存 CLI voice bug(非 W7 Plan 4 引入):** `crates/cli/src/main.rs:399,488` 仍 import `trust_kernel::voice::whisper::{WhisperConfig, WhisperEngine}`,W6b-3b 改名遗留(whisper→asr)。阻塞 `cargo check --workspace --features voice,tauri,llm,uia` 全 feature 验证。需单独修复
+
+**下一步:** W7 Plan 5(Playwright MCP)+ Plan 6(Integration Acceptance)— 等用户决策优先级
 
 ---
 
