@@ -29,3 +29,7 @@ pub mod note_capture;
 // W7 Plan 5 Task 4: research.save_markdown executor (navigate + snapshot
 // + eval + write). Cross-platform — only depends on the MCP client.
 pub mod research_save;
+
+// W7 Plan 5 Task 5: form.prepare executor (navigate + snapshot + fill,
+// no submit). Cross-platform — only depends on the MCP client.
+pub mod form_prepare;
