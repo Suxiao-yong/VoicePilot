@@ -15,9 +15,7 @@
 //!   6. Branch on action:
 //!      - launch → adapter.launch_app(app_name)
 //!      - focus  → adapter.find_window(app_name) → adapter.click(handle)
-//!      - close  → adapter.find_window(app_name) →
-//!                 adapter.find_element(window, ByName("Close")) →
-//!                 adapter.click(close_btn)
+//!      - close  → adapter.find_window(app_name) → adapter.find_element(window, ByName("Close")) → adapter.click(close_btn)
 //!   7. Finalize step as Succeeded with Weak evidence (no file evidence).
 //!
 //! W7 Plan 4 Task 5 (review fix): the `allowed_apps` whitelist

@@ -66,15 +66,14 @@ pub async fn download_model_command(app: AppHandle) -> Result<String, String> {
 
         let result = tokio::task::spawn_blocking(move || {
             let app_clone = app.clone();
-            let result = download_model(&info_clone, |progress: DownloadProgress| {
+            download_model(&info_clone, |progress: DownloadProgress| {
                 let payload = DownloadProgressPayload {
                     downloaded_bytes: progress.downloaded_bytes,
                     total_bytes: progress.total_bytes,
                     percent: progress.percent,
                 };
                 let _ = app_clone.emit("model-download-progress", payload);
-            });
-            result
+            })
         })
         .await
         .map_err(|e| format!("task join error: {}", e))?;

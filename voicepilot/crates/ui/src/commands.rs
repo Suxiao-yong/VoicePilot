@@ -77,7 +77,7 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         }
 
         let decision = router.route_with_llm(trimmed).await;
-        return match decision {
+        match decision {
             RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
                 skill_id: manifest.id,
                 slots: vec![],
@@ -93,7 +93,7 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
             RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
                 text: trimmed.to_string(),
             }),
-        };
+        }
     }
 
     #[cfg(not(feature = "llm"))]

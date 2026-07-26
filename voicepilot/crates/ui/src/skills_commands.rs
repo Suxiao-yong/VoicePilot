@@ -98,6 +98,7 @@ pub fn list_user_skills(state: &AppState) -> UiResult<Vec<UserSkillDto>> {
 ///   3. canonicalize(解析 symlink + `..`)
 ///   4. is_file
 ///   5. size ≤ 1 MiB
+///
 /// 复制目标 = `<skills_dir>/<file_name>`,file_name 仅取自 canonical.file_name(),
 /// 不接受任何源路径组件。复制后再次 parse 验证,失败则删除并返回错误。
 pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDto> {
