@@ -195,3 +195,25 @@ for line in sys.stdin:
     // content[0].text was '{"echo":"hello"}' → parsed into JSON object.
     assert_eq!(result, json!({"echo": "hello"}));
 }
+
+// ---- Test 6 (Plan 5 Task 2): kernel boot seeds playwright row ----
+
+#[test]
+fn kernel_boot_seeds_playwright_mcp_server_row() {
+    use trust_kernel::kernel::TrustKernel;
+    use trust_kernel::mcp::repo::McpServerRepo;
+
+    let kernel = TrustKernel::open_in_memory().expect("kernel must construct");
+    let repo = McpServerRepo::new();
+    let rec = repo
+        .get(&kernel.conn(), "playwright")
+        .expect("repo.get must not error")
+        .expect("playwright row must exist after kernel boot");
+    assert_eq!(rec.server_id, "playwright");
+    assert_eq!(rec.command.as_deref(), Some("npx"));
+    assert_eq!(rec.args.as_deref(), Some(r#"["-y","@playwright/mcp@latest"]"#));
+    assert_eq!(rec.allowed_paths.as_deref(), Some("[]"));
+    assert!(rec.enabled, "playwright must be enabled by default at boot");
+    // Idempotency on re-boot is covered by repo_insert_default_servers_is_idempotent_*
+    // (file-based DB would be needed to verify cross-instance persistence).
+}

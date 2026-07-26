@@ -105,6 +105,23 @@ impl TrustKernel {
         if let Err(e) = kernel.load_user_skills() {
             tracing::warn!(error = ?e, "load_user_skills failed at boot");
         }
+        // W7 Plan 5 Task 2: best-effort insert default playwright MCP server
+        // row. Idempotent — preserves user customizations (e.g. disabled via
+        // Trust Center). Errors are logged and never propagate — a DB issue
+        // here must not crash kernel construction. Unlike `seed_builtin_filesystem`
+        // (called only from CLI mcp-serve), playwright is needed in all modes
+        // (UI can trigger research.save_markdown / form.prepare).
+        {
+            let conn_guard = kernel.conn.lock().unwrap();
+            if let Err(e) = crate::mcp::repo::McpServerRepo::new()
+                .insert_default_servers(&conn_guard)
+            {
+                tracing::warn!(
+                    error = ?e,
+                    "insert_default_servers (playwright) failed at boot"
+                );
+            }
+        }
         kernel
     }
 
