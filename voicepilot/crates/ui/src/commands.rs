@@ -37,8 +37,8 @@ pub enum RouteTextResult {
 /// 路由阶段不执行 Skill;Skill 执行需要用户在 UI 上确认 Slot 后由 `organize_files_command` 触发。
 pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
     use trust_kernel::skills::manifest::{
-        files_organize_manifest, task_compensate_manifest, task_explain_manifest,
-        task_repeat_verified_manifest,
+        files_organize_manifest, form_prepare_manifest, research_save_manifest,
+        task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
     };
     use trust_kernel::skills::router::{RouteDecision, SkillRouter};
 
@@ -58,13 +58,15 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         router.register(task_compensate_manifest());
         router.register(task_explain_manifest());
         // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-        // Playwright (research_save, form_prepare) still deferred to Plan 5.
         #[cfg(all(windows, feature = "uia"))]
         {
             use trust_kernel::skills::manifest::{app_control_manifest, note_capture_manifest};
             router.register(app_control_manifest());
             router.register(note_capture_manifest());
         }
+        // W7 Plan 5: register Playwright MCP browser skills (cross-platform).
+        router.register(research_save_manifest());
+        router.register(form_prepare_manifest());
 
         // W7 Plan 3: 注册用户自定义 Skill。Task 3 覆盖语义保证同 id 时
         // 用户版本覆盖 built-in(用户 > built-in 优先级)。
@@ -104,13 +106,15 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         router.register(task_compensate_manifest());
         router.register(task_explain_manifest());
         // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-        // Playwright (research_save, form_prepare) still deferred to Plan 5.
         #[cfg(all(windows, feature = "uia"))]
         {
             use trust_kernel::skills::manifest::{app_control_manifest, note_capture_manifest};
             router.register(app_control_manifest());
             router.register(note_capture_manifest());
         }
+        // W7 Plan 5: register Playwright MCP browser skills (cross-platform).
+        router.register(research_save_manifest());
+        router.register(form_prepare_manifest());
 
         // W7 Plan 3: 注册用户自定义 Skill(覆盖语义同 llm 分支)。
         if let Ok(user_manifests) = state.kernel.list_user_skill_manifests() {

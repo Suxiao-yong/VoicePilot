@@ -7,8 +7,8 @@ use crate::approval::approver::Approver;
 use crate::error::Result;
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{
-    files_organize_manifest, task_compensate_manifest, task_explain_manifest,
-    task_repeat_verified_manifest,
+    files_organize_manifest, form_prepare_manifest, research_save_manifest,
+    task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
 };
 use crate::skills::router::{RouteDecision, SkillRouter};
 
@@ -54,13 +54,17 @@ pub fn route_text(
     router.register(task_compensate_manifest());
     router.register(task_explain_manifest());
     // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-    // Playwright (research_save, form_prepare) still deferred to Plan 5.
     #[cfg(all(windows, feature = "uia"))]
     {
         use crate::skills::manifest::{app_control_manifest, note_capture_manifest};
         router.register(app_control_manifest());
         router.register(note_capture_manifest());
     }
+    // W7 Plan 5: register Playwright MCP browser skills (cross-platform,
+    // no `uia` gate — they depend only on the MCP client, which runs on
+    // any OS that can spawn `npx @playwright/mcp`).
+    router.register(research_save_manifest());
+    router.register(form_prepare_manifest());
 
     match router.route(trimmed) {
         RouteDecision::Skill(manifest) => Ok(RouteOutcome::Routed {
@@ -111,6 +115,35 @@ mod tests {
         assert!(
             matches!(result, RouteOutcome::Routed { ref skill_id } if skill_id == "note.capture"),
             "expected Routed to note.capture, got {:?}",
+            result
+        );
+    }
+
+    /// W7 Plan 5 Task 6: `research.save_markdown` 注册后,`route_text` 应将
+    /// "把这个网页存为 Markdown" 路由到该 Skill(keyword "网页" + "Markdown" 命中)。
+    /// 跨平台,无 cfg 门控。
+    #[test]
+    fn route_text_recognizes_research_save_intent() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let result = route_text(&kernel, &approver, "把这个网页存为 Markdown").unwrap();
+        assert!(
+            matches!(result, RouteOutcome::Routed { ref skill_id } if skill_id == "research.save_markdown"),
+            "expected Routed to research.save_markdown, got {:?}",
+            result
+        );
+    }
+
+    /// W7 Plan 5 Task 6: `form.prepare` 注册后,`route_text` 应将
+    /// "帮我填这个表单" 路由到该 Skill(keyword "表单" + "填" 命中)。跨平台。
+    #[test]
+    fn route_text_recognizes_form_prepare_intent() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let result = route_text(&kernel, &approver, "帮我填这个表单").unwrap();
+        assert!(
+            matches!(result, RouteOutcome::Routed { ref skill_id } if skill_id == "form.prepare"),
+            "expected Routed to form.prepare, got {:?}",
             result
         );
     }
