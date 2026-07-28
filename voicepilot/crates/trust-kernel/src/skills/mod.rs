@@ -12,6 +12,11 @@ pub mod task_explain;
 pub mod task_repeat;
 pub mod user_loader;
 
+// W8 Plan 1 Task 2: DAG orchestration core data structures (no business logic).
+pub mod dag_types;
+// W8 Plan 1 Task 3: SlotTemplateEngine — parse ${prev}/${user}/${item}/${step} placeholders.
+pub mod template;
+
 // W7 Plan 4 Task 3: quick.app_control executor (launch/focus/close).
 // `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`)
 // for the same reason as `crate::uiautomation` (see lib.rs): the file
