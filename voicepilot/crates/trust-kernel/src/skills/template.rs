@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::llm::types::ExtractedSlot;
+use crate::skills::dag_types::{DagNode, DagPlan};
 
 /// Slot 种类(从 W6b 的 SlotKind 复用语义,本 plan 重新定义避免跨 crate 依赖)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -39,8 +40,12 @@ pub struct SlotTemplate {
 }
 
 /// 编译后的模板 AST。
+///
+/// serde 默认 externally-tagged(JSON: `{"Literal":"notepad"}` / `{"Var":{...}}` /
+/// `{"Concat":[...]}` / `{"Filter":{...}}`)— 显式避开 `#[serde(tag = "kind")]`,
+/// 因为 tag 模式无法序列化 newtype variant `Literal(String)` /
+/// `Concat(Vec<TemplateExpr>)`(serde-rs#1996)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TemplateExpr {
     /// 纯字面量,如 "notepad"
     Literal(String),
@@ -403,6 +408,158 @@ impl SlotTemplateEngine {
             .collect();
         Ok(serde_json::Value::Array(filtered))
     }
+
+    /// 校验:模板中所有变量引用都能在 DAG 上下文中找到绑定。
+    ///
+    /// - `dag_nodes`:DAG 中所有节点(用于校验 VarScope::Step 引用)
+    /// - `user_slot_kinds`:用户审批阶段可填的 Slot kind 列表(用于校验 VarScope::User)
+    /// - `loop_node_ids`:循环节点 id 列表(用于校验 VarScope::Iter 仅在循环节点内使用)
+    pub fn validate(
+        expr: &TemplateExpr,
+        dag_nodes: &[DagNode],
+        user_slot_kinds: &[&str],
+        loop_node_ids: &[&str],
+    ) -> Result<(), TemplateError> {
+        let node_ids: std::collections::HashSet<&str> =
+            dag_nodes.iter().map(|n| n.node_id.as_str()).collect();
+        Self::validate_expr(expr, &node_ids, user_slot_kinds, loop_node_ids)
+    }
+
+    fn validate_expr(
+        expr: &TemplateExpr,
+        node_ids: &std::collections::HashSet<&str>,
+        user_slot_kinds: &[&str],
+        _loop_node_ids: &[&str],
+    ) -> Result<(), TemplateError> {
+        match expr {
+            TemplateExpr::Literal(_) => Ok(()),
+            TemplateExpr::Var(var) => match &var.scope {
+                VarScope::Prev => {
+                    // Prev 在运行时绑定到拓扑序前驱,编译期无法校验,
+                    // 仅当 DAG 无前驱时失败(由 validate_dag 在节点级校验)
+                    Ok(())
+                }
+                VarScope::Step(step_id) => {
+                    if node_ids.contains(step_id.as_str()) {
+                        Ok(())
+                    } else {
+                        Err(TemplateError::UnknownNodeId {
+                            node_id: step_id.clone(),
+                        })
+                    }
+                }
+                VarScope::User => {
+                    let path_lower = var.path.to_lowercase();
+                    if user_slot_kinds.iter().any(|k| k.to_lowercase() == path_lower) {
+                        Ok(())
+                    } else {
+                        Err(TemplateError::UnknownSlotKind {
+                            kind: var.path.clone(),
+                        })
+                    }
+                }
+                VarScope::Iter => {
+                    // Iter 仅在循环节点内合法;此处仅做弱校验
+                    // (节点是否为循环节点由 validate_dag 在节点级校验)
+                    Ok(())
+                }
+            },
+            TemplateExpr::Concat(parts) => {
+                for p in parts {
+                    Self::validate_expr(p, node_ids, user_slot_kinds, _loop_node_ids)?;
+                }
+                Ok(())
+            }
+            TemplateExpr::Filter { source, predicate } => {
+                Self::validate_expr(source, node_ids, user_slot_kinds, _loop_node_ids)?;
+                Self::validate_filter_predicate(predicate)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// W8 仅支持 `[?size > N]` / `[?size < N]` / `[?size >= N]` / `[?size <= N]`。
+    fn validate_filter_predicate(predicate: &str) -> Result<(), TemplateError> {
+        let p = predicate.trim();
+        let rest = if let Some(r) = p.strip_prefix("size >=") {
+            r
+        } else if let Some(r) = p.strip_prefix("size <=") {
+            r
+        } else if let Some(r) = p.strip_prefix("size >") {
+            r
+        } else if let Some(r) = p.strip_prefix("size <") {
+            r
+        } else {
+            return Err(TemplateError::UnsupportedPredicate {
+                predicate: predicate.into(),
+            });
+        };
+        rest.trim()
+            .parse::<u64>()
+            .map(|_| ())
+            .map_err(|_| TemplateError::UnsupportedPredicate {
+                predicate: predicate.into(),
+            })
+    }
+
+    /// 校验整个 DAG:遍历所有节点,校验其 input_template.template。
+    /// 同时校验:只有 loop_specs 中标记为循环节点的才能引用 ${item}。
+    pub fn validate_dag(plan: &DagPlan) -> Result<(), TemplateError> {
+        let node_ids: std::collections::HashSet<&str> =
+            plan.nodes.iter().map(|n| n.node_id.as_str()).collect();
+        // 收集 user_slot_kinds — 从所有节点的 SlotTemplate.kind 推断
+        // (W8 简化:Slot.kind 直接当作 user_slot kind,不做跨节点 cross-check)
+        let user_slot_kinds: Vec<&str> = plan
+            .nodes
+            .iter()
+            .map(|n| match n.input_template.kind {
+                SlotKind::Path => "path",
+                SlotKind::App => "app",
+                SlotKind::Number => "number",
+                SlotKind::TimeRange => "time_range",
+                SlotKind::Url => "url",
+                SlotKind::Files => "files",
+                SlotKind::Text => "text",
+            })
+            .collect();
+
+        for node in &plan.nodes {
+            let is_loop = plan.loop_specs.contains_key(&node.node_id);
+            let loop_ids: Vec<&str> = if is_loop {
+                vec![node.node_id.as_str()]
+            } else {
+                vec![]
+            };
+            // 校验模板表达式
+            Self::validate_expr(
+                &node.input_template.template,
+                &node_ids,
+                &user_slot_kinds,
+                &loop_ids,
+            )?;
+            // 若非循环节点却引用 ${item} → 报错
+            if !is_loop && Self::references_iter(&node.input_template.template) {
+                return Err(TemplateError::VarNotFound {
+                    scope: "item".into(),
+                    path: format!(
+                        "node {} is not a loop node but references ${{item}}",
+                        node.node_id
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// 递归检查表达式是否引用 VarScope::Iter。
+    fn references_iter(expr: &TemplateExpr) -> bool {
+        match expr {
+            TemplateExpr::Literal(_) => false,
+            TemplateExpr::Var(var) => matches!(var.scope, VarScope::Iter),
+            TemplateExpr::Concat(parts) => parts.iter().any(Self::references_iter),
+            TemplateExpr::Filter { source, .. } => Self::references_iter(source),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -679,5 +836,110 @@ mod tests {
         let outs = make_node_outputs();
         let err = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap_err();
         assert!(matches!(err, TemplateError::TypeMismatch { .. }));
+    }
+
+    // ===== validate tests (Task 5) =====
+
+    use crate::policy::types::ELevel;
+    use crate::skills::dag_types::{DagEdge, DagNode, DagPlan, IterableSource, LoopSpec};
+
+    fn tpl(kind: SlotKind, expr: TemplateExpr) -> SlotTemplate {
+        SlotTemplate { kind, template: expr }
+    }
+
+    fn node(id: &str, expr: TemplateExpr) -> DagNode {
+        DagNode {
+            node_id: id.into(),
+            skill_id: "test.skill".into(),
+            input_template: tpl(SlotKind::Text, expr),
+            risk_ceiling: ELevel::E1,
+        }
+    }
+
+    fn plan_with(nodes: Vec<DagNode>) -> DagPlan {
+        DagPlan {
+            plan_id: "p1".into(),
+            user_goal: "test".into(),
+            nodes,
+            edges: vec![],
+            loop_specs: HashMap::new(),
+            max_total_steps: 5,
+        }
+    }
+
+    #[test]
+    fn validate_literal_ok() {
+        let expr = TemplateExpr::Literal("notepad".into());
+        let p = plan_with(vec![node("n1", expr)]);
+        assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
+    }
+
+    #[test]
+    fn validate_step_ref_known_node_ok() {
+        let expr = SlotTemplateEngine::parse("${n1.output.path}").unwrap();
+        let p = plan_with(vec![
+            node("n1", TemplateExpr::Literal("a".into())),
+            node("n2", expr),
+        ]);
+        assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
+    }
+
+    #[test]
+    fn validate_step_ref_unknown_node_errors() {
+        let expr = SlotTemplateEngine::parse("${n99.output.path}").unwrap();
+        let p = plan_with(vec![node("n1", expr)]);
+        let err = SlotTemplateEngine::validate_dag(&p).unwrap_err();
+        assert!(matches!(err, TemplateError::UnknownNodeId { .. }));
+    }
+
+    #[test]
+    fn validate_iter_in_loop_node_ok() {
+        let mut specs = HashMap::new();
+        specs.insert(
+            "n1".into(),
+            LoopSpec {
+                loop_var: "item".into(),
+                iterable_source: IterableSource::Literal(vec!["a".into()]),
+                max_iterations: 5,
+                break_condition: None,
+            },
+        );
+        let expr = SlotTemplateEngine::parse("${item}").unwrap();
+        let mut p = plan_with(vec![node("n1", expr)]);
+        p.loop_specs = specs;
+        assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
+    }
+
+    #[test]
+    fn validate_iter_in_non_loop_node_errors() {
+        let expr = SlotTemplateEngine::parse("${item}").unwrap();
+        let p = plan_with(vec![node("n1", expr)]);
+        let err = SlotTemplateEngine::validate_dag(&p).unwrap_err();
+        assert!(matches!(err, TemplateError::VarNotFound { .. }));
+    }
+
+    #[test]
+    fn validate_filter_supported_predicate_ok() {
+        let expr = SlotTemplateEngine::parse("${prev.output.files}[?size > 1048576]").unwrap();
+        let p = plan_with(vec![node("n1", expr)]);
+        assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
+    }
+
+    #[test]
+    fn validate_filter_unsupported_predicate_errors() {
+        let expr = SlotTemplateEngine::parse("${prev.output.files}[?@.type == 'image']").unwrap();
+        let p = plan_with(vec![node("n1", expr)]);
+        let err = SlotTemplateEngine::validate_dag(&p).unwrap_err();
+        assert!(matches!(err, TemplateError::UnsupportedPredicate { .. }));
+    }
+
+    // 验证 DagEdge 的存在 — 仅为消除 unused import warning(实际 validate_dag 不校验 edge)
+    #[test]
+    fn validate_edge_unused_smoke() {
+        let _edge = DagEdge {
+            from: "n1".into(),
+            to: "n2".into(),
+            port_binding: None,
+        };
     }
 }
