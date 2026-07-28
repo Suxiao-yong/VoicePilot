@@ -12,7 +12,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 use trust_kernel::approval::approver::Approver;
 use trust_kernel::approval::types::ApprovalDecision;
+use trust_kernel::error::Result as KernelResult;
 use trust_kernel::policy::transaction::EffectManifest;
+use trust_kernel::skills::dag_types::DagPlan;
 use uuid::Uuid;
 
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -129,5 +131,17 @@ impl Approver for TauriApprover {
         }
 
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
+    }
+
+    /// W8 Plan 2 stub:DAG 骨架审批。
+    ///
+    /// W6 既有 `prompt` 用 oneshot channel + 5min timeout,默认 Deny。
+    /// Plan 5 会实现真实 DAG 骨架弹窗(显示节点列表 + 边连线图)。
+    /// 此 stub 返回 Ok(Deny) 以让 DagExecutor 的 Deny 短路逻辑可被测试,
+    /// 同时避免单元测试阻塞 5min。
+    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> KernelResult<ApprovalDecision> {
+        // Plan 5 TODO: 通过 app_handle 触发 DagApprovalDialog.vue,
+        // 5min timeout → Deny;oneshot channel 接收 Allow/Deny。
+        Ok(ApprovalDecision::Deny)
     }
 }
