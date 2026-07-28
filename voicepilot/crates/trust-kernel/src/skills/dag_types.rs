@@ -98,7 +98,7 @@ impl DagStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(Self::Pending),
             "running" => Some(Self::Running),
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn dag_status_as_round_trip() {
         for s in ["pending", "running", "succeeded", "cancelled"] {
-            let parsed = DagStatus::from_str(s).unwrap();
+            let parsed = DagStatus::parse_str(s).unwrap();
             assert_eq!(parsed.as_str(), s);
         }
         // failed / partially_succeeded 携带 payload,as_str 仍正确

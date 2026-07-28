@@ -260,7 +260,7 @@ fn failure_category_round_trip() {
         FailureCategory::Unknown,
     ] {
         let s = cat.as_str();
-        let back = FailureCategory::from_str(s).unwrap();
+        let back = FailureCategory::parse_str(s).unwrap();
         assert_eq!(cat, back);
     }
 }

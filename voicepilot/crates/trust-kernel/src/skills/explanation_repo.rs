@@ -43,7 +43,7 @@ impl FailureCategory {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "mcp_unavailable" => Some(Self::McpUnavailable),
             "path_not_allowed" => Some(Self::PathNotAllowed),
