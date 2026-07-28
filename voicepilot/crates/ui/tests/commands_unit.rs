@@ -108,3 +108,71 @@ fn submit_approval_returns_false_for_unknown_id() {
     let result = submit_approval(&state, "apr_nonexistent", ApprovalDecision::Deny).unwrap();
     assert!(!result);
 }
+
+// ===== W8 Plan 5 Task 1: DAG 骨架审批 =====
+
+use voicepilot_ui::dag_commands::{submit_dag_skeleton_approval, DagApprovalDecision};
+use voicepilot_ui::approver::ApprovalRegistry;
+
+#[test]
+fn submit_dag_skeleton_approval_delivers_decision() {
+    let state = AppState::new_in_memory().unwrap();
+    let _registry = ApprovalRegistry::new();
+    // 用 state 自带的 registry 测试完整投递流程
+    let dummy = EffectManifest {
+        sources: vec![],
+        destination: "dag://test-plan-2".into(),
+        conflicts: vec![],
+        total_bytes: 0,
+    };
+    let (approval_id2, _rx2) = state.approval_registry.create_request(&dummy);
+    let delivered =
+        submit_dag_skeleton_approval(&state, &approval_id2, DagApprovalDecision::Allow).unwrap();
+    assert!(delivered, "first submission should succeed");
+}
+
+#[test]
+fn submit_dag_skeleton_approval_rejects_replay() {
+    // 一次性语义:同一 approval_request_id 第二次调用返回 false
+    let state = AppState::new_in_memory().unwrap();
+    let dummy = EffectManifest {
+        sources: vec![],
+        destination: "dag://replay-test".into(),
+        conflicts: vec![],
+        total_bytes: 0,
+    };
+    let (approval_id, _rx) = state.approval_registry.create_request(&dummy);
+
+    let first =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny).unwrap();
+    assert!(first, "first call should deliver");
+
+    let second =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow).unwrap();
+    assert!(!second, "replay should be rejected (single-use)");
+}
+
+#[test]
+fn submit_dag_skeleton_approval_unknown_id_returns_false() {
+    let state = AppState::new_in_memory().unwrap();
+    let result =
+        submit_dag_skeleton_approval(&state, "apr_nonexistent", DagApprovalDecision::Allow)
+            .unwrap();
+    assert!(!result, "unknown approval_request_id should return false");
+}
+
+#[test]
+fn dag_approval_decision_convert_to_approval_decision() {
+    assert_eq!(
+        ApprovalDecision::from(DagApprovalDecision::Allow),
+        ApprovalDecision::Allow
+    );
+    assert_eq!(
+        ApprovalDecision::from(DagApprovalDecision::Deny),
+        ApprovalDecision::Deny
+    );
+    assert_eq!(
+        ApprovalDecision::from(DagApprovalDecision::Modify),
+        ApprovalDecision::Modify
+    );
+}

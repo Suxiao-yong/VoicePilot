@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
-import { onApprovalRequest } from "./api";
-import type { ApprovalRequestPayload, View } from "./types";
+import { onApprovalRequest, onDagApprovalRequest } from "./api";
+import type {
+  ApprovalRequestPayload,
+  DagApprovalRequestPayload,
+  View,
+} from "./types";
 import { MainView } from "./components/MainView";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { SettingsView } from "./components/SettingsView";
 import { AuditViewerView } from "./components/AuditViewerView";
 import { TrustCenterView } from "./components/TrustCenterView";
 import { SkillsManagerView } from "./components/SkillsManagerView";
+import { DagHistoryView } from "./components/DagHistoryView";
+import { DagApprovalDialog } from "./components/DagApprovalDialog";
 import { KillSwitchBar } from "./components/KillSwitchBar";
 import { ModelDownloadBar } from "./components/ModelDownloadBar";
 
@@ -16,6 +22,7 @@ const NAV_ITEMS: { view: View; label: string }[] = [
   { view: "audit", label: "Audit Viewer" },
   { view: "trust", label: "Trust Center" },
   { view: "skills", label: "Skills Manager" },
+  { view: "dag-history", label: "DAG History" },
 ];
 
 const NARROW_BREAKPOINT = 768;
@@ -23,12 +30,21 @@ const NARROW_BREAKPOINT = 768;
 export function App(): JSX.Element {
   const [view, setView] = useState<View>("main");
   const [approval, setApproval] = useState<ApprovalRequestPayload | null>(null);
+  const [dagApproval, setDagApproval] = useState<DagApprovalRequestPayload | null>(null);
   // 响应式布局(W6a Fast-Follow):窄窗口隐藏 sidebar,改为 overlay
   const [isNarrow, setIsNarrow] = useState<boolean>(window.innerWidth < NARROW_BREAKPOINT);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const unlisten = onApprovalRequest((payload) => setApproval(payload));
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // W8 Plan 5: 监听 DAG 骨架审批请求(后端 TauriApprover::approve_dag_skeleton emit)
+  useEffect(() => {
+    const unlisten = onDagApprovalRequest((payload) => setDagApproval(payload));
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
@@ -101,12 +117,19 @@ export function App(): JSX.Element {
           {view === "audit" && <AuditViewerView />}
           {view === "trust" && <TrustCenterView />}
           {view === "skills" && <SkillsManagerView />}
+          {view === "dag-history" && <DagHistoryView />}
         </main>
       </div>
       {approval && (
         <ApprovalModal
           payload={approval}
           onDismiss={() => setApproval(null)}
+        />
+      )}
+      {dagApproval && (
+        <DagApprovalDialog
+          payload={dagApproval}
+          onDismiss={() => setDagApproval(null)}
         />
       )}
     </div>

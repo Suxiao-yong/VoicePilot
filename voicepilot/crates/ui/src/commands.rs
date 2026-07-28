@@ -282,6 +282,11 @@ pub fn register_handlers(
         crate::model_download_commands::is_voice_enabled_command,
         crate::model_download_commands::check_model_command,
         crate::model_download_commands::download_model_command,
+        // W8 Plan 5: DAG 相关命令
+        crate::dag_commands::approve_dag_skeleton_command,
+        crate::dag_commands::list_dag_history_command,
+        crate::dag_commands::get_dag_plan_command,
+        crate::dag_commands::get_task_explanation_command,
     ])
 }
 
@@ -316,6 +321,11 @@ pub fn register_handlers_with_voice(
         crate::model_download_commands::is_voice_enabled_command,
         crate::model_download_commands::check_model_command,
         crate::model_download_commands::download_model_command,
+        // W8 Plan 5: DAG 相关命令
+        crate::dag_commands::approve_dag_skeleton_command,
+        crate::dag_commands::list_dag_history_command,
+        crate::dag_commands::get_dag_plan_command,
+        crate::dag_commands::get_task_explanation_command,
     ])
 }
 

@@ -4,12 +4,18 @@ import type {
   ApprovalRequestPayload,
   ApprovalDecision,
   AuditEvent,
+  DagApprovalDecision,
+  DagApprovalRequestPayload,
+  DagPlanDetail,
+  DagPlanSummary,
+  DagStatusFilter,
   DiffResult,
   McpServer,
   OrganizeInput,
   OrganizeResult,
   RouteTextResult,
   Skill,
+  TaskExplanation,
   UserSkill,
   VoiceListenResult,
   TranscriptionFinalPayload,
@@ -188,4 +194,53 @@ export async function invokeImportSkill(sourcePath: string): Promise<UserSkill> 
 /** 列出当前用户自定义 Skill(重新扫描 skills 目录)。 */
 export async function invokeListUserSkills(): Promise<UserSkill[]> {
   return invoke<UserSkill[]>("list_user_skills_command");
+}
+
+// ===== W8 Plan 5: DAG 相关 API =====
+
+/** 提交 DAG 骨架审批决策。 */
+export async function approveDagSkeleton(
+  approvalRequestId: string,
+  decision: DagApprovalDecision
+): Promise<boolean> {
+  return invoke<boolean>("approve_dag_skeleton_command", {
+    approvalRequestId,
+    decision,
+  });
+}
+
+/** 监听 `dag-approval-request` 事件(后端 TauriApprover::approve_dag_skeleton emit)。 */
+export function onDagApprovalRequest(
+  handler: (payload: DagApprovalRequestPayload) => void
+): Promise<UnlistenFn> {
+  return listen<DagApprovalRequestPayload>("dag-approval-request", (event) => {
+    handler(event.payload);
+  });
+}
+
+/** 分页 + 状态过滤查询 DAG 历史。 */
+export async function listDagHistory(
+  limit: number = 20,
+  offset: number = 0,
+  filter: DagStatusFilter = "all"
+): Promise<DagPlanSummary[]> {
+  return invoke<DagPlanSummary[]>("list_dag_history_command", {
+    limit,
+    offset,
+    filter,
+  });
+}
+
+/** 查询单个 DAG 完整详情。 */
+export async function getDagPlan(planId: string): Promise<DagPlanDetail | null> {
+  return invoke<DagPlanDetail | null>("get_dag_plan_command", { planId });
+}
+
+/** 查询 step 的 LLM 失败归因。 */
+export async function getTaskExplanation(
+  stepId: string
+): Promise<TaskExplanation | null> {
+  return invoke<TaskExplanation | null>("get_task_explanation_command", {
+    stepId,
+  });
 }

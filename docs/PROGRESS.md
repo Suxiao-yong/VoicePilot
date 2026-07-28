@@ -52,9 +52,10 @@
 | W8 Plan 2 | LLM Decompose + DagExecutor + 6 审计事件 + E2E | ✅ 已完成 | +56 测试(5 approver_dag_skeleton + 9 audit_events + 4 dag_e2e + 7 dag_executor + 13 dispatcher + 9 llm_decompose + 9 lib topo_sort);default 总计 422 ≥ 286 阈值 | 2026-07-28 | `ed4c2f9`(w8p2+3 合并) |
 | W8 Plan 3 | form.submit + task.explain LLM 增强 + FailureCategory 持久化 | ✅ 已完成 | +36 测试(5 wiremock explain_failure + 6 task_explain_llm + 25 其他);default 总计 461 ≥ 286 阈值 | 2026-07-28 | `ed4c2f9`(w8p2+3 合并) |
 | W8 Plan 4 | Router Bridge 集成 RouteDecision::Dag + route_text_with_dag + llm_client/privacy_mode accessors + CLI voice-dag | ✅ 已完成 | +8 wiremock 集成测试(w8_plan4_router_bridge_dag) + 4 non-gated 单元测试;default 总计 465 ≥ 286 阈值 | 2026-07-28 | (工作区未提交) |
-| W8 | Skill 编排 + DAG 调度器 | 🚧 进行中 | Plan 1-4 已完成,Plan 5-6 待启动 | — | — |
+| W8 Plan 5 | Tauri UI DAG 审批弹窗 + 历史查看 + task.explain 面板 + WCAG A 可访问性 | ✅ 已完成 | +14 tauri-gated 集成测试(w8_dag_commands_unit)+ 前端 Vitest 组件测试;default 总计 465 ≥ 286 阈值(Plan 5 测试全部 #[cfg(feature = "tauri")] 门控,不计入 default 统计) | 2026-07-28 | (工作区未提交) |
+| W8 | Skill 编排 + DAG 调度器 | 🚧 进行中 | Plan 1-5 已完成,Plan 6 待启动 | — | — |
 
-**累计测试数:** 465 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag)
+**累计测试数:** 465 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit)
 
 ---
 
@@ -1893,6 +1894,79 @@ voicepilot/crates/trust-kernel/src/
 - **`RouteDecision::Dag` 防御性 arm:** `route_text`(sync,W5 PoC)内部已把 `RouteDecision::Dag(_)` 映射为 `Unmatched`,但 `RouteDecision` enum 新增 `Dag` 变体后,所有 match 必须穷尽 — UI / CLI 三处加 `#[cfg(feature = "llm")] Dag(_)` 防御性 arm 返回 `Unmatched`
 
 **下一步:** W8 Plan 4(router_bridge 集成层)就绪,Plan 5(Tauri UI DAG 骨架审批弹窗)可启动,引用本 plan 的 `RouteOutcome::DagPlan(DagPlan)` 变体 + `route_text_with_dag` 入口。Plan 6(DagExecutor 循环节点 + UIA-in-DAG adapter 透传)引用本 plan 的 UIA dispatcher 修复策略。
+
+---
+
+### W8 Plan 5: Tauri UI DAG 审批弹窗 + 历史查看 + task.explain 面板 ✅
+
+**实现内容(10 个 Task,工作区未提交):**
+
+- **Task 1 — `approve_dag_skeleton_command` Tauri 命令**(`crates/ui/src/dag_commands.rs`)
+  - 新增 `DagApprovalDecision` enum(Allow / Deny / Modify;Modify 为 W9+ 占位)
+  - 新增 `submit_dag_skeleton_approval(state, approval_request_id, decision) -> UiResult<bool>` 逻辑函数:调用 `ApprovalRegistry::take_sender` 取出 oneshot sender,发送决策;返回 true = 投递成功,false = 请求已被消费 / 不存在(一次性语义,防重放)
+  - `#[tauri::command] approve_dag_skeleton_command` 异步包装,`State<'_, AppState>` 注入
+
+- **Task 2 — `list_dag_history_command` + `get_dag_plan_command`**(`crates/ui/src/dag_commands.rs`)
+  - `DagPlanSummaryDto`:plan_id / user_goal / status / created_at / completed_at / root_task_id / node_count(从 plan_json 解析)/ success_rate(查 dag_nodes 表算)
+  - `DagPlanDetailDto`:含完整 nodes + edges 列表
+  - `DagStatusFilter` enum:All / Running / Succeeded / Failed / Cancelled
+  - `list_dag_history(state, limit, offset, filter)`:limit 用 `clamp(1, 100)` 限制;All 模式逐 status 查询后合并 + 按 created_at DESC 排序 + 分页
+  - `get_dag_plan(state, plan_id)`:返回 `Option<DagPlanDetailDto>`,plan_json 解析 max_total_steps + edges,dag_nodes 表查节点详情
+
+- **Task 3 — `get_task_explanation_command`**(`crates/ui/src/dag_commands.rs`)
+  - `TaskExplanationDto`:explanation_id / step_id / root_cause_zh / category / suggested_fix / confidence / llm_model / created_at
+  - `get_task_explanation(state, step_id) -> UiResult<Option<TaskExplanationDto>>`:调 `TaskExplanationRepo::get_by_step_id`(W8 Plan 1 实现,ORDER BY created_at DESC LIMIT 1)
+
+- **Task 4 — Handler 注册 + 5 个 Tauri 命令导出**(`crates/ui/src/commands.rs`)
+  - `register_handlers` 和 `register_handlers_with_voice` 都加入 4 个新命令:`approve_dag_skeleton_command` / `list_dag_history_command` / `get_dag_plan_command` / `get_task_explanation_command`
+  - 三安全规则:WebView 不直接访问 filesystem(本模块只读 DagRepo / TaskExplanationRepo);UI 不直接调用 MCP(DAG 审批走 oneshot channel);approval_request_id 单次使用(`take_sender` 移除 sender)
+
+- **Task 5 — 前端 `DagApprovalDialog.tsx` 组件**(`crates/ui/web/src/components/`)
+  - Modal 弹窗:显示 user_goal + 节点列表 + edges;Allow / Deny / Modify 三个按钮
+  - 调用 `invoke('approve_dag_skeleton_command', { approvalRequestId, decision })`
+  - WCAG A:role="dialog" + aria-modal + aria-labelledby + Esc 键关闭 + 焦点陷阱
+
+- **Task 6 — 前端 `DagHistoryView.tsx` 组件**
+  - 表格视图:plan_id / user_goal / status / created_at / node_count / success_rate;状态过滤下拉框 + 分页
+  - 行点击展开 `get_dag_plan_command` 获取详情
+  - WCAG A:table role + thead/th scope + col 标签
+
+- **Task 7 — 前端 `TaskExplainPanel.tsx` 组件**
+  - 失败节点展开面板:显示 root_cause_zh / category / suggested_fix / confidence / llm_model
+  - 调用 `invoke('get_task_explanation_command', { stepId })`
+  - 手风琴展开 / 收起,Empty 状态显示"未启用 LLM 归因"
+
+- **Task 8 — 路由集成 + 类型定义**(`crates/ui/web/src/types.ts` + `App.tsx`)
+  - `DagPlanSummary` / `DagPlanDetail` / `DagNode` / `DagEdge` / `TaskExplanation` / `DagApprovalDecision` TypeScript 接口
+  - App 路由集成:DAG 历史页面入口,审批弹窗触发条件
+
+- **Task 9 — Rust 集成测试**(`crates/ui/tests/w8_dag_commands_unit.rs`)
+  - 14 个 `#[cfg(feature = "tauri")]` 门控测试:
+    - 4 个 `list_dag_history_*`:分页 / 状态过滤 / node_count + success_rate 计算 / All 排序
+    - 2 个 `get_dag_plan_*`:完整详情 + unknown_id 返回 None
+    - 4 个 `get_task_explanation_*`:有记录 / 无记录 / 多记录取最新 / unknown step
+    - 4 个 `submit_dag_skeleton_approval_*` / `full_dag_approval_flow_*`:Allow / Deny 投递 / 已消费 id 返回 false / 未知 id 返回 false
+  - **关键修复:**
+    - 移除 `TauriApprover` 直接 use — `TauriApprover` 持 `Option<AppHandle>` → 拉入 Tauri runtime → wry → tao → user32/comctl32/gdi32,`TaskDialogIndirect` 需 comctl32 v6 manifest,Rust 测试二进制无 manifest 默认加载 v5 触发 `STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)`,改由 `approver_unit.rs` 覆盖底层 `ApprovalRegistry::create_request` 行为
+    - Mutex 重入死锁:`list_dag_history_computes_node_count_and_success_rate` / `get_task_explanation_returns_record_for_step` / `get_task_explanation_returns_a_record_for_multiple_records` 三测试用 block `{ ... }` 限制 conn 守卫生命周期,避免下方 `list_dag_history(&state, ...)` / `get_task_explanation(&state, ...)` 内部再次 `state.kernel.conn()` 触发死锁
+    - FK 约束:`list_dag_history_computes_node_count_and_success_rate` 在 `update_node_status(..., Some("task-1"), Some("step-1"))` 前先创建 tasks + steps 父行(dag_nodes.task_id → tasks.task_id, dag_nodes.step_id → steps.step_id)
+    - 时间戳稳定性:`get_task_explanation_returns_a_record_for_multiple_records` 在两次 `repo.create` 间加 1.1s 延迟,确保 `now_iso()`(RFC3339 秒精度)created_at 不同
+
+- **Task 10 — 验证**
+  - `cargo clippy --workspace --all-features -- -D warnings` PASS(`limit.min(100).max(1)` → `limit.clamp(1, 100)` 修复 manual_clamp lint)
+  - 6 feature 组合 `cargo check --workspace --no-default-features --features ...` 全 PASS(default / voice / llm / tauri / voice,llm / voice,llm,tauri)
+  - `npm run build` PASS(`tsc && vite build`,产物 `dist/index.html` + `dist/assets/index-*.js` 191.65 kB / `dist/assets/index-*.css` 27.20 kB)
+  - 非门控测试数 465 ≥ 286 阈值(Plan 5 测试全部 #[cfg(feature = "tauri")] 门控,不计入 default 统计)
+  - 14 个 tauri-gated 集成测试全部 PASS(`w8_dag_commands_unit-3e37f8727fcc4e1a.exe --test-threads=1`,1.19s)
+
+**关键修复:**
+
+- **DLL 依赖排查:** `dumpbin.exe` 分析测试二进制依赖,定位 `STATUS_ENTRYPOINT_NOT_FOUND` 根因为 `TauriApprover` 持 `Option<AppHandle>` 拉入 comctl32 v6 manifest 依赖,移除该 use 后测试二进制不再链接 GUI DLL
+- **Mutex 重入死锁:** `state.kernel.conn()` 返回 `MutexGuard<Connection>`,测试持有 guard 时调用内部再次获取锁的逻辑函数(`list_dag_history` / `get_task_explanation` / `get_dag_plan`)会死锁,统一用 block scope 限制 guard 生命周期
+- **clippy manual_clamp:** `limit.min(100).max(1)` 在 `--all-features` 下触发 `clippy::manual_clamp` lint,改用 `limit.clamp(1, 100)`
+- **PowerShell 脚本策略:** `npm` 是 `.ps1` 脚本被 ExecutionPolicy 拦截,改用 `npm.cmd` 直接调用可执行文件
+
+**下一步:** W8 Plan 5(UI 层)就绪,Plan 6(DagExecutor 循环节点 + UIA-in-DAG adapter 透传 + 端到端集成)可启动,引用本 plan 的 4 个 Tauri 命令作为 UI 入口,Plan 4 的 UIA dispatcher 修复策略需要 Plan 6 透传 `Option<Arc<dyn UiaAdapter>>` 到 DagExecutor 字段。
 
 ---
 

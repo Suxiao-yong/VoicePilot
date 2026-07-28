@@ -892,6 +892,563 @@ html, body, #root {
   font-size: 12px;
 }
 
+/* ===== W8 Plan 5: DAG 骨架审批弹窗 ===== */
+
+.dag-dialog {
+  max-width: 800px;
+  width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.dag-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.dag-goal-section {
+  margin-bottom: 20px;
+}
+
+.dag-goal-text {
+  font-family: var(--sans);
+  font-size: 15px;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border-left: 3px solid var(--accent);
+  padding: 12px 16px;
+  border-radius: 0;
+}
+
+.dag-plan-section {
+  margin-bottom: 24px;
+}
+
+.dag-plan-id {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  padding: 4px 8px;
+  display: inline-block;
+}
+
+.dag-section-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.dag-nodes-grid {
+  margin-bottom: 24px;
+}
+
+.dag-nodes-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.dag-node-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px 16px;
+}
+
+.dag-node-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dag-node-id {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.dag-node-skill {
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.risk-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 0;
+  letter-spacing: 0.05em;
+}
+
+.risk-badge-e0 {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+}
+
+.risk-badge-e1 {
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+}
+
+.risk-badge-e2 {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border: 1px solid var(--accent);
+}
+
+.risk-badge-e3 {
+  background: var(--danger);
+  color: var(--bg-deep);
+  border: 1px solid var(--danger);
+}
+
+.dag-template-preview summary {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.dag-template-code {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  padding: 8px 12px;
+  border-radius: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dag-edges-section {
+  margin-bottom: 16px;
+}
+
+.dag-edges-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dag-edge-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-elev);
+  padding: 6px 12px;
+}
+
+.dag-edge-arrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.dag-edge-port {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.dag-dialog .modal-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* ===== W8 Plan 5: DAG 历史视图 ===== */
+
+.dag-history {
+  padding: 32px 40px;
+}
+
+.dag-history-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dag-filter-group {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 0;
+  transition: all 0.15s;
+}
+
+.filter-btn:hover {
+  background: var(--bg-elev2);
+  border-color: var(--border-bright);
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.dag-pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dag-page-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dag-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-base);
+}
+
+.dag-history-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.dag-history-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.dag-history-row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dag-history-row:hover {
+  background: var(--bg-elev);
+}
+
+.dag-history-row.expanded {
+  background: var(--bg-elev);
+  border-left: 3px solid var(--accent);
+}
+
+.dag-history-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.dag-goal-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dag-detail-row td {
+  padding: 0;
+  background: var(--bg-deep);
+}
+
+.dag-detail-panel {
+  padding: 16px 24px;
+  border-left: 3px solid var(--accent);
+}
+
+.dag-detail-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dag-detail-summary {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dag-detail-summary .mono {
+  color: var(--text-primary);
+}
+
+.dag-node-error {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 2px solid var(--danger);
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.status-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.status-pending {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+}
+
+.status-running {
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+}
+
+.status-enabled {
+  background: var(--success);
+  color: var(--bg-deep);
+  border: 1px solid var(--success);
+}
+
+.status-failed {
+  background: var(--danger);
+  color: var(--bg-deep);
+  border: 1px solid var(--danger);
+}
+
+.status-disabled {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+  text-decoration: line-through;
+}
+
+.dag-history .empty-state {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ===== W8 Plan 5: TaskExplain 面板 ===== */
+
+.task-explain-panel {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 20px;
+  margin-top: 16px;
+}
+
+.task-explain-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.explain-accordion {
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.explain-accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-elev);
+  border: none;
+  cursor: pointer;
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.explain-accordion-header:hover {
+  background: var(--bg-elev2);
+}
+
+.explain-accordion-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.explain-accordion-title {
+  letter-spacing: 0.05em;
+}
+
+.explain-accordion-icon {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.explain-accordion-body {
+  padding: 14px;
+  background: var(--bg-deep);
+}
+
+.explain-info-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.explain-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.explain-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.llm-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llm-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.llm-root-cause {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text-primary);
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 0;
+  line-height: 1.5;
+}
+
+.llm-suggested-fix {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-elev);
+  padding: 8px 12px;
+  border-radius: 0;
+}
+
+.category-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.category-mcp {
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+}
+
+.category-path {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.category-approval {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.category-network {
+  background: transparent;
+  color: #a855f7;
+  border: 1px solid #a855f7;
+}
+
+.category-unknown {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+}
+
+.confidence-bar {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.confidence-value {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--text-primary);
+  font-weight: 600;
+  mix-blend-mode: difference;
+}
+
 .model-download-progress-bar {
   height: 6px;
   background: var(--border, #1e293b);

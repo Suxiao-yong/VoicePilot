@@ -95,7 +95,7 @@ export interface Settings {
   uia_allowed_apps: string[];
 }
 
-export type View = "main" | "settings" | "audit" | "trust" | "skills";
+export type View = "main" | "settings" | "audit" | "trust" | "skills" | "dag-history";
 
 export interface AuditEvent {
   log_id: string;
@@ -192,4 +192,100 @@ export interface ExtractedSlot {
   kind: string;
   raw: string;
   high_risk: boolean;
+}
+
+// ===== W8 Plan 5: DAG 相关类型 =====
+
+/** W8 §2.3:DAG 节点(前端镜像,与后端 DagNodeDetailDto 对齐)。 */
+export interface DagNode {
+  node_id: string;
+  skill_id: string;
+  risk_ceiling: string; // "E0" | "E1" | "E2" | "E3"
+  status: string;
+  input_template_json: string;
+  output_json: string | null;
+  error_message: string | null;
+  task_id: string | null;
+  step_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/** W8 §2.3:DAG 边。 */
+export interface DagEdge {
+  from: string;
+  to: string;
+  port_binding: string | null;
+}
+
+/** W8 §2.3:DAG 完整详情。 */
+export interface DagPlanDetail {
+  plan_id: string;
+  user_goal: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  max_total_steps: number;
+  nodes: DagNode[];
+  edges: DagEdge[];
+}
+
+/** W8 §2.7:DAG 历史列表项。 */
+export interface DagPlanSummary {
+  plan_id: string;
+  user_goal: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  root_task_id: string | null;
+  node_count: number;
+  success_rate: number;
+}
+
+/** W8 §2.5:task.explain LLM 归因。 */
+export interface TaskExplanation {
+  explanation_id: string;
+  step_id: string;
+  root_cause_zh: string;
+  category: string;
+  suggested_fix: string | null;
+  confidence: number;
+  llm_model: string | null;
+  created_at: string;
+}
+
+/** W8 §2.7:DAG 骨架审批请求 payload(后端 emit `dag-approval-request` 事件)。 */
+export interface DagApprovalRequestPayload {
+  approval_request_id: string;
+  plan_id: string;
+  user_goal: string;
+  max_total_steps: number;
+  node_count: number;
+  plan_json: unknown; // 序列化的 DagPlan
+}
+
+/** W8 §2.7:DAG 审批决策。 */
+export type DagApprovalDecision = "allow" | "deny" | "modify";
+
+/** W8 §2.7:DAG 状态过滤。 */
+export type DagStatusFilter =
+  | "all"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+/** W8 §2.5:失败工具调用摘要(后端 task.explain 输出的一部分)。 */
+export interface FailedToolCall {
+  tool_name: string;
+  error_message: string;
+  timestamp: string | null;
+}
+
+/** W8 §2.5:task.explain 完整输出(包含 LLM 归因)。 */
+export interface TaskExplainFull {
+  step_id: string;
+  status: string;
+  failed_tool_calls: FailedToolCall[];
+  llm_analysis: TaskExplanation | null;
 }
