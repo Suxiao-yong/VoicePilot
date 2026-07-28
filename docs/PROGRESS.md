@@ -1,9 +1,9 @@
 # VoicePilot 项目进度记录
 
-> **最后更新:** 2026-07-26 (Asia/Shanghai)
+> **最后更新:** 2026-07-28 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `278240a` fix(w7p6): clippy -D warnings clean across all feature combos
-> **测试状态:** 236 passing (default `cargo test --workspace --no-default-features`,W1-W4 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(5 个 E2E:scan_loads_valid_skill_into_router + scan_skips_malformed_yaml + user_skill_overrides_built_in_same_id + user_skill_appears_as_llm_candidate_via_route_with_llm + user_skill_overrides_built_in_when_llm_returns_same_id)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI,含 uiautomation::tests 3 个 + skills::app_control::tests 7 个 + skills::note_capture::tests 7 个 + w7_plan4_uia_smoke 2 mock + 1 #[ignore] 真实 Notepad GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY(2 must-fix + 4 follow-up 全部修复后复审)/ +W7 Plan 5: Playwright MCP 浏览器自动化 9 个 commit,`cargo check --workspace --features voice,tauri,llm,uia` PASS/ +W7 Plan 6: 4 个新 E2E 测试文件(5+4+2+1=12 个新测试)+ 6 套 feature 组合 cargo check 全 PASS + clippy `-D warnings` 全 feature 0 警告 + npm build PASS,详见 §二 W7 Plan 6 段落
+> **最新 commit:** `0c6f0a5` test(w8p1): add SlotTemplateEngine integration tests (10 tests, double-layer defense)
+> **测试状态:** 379 passing (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56;379 ≥ 286 阈值) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(5 个 E2E)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY/ +W7 Plan 5: Playwright MCP 浏览器自动化 9 个 commit,`cargo check --workspace --features voice,tauri,llm,uia` PASS/ +W7 Plan 6: 4 个新 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 全 PASS + clippy `-D warnings` 全 feature 0 警告 + npm build PASS/ +W8 Plan 1: DAG 基础设施(SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo),8 个 commit,新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS,详见 §二 W8 Plan 1 段落
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -20,6 +20,7 @@
 > **W7 Plan 5:** ✅ 已完成(2026-07-26)— Playwright MCP 浏览器自动化(`mcp_servers` 表 + `McpClient::spawn` + `invoke_mcp_tool` helper)+ 2 个浏览器 Skill(`research.save_markdown` / `form.prepare`)+ 跨平台无 cfg 门控 + Settings UI 提示 + SkillsManager 依赖列 + E2E 冒烟,9 个 commit(8 task + 1 cli fix),`cargo check --workspace --features voice,tauri,llm,uia` PASS,详见 §二 W7 Plan 5 段落
 > **W7 Plan 6:** ✅ 已完成(2026-07-26)— 4 个 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 矩阵 + clippy `-D warnings` 全 feature 0 警告 + npm build PASS,W7 全部 acceptance gates 闭合,4 个 commit,详见 §二 W7 Plan 6 段落
 > **W7 整体:** ✅ 已完成(2026-07-26)— LLM Planner + 8 Skills + 用户自定义 Skill + UIA 自动化 + Playwright MCP + 集成验收,共 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 五个独立 plan),累计 ~60+ commit
+> **W8 Plan 1:** ✅ 已完成(2026-07-28)— DAG 基础设施(SlotTemplateEngine 模板解析/渲染/校验 + DB 迁移 004 dag_plans/dag_nodes/task_explanations + DagRepo/TaskExplanationRepo CRUD + DagPlan/DagNode/DagStatus 数据结构),8 个 commit,新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration,default 总计 379 ≥ 286 阈值),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS,详见 §二 W8 Plan 1 段落
 
 ---
 
@@ -44,9 +45,10 @@
 | W7 Plan 5 | Playwright MCP + 2 浏览器 Skill + E2E | ✅ 已完成 | +2 mock smoke (w7_plan5_mcp_playwright_smoke) + 1 #[ignore] real Playwright;`cargo check --features voice,tauri,llm,uia` PASS | 2026-07-26 | (direct on master) |
 | W7 Plan 6 | 集成测试 + 验收门禁 | ✅ 已完成 | +12 新 E2E (5 router_llm + 4 settings_llm + 2 user_skill_llm + 1 mcp_unavailable);6 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告;npm build PASS | 2026-07-26 | (direct on master) |
 | W7 | LLM Planner + 8 Skills + UIA + Playwright MCP | ✅ 已完成 | 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 独立 plan),累计 ~60+ commit | 2026-07-26 | (direct on master) |
-| W8 | Stronghold Encryption + Taint Tracking | ⏳ 未开始 | — | — | — |
+| W8 Plan 1 | DAG 基础设施: SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo | ✅ 已完成 | +56 default (37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration);default 总计 379 ≥ 286 阈值 | 2026-07-28 | (direct on master) |
+| W8 | Skill 编排 + DAG 调度器 | 🚧 进行中 | Plan 1 已完成,Plan 2-6 待启动 | — | — |
 
-**累计测试数:** 236 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
+**累计测试数:** 379 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
 
 ---
 
@@ -1599,6 +1601,123 @@ voicepilot/crates/ui/
 
 ---
 
+### W8 Plan 1: DAG 基础设施 — SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo ✅
+
+**实现内容(10 个 Task,8 个 commit,直接提交到 master):**
+
+- **Task 1 — DB 迁移 004_dag_plans.sql**(`src/migrations/004_dag_plans.sql`)
+  - 三张表:`dag_plans`(LLM 拆解生成的 DAG 计划)+ `dag_nodes`(节点执行状态)+ `task_explanations`(task.explain LLM 归因结果)
+  - 3 个索引:`idx_dag_nodes_plan` / `idx_dag_plans_status` / `idx_task_explanations_step`
+  - FK 约束:`dag_plans.root_task_id` → `tasks` ON DELETE SET NULL(保留 DAG 历史);`dag_nodes.plan_id` → `dag_plans` ON DELETE CASCADE;`dag_nodes.task_id/step_id` → `tasks/steps` ON DELETE SET NULL;`task_explanations.step_id` → `steps` ON DELETE CASCADE
+  - 注:plan 原文写 `003_dag_plans.sql`,但 `003_mcp_servers_command.sql` 已占用 003 槽位,重命名为 `004_dag_plans.sql` 并相应更新 `db.rs` 的 `include_str!` 列表
+  - `tests/migrations.rs` 加 `migration_004_creates_dag_tables` 断言(3 表 + 3 索引存在)
+
+- **Task 2 — DagPlan / DagNode / DagStatus 数据结构**(`src/skills/dag_types.rs`)
+  - `DagPlan`(plan_id / user_goal / nodes / edges / loop_specs / status / root_task_id)
+  - `DagNode`(node_id / skill_id / input_template / risk_ceiling / status / output / task_id / step_id)
+  - `DagEdge`(from / to / condition)
+  - `LoopSpec`(iter_var / source / break_condition)
+  - `IterableSource`(SlotKind / NodeOutput / Inline)
+  - `DagStatus`(Pending / Running / Succeeded / Failed / PartiallySucceeded / Cancelled)+ `as_str` / `parse_str` 双向转换
+  - `DagNodeStatus`(Pending / Running / Succeeded(Json) / Failed / Skipped)+ `as_str` / `parse_str`
+  - `DagResult`(plan_id / final_status / node_results)
+  - 校验器:`validate_total_steps`(≤ 20 hard limit)+ `validate_loop_iterations`(≤ 50 hard limit)+ `validate_edges`(无 dangling from/to)+ `validate_loop_specs`(无 dangling key)
+  - 常量:`MAX_TOTAL_STEPS_HARD_LIMIT = 20` / `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50`(Plan 2/3 引用)
+
+- **Task 3-5 — SlotTemplateEngine**(`src/skills/template.rs`,~750 行)
+  - **Task 3 parse**:`parse(template_str)` 单遍扫描 `${...}` 占位符 + 字面量 → `TemplateExpr` AST
+    - 支持 4 种作用域:`VarScope::Prev`(紧邻上游)/ `Step(String)`(指定 node_id)/ `User`(用户 Slot)/ `Iter`(循环变量)
+    - 错误处理:`UnclosedVar` / `Parse` / `UnsupportedPredicate`
+  - **Task 4 resolve**:`resolve(expr, node_outputs, user_slots, iter_var, prev_node_id)` 渲染最终值
+    - `Literal` → JSON string
+    - `Var` → 按 scope 查 node_outputs / user_slots / iter_var,支持 dotted path(`output.path` / `name`)
+    - `Concat` → 多段拼接为 string
+    - `Filter` → `[?size > N]` / `[?size < N]` / `[?size >= N]` / `[?size <= N]` 4 种谓词,对 JSON 数组按 `size` 字段过滤
+  - **Task 5 validate**:`validate_dag(&DagPlan)` 双层防御 Layer 1
+    - 检查所有 `${node_id.output.xxx}` 引用的 node_id 在 plan.nodes 中存在(防止 LLM 幻觉)
+    - 检查所有 `${user.kind_xxx}` 引用的 SlotKind 在 dag_nodes 的 input_template 中声明
+    - 检查 Filter predicate 是 4 种支持格式之一
+    - 配合 resolve 时的 `VarNotFound`(Layer 2),实现 spec §6 双层防御
+
+- **Task 6 — DagRepo CRUD**(`src/skills/dag_repo.rs`)
+  - `DagRepo::new()`(无参数,方法接收 `&Connection`,遵循 W4 `McpServerRepo` 模式)
+  - `create_plan` / `get_plan` / `list_by_status` / `update_plan_status` / `delete_plan_cascade`
+  - `create_node` / `get_node` / `update_node_status`(支持 Pending→Running→Succeeded/Failed/Skipped 状态机)/ `list_nodes_by_plan`
+  - `DagPlan` / `DagNode` 的复杂字段用 `serde_json::to_string` / `from_str` 存 `*_json` TEXT 列
+
+- **Task 7 — TaskExplanationRepo CRUD**(`src/skills/explanation_repo.rs`)
+  - `TaskExplanationRepo::new()`(无参数)
+  - `create` / `get_by_id` / `get_by_step_id`(取最新一条)/ `list_by_root_cause` / `delete`
+  - `FailureCategory` enum(McpUnavailable / PathNotAllowed / ApprovalDenied / NetworkError / Unknown)+ `as_str` / `parse_str` 双向转换
+
+- **Task 8 — DagRepo + TaskExplanationRepo E2E 冒烟**(`tests/w8_dag_repo_smoke.rs`,8 个测试)
+  - `dag_repo_create_and_update_nodes`:plan + 2 nodes,模拟 n1 Succeeded / n2 Failed,验证状态 / output_json / error_message / task_id / step_id 持久化
+  - `dag_repo_list_by_status` / `dag_repo_update_plan_status`:plan 状态机 Pending→Running→Succeeded
+  - `dag_repo_cascade_delete`:删 plan 后 nodes 级联消失
+  - `task_explanation_crud_round_trip`:create → get_by_step_id → list_by_root_cause → delete
+  - `failure_category_round_trip`:5 种 category as_str/parse_str 双向转换
+  - `dag_node_status_round_trip`:Succeeded(Json) / Failed / Skipped 序列化往返
+  - `dag_repo_pre_create_parent_task_step_for_fk`:验证 FK 约束(必须先创建 tasks/steps 父行才能 update_node_status 设置 task_id/step_id)
+  - `task_explanation_cascade_on_step_delete`:删 step 后 task_explanations 级联消失
+
+- **Task 9 — SlotTemplateEngine 集成测试**(`tests/w8_template_unit.rs`,10 个测试)
+  - `integration_literal_renders_as_string` / `integration_prev_var_resolves_from_node_output`
+  - `integration_user_var_resolves_from_slot` / `integration_iter_var_resolves`
+  - `integration_concat_stitches_parts` / `integration_filter_gt` / `integration_filter_lt`
+  - `integration_double_layer_defense`:Layer 1 `validate_dag` 拒绝 + Layer 2 `resolve` 失败,验证 spec §6 双层防御
+  - `integration_unknown_node_id_in_template` / `integration_unknown_slot_kind_in_template`
+
+- **Task 10 — clippy + 6 套 feature cargo check + PROGRESS.md 更新**
+  - `cargo clippy --workspace --no-default-features -- -D warnings` 0 warnings
+  - `cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings` 0 warnings(Windows 全 feature)
+  - 6 套 feature 组合 `cargo check` 全 PASS(no-default / voice / tauri / voice,tauri / voice,tauri,llm / voice,tauri,llm,uia)
+  - `cargo test --workspace --no-default-features` 全 PASS,379 passing ≥ 286 阈值
+  - 修复点:`DagStatus::from_str` / `FailureCategory::from_str` 与 `std::str::FromStr::from_str` trait 方法重名 → 重命名为 `parse_str`(clippy `should_implement_trait` lint)
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/
+├── migrations/
+│   └── 004_dag_plans.sql          # 3 表 + 3 索引 + FK 约束
+└── skills/
+    ├── template.rs                # SlotTemplateEngine(parse + resolve + validate,~750 行)
+    ├── dag_types.rs               # DagPlan/DagNode/DagEdge/LoopSpec/DagStatus 数据结构 + 校验器
+    ├── dag_repo.rs                # DagRepo CRUD(dag_plans + dag_nodes)
+    └── explanation_repo.rs        # TaskExplanationRepo CRUD + FailureCategory
+```
+
+**关键修复 / 偏离:**
+- **Migration 文件名冲突:** plan 原文 `003_dag_plans.sql`,但 `003_mcp_servers_command.sql` 已占用,重命名为 `004_dag_plans.sql`,同步更新 `db.rs` 的 `include_str!` 调用
+- **`TemplateExpr` serde 标签:** 原计划 `#[serde(tag = "kind")]`,但 tag 模式无法序列化 newtype variant `Literal(String)` / `Concat(Vec<TemplateExpr>)`(serde-rs#1996),改为默认 externally-tagged(JSON: `{"Literal":"notepad"}` / `{"Var":{...}}`)
+- **`from_str` 方法重名:** `DagStatus::from_str` / `FailureCategory::from_str` 与 `std::str::FromStr::from_str` trait 方法重名,触发 clippy `should_implement_trait` lint,重命名为 `parse_str`
+- **FK 约束:** `dag_plans.root_task_id` ON DELETE 策略,spec §2.6 写 `CASCADE`,实现选 `SET NULL`(保留 DAG 历史便于审计回溯)
+- **`ExtractedSlot.kind` 类型:** `llm::types::ExtractedSlot.kind` 是 `String`(非 `SlotKind` enum),`validate_dag` 中 `UnknownSlotKind` 校验按 `kind` 字符串前缀匹配
+- **Filter predicate:** W8 仅支持 `[?size > N]` / `[?size < N]` / `[?size >= N]` / `[?size <= N]` 4 种(spec §8 延后项,复杂谓词留 W9+)
+
+**Commit 范围:** 8 个 commit(直接提交到 master)
+
+| Commit | 类型 | 主题 |
+|---|---|---|
+| `d4fe982` | feat(w8p1) | add migration 004_dag_plans with dag_plans + dag_nodes + task_explanations tables |
+| `6fec063` | feat(w8p1) | add SlotTemplateEngine parser for ${prev}/${user}/${item} placeholders |
+| `300de35` | feat(w8p1) | add DagPlan/DagNode/DagStatus/DagResult data structures with validators |
+| `1782425` | feat(w8p1) | implement SlotTemplateEngine::resolve with var/concat/filter rendering |
+| `043b7d5` | feat(w8p1) | add DagRepo with dag_plans/dag_nodes CRUD + cascade delete |
+| `914cb1e` | feat(w8p1) | add TaskExplanationRepo with task_explanations CRUD + FailureCategory |
+| `b3c0b84` | test(w8p1) | add DagRepo + TaskExplanationRepo E2E smoke (8 tests) |
+| `0c6f0a5` | test(w8p1) | add SlotTemplateEngine integration tests (10 tests, double-layer defense) |
+
+**Acceptance Gates 验证(对应 spec §7):**
+
+- ✅ **编译门禁:** 6 套 feature 组合 `cargo check` 全 PASS;`cargo clippy --workspace --no-default-features -- -D warnings` 0 warnings;`cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings` 0 warnings(Windows 全 feature)
+- ✅ **测试门禁:** `cargo test --workspace --no-default-features` 全 PASS,379 passing(≥ 286 阈值);W8 Plan 1 新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration)
+- ✅ **功能门禁:** SlotTemplateEngine 支持所有 spec §2.1 占位符语法(`${prev.output.path}` / `${user.name}` / `${item}` / `${n1.output.path}` / Filter `[?size > N]`);DagRepo 支持 plan/node CRUD + 状态机 + 级联删除;TaskExplanationRepo 支持 step_id 索引查询
+- ✅ **安全门禁:** SlotTemplateEngine 双层防御(validate_dag Layer 1 + resolve VarNotFound Layer 2,`integration_double_layer_defense` 测试覆盖);DagPlan 校验器拒绝超 20 步 / 超 50 次循环 / dangling edges / dangling loop key
+
+**下一步:** W8 Plan 1 基础设施就绪,Plan 2(`LlmClient::decompose_to_dag` + `DagExecutor` 简单节点)可启动,引用本 plan 的 `DagPlan` / `DagNode` / `SlotTemplateEngine` / `DagRepo` 类型与 `MAX_TOTAL_STEPS_HARD_LIMIT` / `MAX_LOOP_ITERATIONS_HARD_LIMIT` 常量。
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建
@@ -1633,15 +1752,28 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # cargo test --workspace --features voice,tauri,llm,uia     # 全 PASS (Windows)
 # npm build
 # cd voicepilot/crates/ui/web ; npm.cmd run build           # PASS, dist/ 生成
+
+# W8 Plan 1 验收门禁(2026-07-28 闭合):
+# cargo test --workspace --no-default-features              # 379 passing ≥ 286 阈值
+#   ├─ W8 Plan 1 新增 56 测试:
+#   │   • 37 lib(skills::template/dag_types/dag_repo/explanation_repo::tests)
+#   │   • 8 w8_dag_repo_smoke(DagRepo + TaskExplanationRepo E2E)
+#   │   • 10 w8_template_unit(SlotTemplateEngine 集成测试,含 double_layer_defense)
+#   │   • 1 migration(migration_004_creates_dag_tables)
+# cargo clippy --workspace --no-default-features -- -D warnings                       # 0 warnings
+# cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings              # 0 warnings (Windows)
+# 6 套 feature 组合 cargo check 矩阵全 PASS(同 W7 Plan 6,本 plan 不引入新 feature gate)
 ```
 
 ### Git 状态
 
 ```
 当前分支: master
-最新 commit: 278240a fix(w7p6): clippy -D warnings clean across all feature combos
-保留分支: (无,W7 Plan 1-6 全部直接提交到 master,无 feature 分支)
+最新 commit: 0c6f0a5 test(w8p1): add SlotTemplateEngine integration tests (10 tests, double-layer defense)
+保留分支: (无,W7 Plan 1-6 + W8 Plan 1 全部直接提交到 master,无 feature 分支)
 W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
+W8 Plan 1: ✅ 已完成(2026-07-28)— DAG 基础设施,8 个 commit,新增 56 测试
+W8 里程碑: 🚧 进行中 — Plan 1 已完成,Plan 2-6 待启动
 ```
 
 ### 关键文件清单
@@ -1690,26 +1822,52 @@ W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W8 候选方向(等用户决策)
+### 4.1 立即任务:W8 Plan 2-6 推进
 
 **W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
+
+**W8 Plan 1 已完成(2026-07-28):** DAG 基础设施(SlotTemplateEngine + DB 迁移 004 + DagRepo + TaskExplanationRepo + DagPlan 数据结构),8 个 commit,新增 56 个 default 测试(379 ≥ 286 阈值),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS。详见 §二 W8 Plan 1 段落。
 
 **用户决策(2026-07-26)项目永久约束:**
 - **Windows-only:** 永久不支持 macOS / Linux(已删除 `fs_snapshot.rs` unix fallback,非 Windows 平台无法编译)
 - **云端 LLM only:** 永久不实现本地 LLM(ollama / llama.cpp / ort 等),只用 OpenAI 兼容 API
 
-**W8 候选方向(二选一,等用户决策):**
+**W8 后续 Plan(2-6)推进路线:**
 
-1. **Stronghold 加密 + Taint Tracking(§7.2 snapshot_encrypted W8 准备)**
+| Plan | 主题 | Spec § | 依赖 | 状态 |
+|---|---|---|---|---|
+| Plan 2 | `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点 + `dispatch_skill_executor` 路由 | §2.2, §2.3 | Plan 1 ✅ | ⏳ 待启动 |
+| Plan 3 | `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强 | §2.3, §2.4, §2.5 | Plan 2 | ⏳ 待启动 |
+| Plan 4 | Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` | §2.8 | Plan 2, Plan 3 | ⏳ 待启动 |
+| Plan 5 | UI: DAG 骨架审批弹窗 + DAG 历史 + task.explain 面板 | §2.7 | Plan 4 | ⏳ 待启动 |
+| Plan 6 | 集成测试 + 6 套 feature 组合 cargo check 矩阵 + clippy + npm build | §7 | Plan 1-5 | ⏳ 待启动 |
+
+**Plan 1 已就绪基础设施(供 Plan 2-6 引用):**
+- 类型:`DagPlan` / `DagNode` / `DagEdge` / `LoopSpec` / `DagStatus` / `DagNodeStatus` / `DagResult`(`skills/dag_types.rs`)
+- 模板:`SlotTemplateEngine::parse` / `resolve` / `validate_dag`(`skills/template.rs`)
+- Repo:`DagRepo::new()` + CRUD / `TaskExplanationRepo::new()` + CRUD
+- 常量:`MAX_TOTAL_STEPS_HARD_LIMIT = 20` / `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50`
+- DB:`dag_plans` / `dag_nodes` / `task_explanations` 三表 + 3 索引 + FK 约束
+
+**W8 已知偏离 / 待解决问题(Plan 2-6 实现时关注):**
+- **审计事件:** Plan 2 须在 `decompose_to_dag` 成功后记录 `llm_decompose_called`(plan_id / llm_model / latency_ms / token_count)+ `dag_plan_created`(plan_id / node_count / edge_count)审计事件(spec §6.1,project memory 强约束)
+- **`break_condition` 测试盲点:** Plan 3 循环 `break_condition` 需补 e2e 测试(spec §2.3,W7 review 反馈)
+- **`token_count` 字段:** Plan 6 集成测试须显式断言 `llm_decompose_called` 审计事件的 `token_count` 字段非空(W7 review 反馈)
+- **DAG History UI:** Plan 5 `DagHistoryView` 须使用 SVG 边连线图(非 div 模拟),节点定位须按拓扑层级(spec §2.7,W7 review 反馈)
+
+**W8 候选方向(原二选一,已决策):**
+
+1. ~~**Stronghold 加密 + Taint Tracking(§7.2 snapshot_encrypted W8 准备)**~~ — 推迟 W9+,等 W8 DAG 编排完成后评估
    - `snapshot_encrypted` 从明文 JSON 升级为 stronghold 加密
    - Taint Tracking 污点传播(用户输入 → Skill 输出 → 文件系统)
    - 关键依赖:stronghold-rs 集成、密钥管理策略
    - W7 spec §8 已列延后项(`task.explain` 接 LLM / Skill 编排)可同步评估纳入 W8
 
-2. **Skill 编排 + DAG 调度器(W7 spec §8 延后项)**
+2. ✅ **Skill 编排 + DAG 调度器(W7 spec §8 延后项)** — **已选定**,W8 主线
    - 当前 LLM Planner 仅做单 Skill 路由,W8 引入 Skill 编排(如"打开记事本写 TODO 然后保存到桌面" 拆分为 `note.capture` + `files.move` 两步)
    - 关键依赖:DAG 调度器 + Slot 流水(前一步输出 → 后一步输入)+ 事务边界
    - `form.prepare` submit 点击 / `playwright.click` 链路补全
+   - Plan 1 基础设施已就绪,Plan 2-6 待启动(见上文 "W8 后续 Plan 推进路线" 表)
 
 **W8 不在范围(留到 W9+):**
 - 真实 Silero VAD(目前 W6b-1 用能量阈值 VAD)
@@ -1792,33 +1950,26 @@ $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
 cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-### 5.2 推荐起点:W7 计划编写
+### 5.2 推荐起点:W8 Plan 2 推进
 
-W6 系列全部完成并验证通过(最新 commit `4f9e200`,W6c Fast-Follow P1/P2 修复)。**`cargo test --workspace --no-default-features` + `cargo test -p voicepilot-ui --features tauri` 全部通过(2026-07-25)**。详见 §二 W6c Fast-Follow 段落。
+W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG 基础设施就绪(2026-07-28,8 个 commit,新增 56 测试,default 总计 379 ≥ 286 阈值)。**`cargo test --workspace --no-default-features` + `cargo clippy --workspace --no-default-features -- -D warnings` + 6 套 feature 组合 `cargo check` 全部通过(2026-07-28)**。详见 §二 W8 Plan 1 段落。
 
-**Step 1: 与用户决策 W7 方向(二选一,见 §4.1):**
-- LLM Planner 预研 + 8 Skills 完整实现
-- Stronghold 加密预研(W8 准备)
+**Step 1: W8 Plan 2 启动 — `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点**
+
+使用 `superpowers:writing-plans` skill(若 plan 已存在则用 `superpowers:executing-plans` 或 `superpowers:subagent-driven-development`)。Plan 2 已有草稿:`d:\voicepilot\docs\superpowers\plans\2026-07-26-w8-plan2-llm-decompose-dag-executor.md`。
+
+**Step 2: W8 Plan 2 应包含的 TDD 任务(根据 spec §2.2 + §2.3 + project memory 强约束):**
+1. `LlmClient::decompose_to_dag`(user_goal → DagPlan) + `llm_decompose_called` 审计事件(plan_id / llm_model / latency_ms / token_count 四字段必须)
+2. `dag_plan_created` 审计事件(plan_id / node_count / edge_count,在 `validate_dag` 通过后记录)
+3. `DagExecutor::execute_plan`(拓扑序遍历 + 节点状态机 Pending→Running→Succeeded/Failed)
+4. `dispatch_skill_executor` 路由(根据 `DagNode.skill_id` 分发到 8 个内置 Skill 之一)
+5. `SlotTemplateEngine::resolve` 集成(渲染 `DagNode.input_template` → Skill args)
+6. 简单节点 e2e 冒烟(无循环节点,2-3 步线性 DAG,如"打开记事本写 TODO 然后保存到桌面")
+
+**Step 3: 后续 Plan 3-6 按 §4.1 表格顺序推进**
 
 > Tauri macOS + Linux 打包已永久放弃(用户决策 2026-07-26:Windows-only)。
-
-**Step 2: W7 计划编写:**
-
-使用 `superpowers:writing-plans` skill 创建 W7 计划:
-
-```
-d:\voicepilot\docs\superpowers\plans\YYYY-MM-DD-w7-<chosen-direction>.md
-```
-
-**W7 计划应包含的 TDD 任务(根据用户决策方向调整):**
-
-LLM Planner 方向示例(12-16 个):
-1. 云端 LLM 客户端(OpenAI 兼容 API,本地 LLM 永久放弃 — 用户决策 2026-07-26)
-2. Skill Router LLM fallback(关键词 miss 时调用 LLM)
-3. 8 Skills struct literal → YAML 文件 + serde_yaml
-4. LLM Planner 参数填充(从 transcription → Skill 调用)
-5. Skill 调用顺序编排
-6. ...其余视具体方向补充
+> 本地 LLM 永久放弃(用户决策 2026-07-26:云端 LLM only)。
 
 ### 5.3 用户偏好提醒
 
