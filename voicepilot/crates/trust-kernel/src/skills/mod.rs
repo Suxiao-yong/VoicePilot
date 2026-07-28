@@ -20,6 +20,8 @@ pub mod template;
 pub mod dag_repo;
 // W8 Plan 1 Task 7: TaskExplanationRepo — CRUD for task_explanations table.
 pub mod explanation_repo;
+// W8 Plan 2 Task 2: dispatch_skill_executor 路由 + DispatchOutcome 适配器
+pub mod dispatcher;
 
 // W7 Plan 4 Task 3: quick.app_control executor (launch/focus/close).
 // `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`)
