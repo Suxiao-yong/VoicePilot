@@ -10,6 +10,8 @@ const MIGRATION_001: &str = include_str!("migrations/001_init.sql");
 const MIGRATION_002: &str = include_str!("migrations/002_app_config.sql");
 // W7 Plan 5 Task 0: adds command/args/env columns to mcp_servers.
 const MIGRATION_003: &str = include_str!("migrations/003_mcp_servers_command.sql");
+// W8 Plan 1 Task 1: DAG orchestration tables (dag_plans + dag_nodes + task_explanations).
+const MIGRATION_004: &str = include_str!("migrations/004_dag_plans.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -52,6 +54,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             }
         }
     }
+    // W8 Plan 1 Task 1: 004 creates new tables (dag_plans + dag_nodes +
+    // task_explanations) plus 3 indexes. All statements are
+    // `CREATE ... IF NOT EXISTS`, so a single `execute_batch` is sufficient
+    // and idempotent.
+    conn.execute_batch(MIGRATION_004)?;
     tracing::info!("migrations applied");
     Ok(())
 }

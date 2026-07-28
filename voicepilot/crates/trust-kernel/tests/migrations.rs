@@ -37,3 +37,26 @@ fn foreign_keys_are_enforced() {
         .expect("PRAGMA foreign_keys");
     assert_eq!(fk_enabled, 1, "foreign_keys pragma must be ON");
 }
+
+#[test]
+fn migration_004_creates_dag_tables() {
+    let conn = db::open_in_memory().expect("open db");
+    db::run_migrations(&conn).expect("migrations");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dag_plans','dag_nodes','task_explanations')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3, "W8 migration 004 must create dag_plans + dag_nodes + task_explanations");
+
+    let idx_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_dag_nodes_plan','idx_dag_plans_status','idx_task_explanations_step')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(idx_count, 3, "W8 migration 004 must create 3 indexes");
+}
