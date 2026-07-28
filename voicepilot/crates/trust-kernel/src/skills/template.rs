@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::llm::types::ExtractedSlot;
+
 /// Slot 种类(从 W6b 的 SlotKind 复用语义,本 plan 重新定义避免跨 crate 依赖)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +236,173 @@ impl SlotTemplateEngine {
         };
         Ok(VarRef { scope, path })
     }
+
+    /// 执行模板:用 node_outputs + user_slots + iter_var 渲染最终值。
+    ///
+    /// - `node_outputs`:key = node_id,value = 节点 output(serde_json::Value)
+    /// - `user_slots`:用户审批阶段填的 Slot 列表
+    /// - `iter_var`:循环变量当前值(Some 时表示在循环体内)
+    /// - `prev_node_id`:拓扑序中前一个节点的 id(用于 VarScope::Prev 解析)
+    pub fn resolve(
+        expr: &TemplateExpr,
+        node_outputs: &std::collections::HashMap<String, serde_json::Value>,
+        user_slots: &[ExtractedSlot],
+        iter_var: Option<&serde_json::Value>,
+        prev_node_id: Option<&str>,
+    ) -> Result<serde_json::Value, TemplateError> {
+        match expr {
+            TemplateExpr::Literal(s) => Ok(serde_json::Value::String(s.clone())),
+            TemplateExpr::Var(var) => Self::resolve_var(
+                var,
+                node_outputs,
+                user_slots,
+                iter_var,
+                prev_node_id,
+            ),
+            TemplateExpr::Concat(parts) => {
+                let mut s = String::new();
+                for p in parts {
+                    let v = Self::resolve(p, node_outputs, user_slots, iter_var, prev_node_id)?;
+                    match v {
+                        serde_json::Value::String(t) => s.push_str(&t),
+                        other => s.push_str(&other.to_string()),
+                    }
+                }
+                Ok(serde_json::Value::String(s))
+            }
+            TemplateExpr::Filter { source, predicate } => {
+                let src_val = Self::resolve(source, node_outputs, user_slots, iter_var, prev_node_id)?;
+                Self::apply_filter(&src_val, predicate)
+            }
+        }
+    }
+
+    fn resolve_var(
+        var: &VarRef,
+        node_outputs: &std::collections::HashMap<String, serde_json::Value>,
+        user_slots: &[ExtractedSlot],
+        iter_var: Option<&serde_json::Value>,
+        prev_node_id: Option<&str>,
+    ) -> Result<serde_json::Value, TemplateError> {
+        match &var.scope {
+            VarScope::Prev => {
+                let nid = prev_node_id.ok_or_else(|| TemplateError::VarNotFound {
+                    scope: "prev".into(),
+                    path: var.path.clone(),
+                })?;
+                let node_out = node_outputs.get(nid).ok_or_else(|| TemplateError::VarNotFound {
+                    scope: format!("prev({})", nid),
+                    path: var.path.clone(),
+                })?;
+                Self::extract_path(node_out, &var.path)
+            }
+            VarScope::Step(step_id) => {
+                let node_out = node_outputs.get(step_id).ok_or_else(|| TemplateError::VarNotFound {
+                    scope: format!("step({})", step_id),
+                    path: var.path.clone(),
+                })?;
+                Self::extract_path(node_out, &var.path)
+            }
+            VarScope::User => {
+                // ExtractedSlot.kind 是 String(如 "path" / "app" / "text"),
+                // 直接比较小写形式;同时也允许 raw 文本子串匹配作为 fallback。
+                let path_lower = var.path.to_lowercase();
+                let slot = user_slots.iter().find(|s| {
+                    s.kind.to_lowercase() == path_lower || s.raw.contains(&var.path)
+                });
+                let slot = slot.ok_or_else(|| TemplateError::VarNotFound {
+                    scope: "user".into(),
+                    path: var.path.clone(),
+                })?;
+                Ok(serde_json::Value::String(slot.raw.clone()))
+            }
+            VarScope::Iter => {
+                let val = iter_var.ok_or_else(|| TemplateError::VarNotFound {
+                    scope: "item".into(),
+                    path: var.path.clone(),
+                })?;
+                if var.path.is_empty() {
+                    Ok(val.clone())
+                } else {
+                    Self::extract_path(val, &var.path)
+                }
+            }
+        }
+    }
+
+    /// 从 JSON value 中按 dotted path 提取(如 "output.path" → obj["output"]["path"])。
+    fn extract_path(val: &serde_json::Value, path: &str) -> Result<serde_json::Value, TemplateError> {
+        if path.is_empty() {
+            return Ok(val.clone());
+        }
+        let mut current = val;
+        for key in path.split('.') {
+            current = match current {
+                serde_json::Value::Object(map) => map.get(key).ok_or_else(|| {
+                    TemplateError::VarNotFound {
+                        scope: "json_path".into(),
+                        path: format!("{}.{}", path, key),
+                    }
+                })?,
+                _ => {
+                    return Err(TemplateError::TypeMismatch {
+                        expected: "object",
+                        got: current.to_string(),
+                    })
+                }
+            };
+        }
+        Ok(current.clone())
+    }
+
+    /// W8 仅支持 `[?size > N]` / `[?size < N]` / `[?size >= N]` / `[?size <= N]`。
+    /// 完整 JSONPath filter(如 `[?@.type == 'image']`)延后 W9+(spec §8)。
+    fn apply_filter(
+        src: &serde_json::Value,
+        predicate: &str,
+    ) -> Result<serde_json::Value, TemplateError> {
+        let arr = match src {
+            serde_json::Value::Array(a) => a,
+            _ => {
+                return Err(TemplateError::TypeMismatch {
+                    expected: "array",
+                    got: src.to_string(),
+                })
+            }
+        };
+        let p = predicate.trim();
+        let (op, n_str) = if let Some(rest) = p.strip_prefix("size >=") {
+            (">=", rest.trim())
+        } else if let Some(rest) = p.strip_prefix("size <=") {
+            ("<=", rest.trim())
+        } else if let Some(rest) = p.strip_prefix("size >") {
+            (">", rest.trim())
+        } else if let Some(rest) = p.strip_prefix("size <") {
+            ("<", rest.trim())
+        } else {
+            return Err(TemplateError::UnsupportedPredicate {
+                predicate: predicate.into(),
+            });
+        };
+        let threshold: u64 = n_str.parse().map_err(|_| TemplateError::UnsupportedPredicate {
+            predicate: predicate.into(),
+        })?;
+        let filtered: Vec<serde_json::Value> = arr
+            .iter()
+            .filter(|item| {
+                let size = item.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                match op {
+                    ">" => size > threshold,
+                    "<" => size < threshold,
+                    ">=" => size >= threshold,
+                    "<=" => size <= threshold,
+                    _ => false,
+                }
+            })
+            .cloned()
+            .collect();
+        Ok(serde_json::Value::Array(filtered))
+    }
 }
 
 #[cfg(test)]
@@ -370,5 +539,145 @@ mod tests {
     fn parse_invalid_var_errors() {
         let err = SlotTemplateEngine::parse("${nopdot}").unwrap_err();
         assert!(matches!(err, TemplateError::Parse { .. }));
+    }
+
+    // ===== resolve tests (Task 4) =====
+
+    use std::collections::HashMap;
+
+    fn make_node_outputs() -> HashMap<String, serde_json::Value> {
+        let mut m = HashMap::new();
+        m.insert(
+            "n1".into(),
+            serde_json::json!({
+                "output": {
+                    "path": "C:/Users/test/Documents/file.txt",
+                    "files": [
+                        {"name": "a.txt", "size": 500},
+                        {"name": "b.txt", "size": 2_000_000}
+                    ]
+                }
+            }),
+        );
+        m
+    }
+
+    #[test]
+    fn resolve_literal() {
+        let expr = TemplateExpr::Literal("hello".into());
+        let v = SlotTemplateEngine::resolve(
+            &expr,
+            &HashMap::new(),
+            &[],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(v, serde_json::Value::String("hello".into()));
+    }
+
+    #[test]
+    fn resolve_prev_var() {
+        let expr = SlotTemplateEngine::parse("${prev.output.path}").unwrap();
+        let outs = make_node_outputs();
+        let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap();
+        assert_eq!(v, serde_json::Value::String("C:/Users/test/Documents/file.txt".into()));
+    }
+
+    #[test]
+    fn resolve_step_var() {
+        let expr = SlotTemplateEngine::parse("${n1.output.path}").unwrap();
+        let outs = make_node_outputs();
+        let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, None).unwrap();
+        assert_eq!(v, serde_json::Value::String("C:/Users/test/Documents/file.txt".into()));
+    }
+
+    #[test]
+    fn resolve_concat() {
+        let expr = SlotTemplateEngine::parse("Path: ${n1.output.path}").unwrap();
+        let outs = make_node_outputs();
+        let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, None).unwrap();
+        assert_eq!(
+            v,
+            serde_json::Value::String("Path: C:/Users/test/Documents/file.txt".into())
+        );
+    }
+
+    #[test]
+    fn resolve_iter_var() {
+        let expr = SlotTemplateEngine::parse("${item}").unwrap();
+        let v = SlotTemplateEngine::resolve(
+            &expr,
+            &HashMap::new(),
+            &[],
+            Some(&serde_json::json!("item_value")),
+            None,
+        )
+        .unwrap();
+        assert_eq!(v, serde_json::Value::String("item_value".into()));
+    }
+
+    #[test]
+    fn resolve_iter_with_path() {
+        let expr = SlotTemplateEngine::parse("${item.name}").unwrap();
+        let v = SlotTemplateEngine::resolve(
+            &expr,
+            &HashMap::new(),
+            &[],
+            Some(&serde_json::json!({"name": "x.txt", "size": 100})),
+            None,
+        )
+        .unwrap();
+        assert_eq!(v, serde_json::Value::String("x.txt".into()));
+    }
+
+    #[test]
+    fn resolve_filter_gt() {
+        let expr = SlotTemplateEngine::parse("${prev.output.files}[?size > 1048576]").unwrap();
+        let outs = make_node_outputs();
+        let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap();
+        match v {
+            serde_json::Value::Array(a) => {
+                assert_eq!(a.len(), 1, "only b.txt > 1MB");
+                assert_eq!(a[0]["name"], "b.txt");
+            }
+            other => panic!("expected Array, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_filter_lt() {
+        let expr = SlotTemplateEngine::parse("${prev.output.files}[?size < 1048576]").unwrap();
+        let outs = make_node_outputs();
+        let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap();
+        match v {
+            serde_json::Value::Array(a) => {
+                assert_eq!(a.len(), 1, "only a.txt < 1MB");
+                assert_eq!(a[0]["name"], "a.txt");
+            }
+            other => panic!("expected Array, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_var_not_found_errors() {
+        let expr = SlotTemplateEngine::parse("${prev.output.path}").unwrap();
+        let err = SlotTemplateEngine::resolve(
+            &expr,
+            &HashMap::new(),
+            &[],
+            None,
+            None, // no prev_node_id
+        )
+        .unwrap_err();
+        assert!(matches!(err, TemplateError::VarNotFound { .. }));
+    }
+
+    #[test]
+    fn resolve_filter_on_non_array_errors() {
+        let expr = SlotTemplateEngine::parse("${prev.output.path}[?size > 100]").unwrap();
+        let outs = make_node_outputs();
+        let err = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap_err();
+        assert!(matches!(err, TemplateError::TypeMismatch { .. }));
     }
 }
