@@ -20,6 +20,9 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{finalize_step_success, validate_input_against_manifest};
+use crate::skills::explanation_repo::FailureCategory;
+#[cfg(feature = "llm")]
+use crate::skills::explanation_repo::{TaskExplanationRecord, TaskExplanationRepo};
 use crate::skills::manifest::task_explain_manifest;
 use std::collections::HashMap;
 
@@ -32,6 +35,198 @@ pub struct TaskExplainInput {
     pub step_id: String,
     /// Max audit events to read (1..=100; manifest default is 10).
     pub limit: u32,
+}
+
+/// W8 Plan 3 Task 7-8:LLM 失败归因结果(spec §2.5)。
+///
+/// 由 `LlmClient::explain_failure` 返回,被 `execute_task_explain_with_llm`
+/// 持久化到 `task_explanations` 表(Task 8)。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LlmAnalysis {
+    /// 中文归因,≤ 200 字,仅基于 audit_logs 事实
+    pub root_cause_zh: String,
+    /// 失败分类(与 `task_explanations.category` 列一致)
+    pub category: FailureCategory,
+    /// 可选的修复建议
+    pub suggested_fix: Option<String>,
+    /// LLM 置信度 [0.0, 1.0]
+    pub confidence: f32,
+}
+
+/// W8 §2.5: task.explain LLM 增强的输出结构。
+///
+/// 包含静态部分(step_id / status / failed_tool_calls,从 audit_logs 提取)
+/// 和可选的 LLM 归因(llm_analysis)。LLM 未配置 / step 非 Failed / LLM
+/// 失败回退时 llm_analysis=None。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskExplanation {
+    pub step_id: String,
+    pub status: StepStatus,
+    pub failed_tool_calls: Vec<FailedToolCallSummary>,
+    pub llm_analysis: Option<LlmAnalysis>,
+}
+
+/// W8 §2.5: 从 audit_logs 提取的失败 tool call 摘要。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FailedToolCallSummary {
+    pub tool_name: String,
+    pub args: serde_json::Value,
+    pub error_message: String,
+}
+
+impl TaskExplanation {
+    /// 构造无 LLM 归因的解释(LLM 未配置 / step 非 Failed / LLM 失败回退)。
+    pub fn structured_only(
+        step: &StepRecord,
+        audit_logs: &[crate::audit::AuditEvent],
+    ) -> Self {
+        Self {
+            step_id: step.step_id.clone(),
+            status: step.status,
+            failed_tool_calls: extract_failed_tool_calls(audit_logs),
+            llm_analysis: None,
+        }
+    }
+}
+
+/// 从 audit_logs 中提取 `MCP_CALL_FAILED` 事件的 tool_name / args / error_message。
+fn extract_failed_tool_calls(
+    audit_logs: &[crate::audit::AuditEvent],
+) -> Vec<FailedToolCallSummary> {
+    audit_logs
+        .iter()
+        .filter(|e| e.event_type == "MCP_CALL_FAILED")
+        .map(|e| FailedToolCallSummary {
+            tool_name: e
+                .details
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            args: e.details.get("args").cloned().unwrap_or(serde_json::Value::Null),
+            error_message: e
+                .details
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error")
+                .to_string(),
+        })
+        .collect()
+}
+
+/// W8 §2.5: task.explain LLM 增强主入口。
+///
+/// 与 W7 既有 `execute_explain` 并存:
+/// - W7 `execute_explain`:读 audit_recent,创建新 task/step,返回 task_id(dispatcher 已路由)
+/// - W8 `execute_task_explain_with_llm`:针对指定 step_id 做失败归因,可选调 LLM,
+///   持久化到 `task_explanations` 表,返回 `TaskExplanation` 内存对象
+///
+/// 调用方(CLI/UI)自行决定何时切换到本函数(Plan 4 Router Bridge 集成时决定)。
+///
+/// 参数:
+/// - `kernel`:用于读 step / audit_logs / 持久化 / 审计
+/// - `input`:复用 W7 既有 `TaskExplainInput`(task_id / step_id / limit)
+/// - `_approver`:未使用(task.explain risk=E0,approval=None)
+/// - `llm`:`Option<&LlmClient>`;`None` 或 `llm.is_enabled()==false` → 走 structured_only
+///
+/// 返回:`Result<TaskExplanation>` — 持久化失败 / step 不存在 → `Err`
+#[cfg(feature = "llm")]
+pub async fn execute_task_explain_with_llm(
+    kernel: &TrustKernel,
+    input: &TaskExplainInput,
+    _approver: &dyn Approver,
+    llm: Option<&crate::llm::client::LlmClient>,
+) -> Result<TaskExplanation> {
+    // Step 1: 读 step(必须存在)。step.status 决定是否调 LLM。
+    // KernelError 没有 StepNotFound 变体,用 Skill 字符串包装。
+    let step = kernel
+        .get_step(&input.step_id)?
+        .ok_or_else(|| KernelError::Skill(format!("step not found: {}", input.step_id)))?;
+
+    // Step 2: 读 step 关联的 audit_logs(kernel 仅暴露 list_audit_for_task,
+    // 客户端按 step_id 过滤)。
+    let all_logs = kernel.list_audit_for_task(&step.task_id)?;
+    let audit_logs: Vec<crate::audit::AuditEvent> = all_logs
+        .into_iter()
+        .filter(|e| e.step_id.as_deref() == Some(&step.step_id))
+        .collect();
+
+    // Step 3: 决定是否调 LLM。
+    // - llm 为 None → 不调
+    // - llm.is_enabled()==false → 不调
+    // - step.status != Failed → 不调(spec §7.5:仅 Failed 时调 LLM)
+    let should_call_llm = llm
+        .map(|l| l.is_enabled() && step.status == StepStatus::Failed)
+        .unwrap_or(false);
+
+    let mut llm_analysis: Option<LlmAnalysis> = None;
+    let mut llm_model_used: Option<String> = None;
+
+    if should_call_llm {
+        if let Some(l) = llm {
+            match l.explain_failure(&step, &audit_logs).await {
+                Ok(analysis) => {
+                    llm_model_used = Some(l.model().to_string());
+                    llm_analysis = Some(analysis);
+                }
+                Err(e) => {
+                    // spec §2.5:LLM 失败 → 回退 structured_only,不阻塞。
+                    tracing::warn!(
+                        error = ?e,
+                        step_id = %step.step_id,
+                        "LLM explain_failure failed; falling back to structured_only"
+                    );
+                }
+            }
+        }
+    }
+
+    // Step 4: 构造 TaskExplanation。
+    let explanation = if let Some(analysis) = llm_analysis.clone() {
+        TaskExplanation {
+            step_id: step.step_id.clone(),
+            status: step.status,
+            failed_tool_calls: extract_failed_tool_calls(&audit_logs),
+            llm_analysis: Some(analysis),
+        }
+    } else {
+        TaskExplanation::structured_only(&step, &audit_logs)
+    };
+
+    // Step 5: 持久化 LLM 归因到 task_explanations 表(仅当有 llm_analysis)。
+    if let Some(ref analysis) = explanation.llm_analysis {
+        let rec = TaskExplanationRecord {
+            explanation_id: uuid::Uuid::new_v4().to_string(),
+            step_id: step.step_id.clone(),
+            root_cause_zh: analysis.root_cause_zh.clone(),
+            category: analysis.category.as_str().to_string(),
+            suggested_fix: analysis.suggested_fix.clone(),
+            confidence: analysis.confidence,
+            llm_model: llm_model_used.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        {
+            let conn = kernel.conn();
+            TaskExplanationRepo::new().create(&conn, &rec)?;
+        }
+    }
+
+    // Step 6: 发 llm_explain_called 审计事件(仅当 LLM 实际成功调用)。
+    if let Some(ref analysis) = explanation.llm_analysis {
+        kernel.audit_append_external(
+            &step.task_id,
+            Some(&step.step_id),
+            "llm_explain_called",
+            serde_json::json!({
+                "step_id": step.step_id,
+                "llm_model": llm_model_used,
+                "category": analysis.category.as_str(),
+                "token_count": 0i64,
+            }),
+        )?;
+    }
+
+    Ok(explanation)
 }
 
 /// Execute the `task.explain` Skill.

@@ -503,7 +503,9 @@ impl SlotTemplateEngine {
     }
 
     /// 校验整个 DAG:遍历所有节点,校验其 input_template.template。
-    /// 同时校验:只有 loop_specs 中标记为循环节点的才能引用 ${item}。
+    /// 同时校验:
+    /// - 只有 loop_specs 中标记为循环节点的才能引用 ${item}
+    /// - 引用 ${prev...} 的节点必须有前驱(至少一条 edge 指向它)
     pub fn validate_dag(plan: &DagPlan) -> Result<(), TemplateError> {
         let node_ids: std::collections::HashSet<&str> =
             plan.nodes.iter().map(|n| n.node_id.as_str()).collect();
@@ -522,6 +524,9 @@ impl SlotTemplateEngine {
                 SlotKind::Text => "text",
             })
             .collect();
+        // 收集有前驱的节点(edge.to 集合)— 用于校验 ${prev...} 引用合法性
+        let nodes_with_predecessor: std::collections::HashSet<&str> =
+            plan.edges.iter().map(|e| e.to.as_str()).collect();
 
         for node in &plan.nodes {
             let is_loop = plan.loop_specs.contains_key(&node.node_id);
@@ -547,6 +552,18 @@ impl SlotTemplateEngine {
                     ),
                 });
             }
+            // 引用 ${prev...} 但无前驱 → 报错(运行时 prev_node_id 会是 None)
+            if Self::references_prev(&node.input_template.template)
+                && !nodes_with_predecessor.contains(node.node_id.as_str())
+            {
+                return Err(TemplateError::VarNotFound {
+                    scope: "prev".into(),
+                    path: format!(
+                        "node {} references ${{prev...}} but has no predecessor edge",
+                        node.node_id
+                    ),
+                });
+            }
         }
         Ok(())
     }
@@ -558,6 +575,16 @@ impl SlotTemplateEngine {
             TemplateExpr::Var(var) => matches!(var.scope, VarScope::Iter),
             TemplateExpr::Concat(parts) => parts.iter().any(Self::references_iter),
             TemplateExpr::Filter { source, .. } => Self::references_iter(source),
+        }
+    }
+
+    /// 递归检查表达式是否引用 VarScope::Prev。
+    fn references_prev(expr: &TemplateExpr) -> bool {
+        match expr {
+            TemplateExpr::Literal(_) => false,
+            TemplateExpr::Var(var) => matches!(var.scope, VarScope::Prev),
+            TemplateExpr::Concat(parts) => parts.iter().any(Self::references_prev),
+            TemplateExpr::Filter { source, .. } => Self::references_prev(source),
         }
     }
 }
@@ -867,6 +894,17 @@ mod tests {
         }
     }
 
+    fn plan_with_edges(nodes: Vec<DagNode>, edges: Vec<DagEdge>) -> DagPlan {
+        DagPlan {
+            plan_id: "p1".into(),
+            user_goal: "test".into(),
+            nodes,
+            edges,
+            loop_specs: HashMap::new(),
+            max_total_steps: 5,
+        }
+    }
+
     #[test]
     fn validate_literal_ok() {
         let expr = TemplateExpr::Literal("notepad".into());
@@ -920,26 +958,63 @@ mod tests {
 
     #[test]
     fn validate_filter_supported_predicate_ok() {
+        // n1 是 n0 的后继,可引用 ${prev...}
+        let n0 = node("n0", TemplateExpr::Literal("seed".into()));
         let expr = SlotTemplateEngine::parse("${prev.output.files}[?size > 1048576]").unwrap();
-        let p = plan_with(vec![node("n1", expr)]);
+        let p = plan_with_edges(
+            vec![n0, node("n1", expr)],
+            vec![DagEdge {
+                from: "n0".into(),
+                to: "n1".into(),
+                port_binding: None,
+            }],
+        );
         assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
     }
 
     #[test]
     fn validate_filter_unsupported_predicate_errors() {
+        // n1 是 n0 的后继,但 filter predicate 不支持 → 报错
+        let n0 = node("n0", TemplateExpr::Literal("seed".into()));
         let expr = SlotTemplateEngine::parse("${prev.output.files}[?@.type == 'image']").unwrap();
-        let p = plan_with(vec![node("n1", expr)]);
+        let p = plan_with_edges(
+            vec![n0, node("n1", expr)],
+            vec![DagEdge {
+                from: "n0".into(),
+                to: "n1".into(),
+                port_binding: None,
+            }],
+        );
         let err = SlotTemplateEngine::validate_dag(&p).unwrap_err();
         assert!(matches!(err, TemplateError::UnsupportedPredicate { .. }));
     }
 
-    // 验证 DagEdge 的存在 — 仅为消除 unused import warning(实际 validate_dag 不校验 edge)
     #[test]
-    fn validate_edge_unused_smoke() {
-        let _edge = DagEdge {
-            from: "n1".into(),
-            to: "n2".into(),
-            port_binding: None,
-        };
+    fn validate_prev_ref_without_predecessor_errors() {
+        // 单节点引用 ${prev...} 但无前驱 → 报错(运行时 prev_node_id 会是 None)
+        let expr = SlotTemplateEngine::parse("${prev.output.path}").unwrap();
+        let p = plan_with(vec![node("n1", expr)]);
+        let err = SlotTemplateEngine::validate_dag(&p).unwrap_err();
+        assert!(
+            matches!(err, TemplateError::VarNotFound { ref scope, .. } if scope == "prev"),
+            "got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_prev_ref_with_predecessor_ok() {
+        // n1 是 n0 的后继,可引用 ${prev...}
+        let n0 = node("n0", TemplateExpr::Literal("seed".into()));
+        let expr = SlotTemplateEngine::parse("${prev.output.path}").unwrap();
+        let p = plan_with_edges(
+            vec![n0, node("n1", expr)],
+            vec![DagEdge {
+                from: "n0".into(),
+                to: "n1".into(),
+                port_binding: None,
+            }],
+        );
+        assert!(SlotTemplateEngine::validate_dag(&p).is_ok());
     }
 }

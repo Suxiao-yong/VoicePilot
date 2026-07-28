@@ -749,3 +749,81 @@ pub fn form_prepare_manifest() -> SkillManifest {
         },
     }
 }
+
+/// The built-in form.submit Skill manifest — W8 Plan 3 Task 4.
+///
+/// 通过 Playwright MCP 点击 submit 按钮,提交表单。与 W7 form.prepare 的区别:
+/// - risk_ceiling = E3(提交不可逆,form.prepare 是 E2)
+/// - compensation = None(不可逆,form.prepare 是 Strong)
+/// - approval.mode = PerStep(强制每步审批,与 form.prepare 一致)
+/// - verifier.strategy = "weak"(浏览器无文件 evidence)
+///
+/// Spec §2.4 + §6 安全约束:form.submit 风险 = E3 不可逆 + PerStep 强制审批 + 无补偿。
+pub fn form_submit_manifest() -> SkillManifest {
+    let mut inputs = HashMap::new();
+    inputs.insert(
+        "url".to_string(),
+        SkillInput {
+            input_type: SkillInputType::Url,
+            required: true,
+            allowed_roots: vec![],
+            allowed_values: vec![],
+            max_length: None,
+            default: None,
+        },
+    );
+    inputs.insert(
+        "submit_selector".to_string(),
+        SkillInput {
+            input_type: SkillInputType::Text,
+            required: false,
+            allowed_roots: vec![],
+            allowed_values: vec![],
+            max_length: Some(200),
+            default: Some(serde_json::json!("button[type=submit]")),
+        },
+    );
+
+    SkillManifest {
+        id: "form.submit".to_string(),
+        version: "1.0.0".to_string(),
+        title: "提交表单".to_string(),
+        description: "通过 Playwright MCP 点击 submit 按钮".to_string(),
+        description_body: None,
+        intent_examples: vec![
+            "提交".to_string(),
+            "submit".to_string(),
+            "提交表单".to_string(),
+        ],
+        keywords: vec!["submit".to_string(), "提交".to_string()],
+        inputs,
+        risk_ceiling: ELevel::E3,
+        data_class_ceiling: DLevel::D2,
+        egress: EgressKind::LocalToWebSubmit,
+        max_steps: 1,
+        tools: vec![
+            "mcp.playwright.navigate".to_string(),
+            "mcp.playwright.click".to_string(),
+        ],
+        approval: ApprovalConfig {
+            mode: ApprovalMode::PerStep,
+            required_for: "both".to_string(),
+            show_effect_manifest: true,
+            max_approval_scope: 1,
+        },
+        compensation: CompensationConfig {
+            level: CompensationLevel::None,
+            ttl_seconds: 0,
+            conflict_policy: ConflictPolicy::RequireConfirmation,
+        },
+        verifier: VerifierConfig {
+            strategy: "weak".to_string(),
+            recheck_after_seconds: 0,
+        },
+        failure_policy: FailurePolicy {
+            max_retries: 0,
+            allow_replan: false,
+            on_fail: "ask_user".to_string(),
+        },
+    }
+}

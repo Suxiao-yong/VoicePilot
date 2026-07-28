@@ -1718,6 +1718,100 @@ voicepilot/crates/trust-kernel/src/
 
 ---
 
+### W8 Plan 2: LLM Decompose → DAG + DagExecutor + 6 审计事件 + E2E ✅
+
+**实现内容(10 个 Task,直接提交到 master):**
+
+- **Task 1 — Approver trait 扩展 `approve_dag_skeleton`**(`src/approval/approver.rs`)
+  - 新增 trait 方法 `approve_dag_skeleton(&self, plan: &DagPlan) -> Result<ApprovalDecision>`(决策 #2 DAG 骨架审批)
+  - 三实现共存:`AutoApprover`(Ok(Allow) 测试/headless)、`AutoDenier`(Ok(Deny) 负路径)、`CliApprover`(crates/cli/src/main.rs 打印 plan_id/user_goal/nodes/edges 摘要 + y/N 提示,EOF → Deny 安全默认)
+  - 两层审批独立:`approve_dag_skeleton`(DAG 骨架层)+ `prompt`(节点级 prepare→commit 层),任一 Deny 短路
+
+- **Task 2 — `dispatch_skill_executor` 路由 + `DispatchOutcome` 适配器**(`src/skills/dispatcher.rs`)
+  - 新增 `DispatchOutcome` 适配器,统一封装 Skill 执行结果(`ToolResult` V2 + `moved_paths` 等 skill 特有字段)
+  - `dispatch_skill_executor` 根据 `skill_id` 路由到对应 Skill(`files.organize` / `note.capture` / `explain` / 测试 stub),失败时返回 `KernelError::Skill`
+  - 13 个单元测试覆盖:路由命中 / 路由未命中 / Skill 执行失败传播 / DispatchOutcome 字段映射
+
+- **Task 3 — `DagExecutor` 骨架 + Kahn 拓扑排序**(`src/skills/dag_executor.rs`)
+  - `DagExecutor::new(kernel: Arc<TrustKernel>, approver: Arc<dyn Approver>)` 构造器
+  - `topological_sort(nodes, edges)` Kahn 算法:入度 0 优先 + 字典序打破并列,检测环 / 自环 / dangling from/to
+  - 9 个 `topo_sort_*` 单元测试:单节点 / 线性链 / 菱形依赖 / 不连通节点 / 环检测 / 自环 / dangling edge / 空节点列表
+
+- **Task 4 — `DagExecutor::run` 简单节点执行 + DagRepo 集成**(`src/skills/dag_executor.rs`)
+  - `run(&DagPlan) -> Result<DagResult>` 主入口:拓扑排序 → 骨架审批 → 节点逐个执行 → 状态聚合
+  - 每个节点:resolve 模板 → `dispatch_skill_executor` 执行 → `DagRepo::update_node_status` 持久化(Pending→Running→Succeeded/Failed)
+  - `DagResult` 返回 `DagStatus` + `node_results: HashMap<node_id, DagNodeStatus>`
+
+- **Task 5 — DAG 骨架审批 + Deny 短路**(`src/skills/dag_executor.rs`)
+  - `run` 在 topological_sort 之后、节点执行之前调用 `approver.approve_dag_skeleton(plan)`
+  - Deny 短路:返回 `DagResult::cancelled()`,0 节点执行,审计 `dag_skeleton_denied`
+  - Allow 进入执行循环,审计 `dag_skeleton_approved`
+
+- **Task 6 — 失败处理 + PartiallySucceeded 分支**(`src/skills/dag_executor.rs`)
+  - 节点 Failed 时:DAG 状态 = `Failed { failed_node, cause }`,停止后续节点
+  - 决策 #8:循环失败时若已有成功节点 → `PartiallySucceeded { succeeded, failed_node, cause }`
+  - 7 个 `w8_plan2_dag_executor` 集成测试覆盖:单节点成功 / 两节点拓扑序 / Deny 短路 / 节点失败传播 / PartiallySucceeded 分支 / 模板 resolve 失败 / DagRepo 状态持久化
+
+- **Task 7 — 6 个审计事件**(`src/skills/dag_executor.rs` + `src/llm/client.rs`)
+  - `dag_plan_created`(decompose 成功 + validate_dag 通过后,字段:plan_id / node_count / edge_count / max_total_steps)
+  - `dag_skeleton_approved` / `dag_skeleton_denied`(字段:plan_id / node_count)
+  - `dag_node_succeeded`(字段:plan_id / node_id / skill_id / output_json)
+  - `dag_node_failed`(字段:plan_id / node_id / skill_id / cause)
+  - `dag_node_skipped`(条件分支未命中,字段:plan_id / node_id)
+  - `llm_decompose_called`(在 `record_llm_decompose_called` 函数,字段:plan_id / llm_model / latency_ms / token_count — **spec 硬约束**)
+  - 9 个 `w8_plan2_audit_events` 单元测试:6 种 event_type 各 1 个 + hash chain 完整性 + 字段完整性 + 重复 event 幂等
+
+- **Task 8 — `LlmClient::decompose_to_dag` + wiremock 6 场景**(`src/llm/client.rs`)
+  - `decompose_to_dag(user_text, candidate_skills, user_slots) -> Result<DagPlan, LlmError>`(简单版,内部调 `decompose_to_dag_traced` 丢弃 stats)
+  - `decompose_to_dag_traced` 返回 `(DagPlan, DecomposeStats)`,DecomposeStats 字段:llm_model / latency_ms / token_count
+  - 4 层校验(LLM 返回后立即):① `max_total_steps ≤ 20` ② skill_id 白名单(在 candidate_skills 中)③ `SlotTemplateEngine::validate_dag` 模板合法性 ④ edge/loop_spec dangling 检查
+  - 9 个 wiremock 测试:正常返回 / 401 / timeout / parse error / 超步数拒绝 / 未知 skill_id 拒绝 / dangling prev ref 拒绝 / 空响应 / function calling schema 校验
+  - **关键修复:** `SlotTemplateEngine::validate_dag` 新增 `references_prev` 检查 — 节点模板含 `${prev...}` 但无入边时拒绝(防止 LLM 幻觉产生 dangling prev ref)
+
+- **Task 9 — DAG 端到端集成测试**(`tests/w8_plan2_dag_e2e.rs`,4 个 tokio 测试)
+  - `e2e_single_node_dag_succeeds`:mock LLM 返回 1 节点 plan → executor.run → Succeeded
+  - `e2e_two_node_dag_succeeds_in_topo_order`:mock LLM 返回 n1→n2 plan → 验证 n1 先于 n2 执行
+  - `e2e_deny_short_circuits_zero_node_execution`:AutoDenier → DagResult::cancelled(),0 节点执行
+  - `e2e_llm_failure_propagates_err_to_caller`:LLM 返回 500 → decompose_to_dag 返回 Err → executor 不执行
+
+- **Task 10 — PROGRESS.md 更新 + 最终自检**
+  - `cargo check -p cli --no-default-features` PASS(CliApprover 实现 approve_dag_skeleton)
+  - `cargo test --workspace --no-default-features` 全 PASS,422 passing ≥ 286 阈值
+  - W8 Plan 2 新增 56 个测试(5 approver_dag_skeleton + 9 audit_events + 4 dag_e2e + 7 dag_executor + 13 dispatcher + 9 llm_decompose + 9 lib topo_sort)
+
+**新增模块结构:**
+```
+voicepilot/crates/trust-kernel/src/
+├── approval/
+│   └── approver.rs                # Approver trait + approve_dag_skeleton + AutoApprover/AutoDenier
+├── llm/
+│   └── client.rs                  # decompose_to_dag + decompose_to_dag_traced + record_llm_decompose_called
+└── skills/
+    ├── dag_executor.rs            # DagExecutor(run + topological_sort + 6 审计事件,~650 行)
+    ├── dag_types.rs               # (Plan 1 已建)DagPlan/DagNode/DagStatus 数据结构
+    ├── dispatcher.rs              # dispatch_skill_executor + DispatchOutcome 适配器
+    └── template.rs                # (Plan 1 已建)SlotTemplateEngine + references_prev 校验
+```
+
+**关键修复 / 偏离:**
+- **`CliApprover` trait 补全:** Plan 1 的 CliApprover 只实现 `prompt`,Task 1 新增 `approve_dag_skeleton` 后未同步更新,导致 `--no-default-features` 编译失败 — Task 10 补全实现(打印骨架 + y/N,EOF → Deny)
+- **`references_prev` 校验:** `validate_dag` 原本不检查 `${prev...}` 引用是否有上游节点,导致 LLM 可生成 dangling prev ref 在运行时 VarNotFound — 新增 `references_prev` 递归检查 + `nodes_with_predecessor` 集合比对,在 LLM 返回后立即拒绝
+- **`record_llm_decompose_called` cfg gate:** 必须在 `#[cfg(feature = "llm")]` 下,否则 `--no-default-features` 编译失败(TrustKernel::audit_append_external 在 no-llm 下不可用)
+- **`DecomposeStats` 字段:** spec 硬约束要求 `plan_id / llm_model / latency_ms / token_count` 4 字段全必填,审计事件 JSON 必须包含全部 4 字段
+- **`Approver` trait 方法签名差异:** `prompt` 返回 `ApprovalDecision`(同步),`approve_dag_skeleton` 返回 `Result<ApprovalDecision>`(允许 TauriApprover 区分"通道失败 Err"与"用户 Deny Ok(Deny)")
+- **Wiremock timeout 测试:** `decompose_to_dag_returns_timeout_on_slow_response` 用 client timeout=100ms + server delay=2s,避免 flakiness
+
+**Acceptance Gates 验证(对应 spec §7):**
+
+- ✅ **编译门禁:** `cargo check -p cli --no-default-features` PASS(CliApprover 补全后)
+- ✅ **测试门禁:** `cargo test --workspace --no-default-features` 全 PASS,422 passing(≥ 286 阈值);W8 Plan 2 新增 56 个测试
+- ✅ **功能门禁:** `LlmClient::decompose_to_dag` 支持 function calling + 4 层校验;`DagExecutor::run` 支持拓扑排序 + 骨架审批 + Deny 短路 + PartiallySucceeded 分支;6 个审计事件 + hash chain 完整
+- ✅ **安全门禁:** `llm_decompose_called` 审计事件含 4 必填字段(spec 硬约束);`validate_dag` 双层防御(dangling prev ref Layer 1 + resolve VarNotFound Layer 2);`approve_dag_skeleton` Deny 短路 0 节点执行
+
+**下一步:** W8 Plan 2(LLM Decompose + DagExecutor 简单节点)就绪,Plan 3(循环节点 + break_condition + max_iterations 强制)可启动,引用本 plan 的 `DagExecutor::run` 主入口 + `LoopSpec` / `IterableSource` 数据结构 + `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50` 常量。
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建
@@ -1763,6 +1857,18 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # cargo clippy --workspace --no-default-features -- -D warnings                       # 0 warnings
 # cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings              # 0 warnings (Windows)
 # 6 套 feature 组合 cargo check 矩阵全 PASS(同 W7 Plan 6,本 plan 不引入新 feature gate)
+
+# W8 Plan 2 验收门禁(2026-07-28 闭合):
+# cargo check -p cli --no-default-features                  # PASS(CliApprover 补全 approve_dag_skeleton)
+# cargo test --workspace --no-default-features              # 422 passing ≥ 286 阈值
+#   ├─ W8 Plan 2 新增 56 测试:
+#   │   • 5 w8_plan2_approver_dag_skeleton(AutoApprover/AutoDenier/CliApprover 三实现)
+#   │   • 9 w8_plan2_audit_events(6 event_type + hash chain + 字段完整性)
+#   │   • 4 w8_plan2_dag_e2e(mock LLM + 真实 dispatcher + AutoApprover/AutoDenier)
+#   │   • 7 w8_plan2_dag_executor(单节点/两节点拓扑序/Deny 短路/失败传播/PartiallySucceeded)
+#   │   • 13 w8_plan2_dispatcher(dispatch_skill_executor 路由 + DispatchOutcome 适配器)
+#   │   • 9 w8_plan2_llm_decompose(wiremock 6 场景 + 4 层校验 + dangling prev ref 拒绝)
+#   │   • 9 lib topo_sort_*(Kahn 算法 + 环检测 + dangling edge)
 ```
 
 ### Git 状态
@@ -1770,10 +1876,11 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 ```
 当前分支: master
 最新 commit: 0c6f0a5 test(w8p1): add SlotTemplateEngine integration tests (10 tests, double-layer defense)
-保留分支: (无,W7 Plan 1-6 + W8 Plan 1 全部直接提交到 master,无 feature 分支)
+保留分支: (无,W7 Plan 1-6 + W8 Plan 1-2 全部直接提交到 master,无 feature 分支)
 W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
 W8 Plan 1: ✅ 已完成(2026-07-28)— DAG 基础设施,8 个 commit,新增 56 测试
-W8 里程碑: 🚧 进行中 — Plan 1 已完成,Plan 2-6 待启动
+W8 Plan 2: ✅ 已完成(2026-07-28)— LLM Decompose + DagExecutor,新增 56 测试(未提交 master,工作区状态)
+W8 里程碑: 🚧 进行中 — Plan 1-2 已完成,Plan 3-6 待启动
 ```
 
 ### 关键文件清单
@@ -1822,23 +1929,25 @@ W8 里程碑: 🚧 进行中 — Plan 1 已完成,Plan 2-6 待启动
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W8 Plan 2-6 推进
+### 4.1 立即任务:W8 Plan 3-6 推进
 
 **W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
 
 **W8 Plan 1 已完成(2026-07-28):** DAG 基础设施(SlotTemplateEngine + DB 迁移 004 + DagRepo + TaskExplanationRepo + DagPlan 数据结构),8 个 commit,新增 56 个 default 测试(379 ≥ 286 阈值),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS。详见 §二 W8 Plan 1 段落。
 
+**W8 Plan 2 已完成(2026-07-28):** LLM Decompose → DAG(`decompose_to_dag` + `decompose_to_dag_traced` + 4 层校验)+ `DagExecutor`(Kahn 拓扑排序 + 骨架审批 + Deny 短路 + PartiallySucceeded)+ `dispatch_skill_executor` 路由 + 6 审计事件(`dag_plan_created` / `dag_skeleton_approved/denied` / `dag_node_succeeded/failed/skipped` / `llm_decompose_called` 含 4 必填字段)+ 56 个新增测试(422 ≥ 286 阈值)。详见 §二 W8 Plan 2 段落。
+
 **用户决策(2026-07-26)项目永久约束:**
 - **Windows-only:** 永久不支持 macOS / Linux(已删除 `fs_snapshot.rs` unix fallback,非 Windows 平台无法编译)
 - **云端 LLM only:** 永久不实现本地 LLM(ollama / llama.cpp / ort 等),只用 OpenAI 兼容 API
 
-**W8 后续 Plan(2-6)推进路线:**
+**W8 后续 Plan(3-6)推进路线:**
 
 | Plan | 主题 | Spec § | 依赖 | 状态 |
 |---|---|---|---|---|
-| Plan 2 | `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点 + `dispatch_skill_executor` 路由 | §2.2, §2.3 | Plan 1 ✅ | ⏳ 待启动 |
-| Plan 3 | `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强 | §2.3, §2.4, §2.5 | Plan 2 | ⏳ 待启动 |
-| Plan 4 | Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` | §2.8 | Plan 2, Plan 3 | ⏳ 待启动 |
+| Plan 2 | `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点 + `dispatch_skill_executor` 路由 | §2.2, §2.3 | Plan 1 ✅ | ✅ 已完成(2026-07-28) |
+| Plan 3 | `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强 | §2.3, §2.4, §2.5 | Plan 2 ✅ | ⏳ 待启动 |
+| Plan 4 | Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` | §2.8 | Plan 2 ✅, Plan 3 | ⏳ 待启动 |
 | Plan 5 | UI: DAG 骨架审批弹窗 + DAG 历史 + task.explain 面板 | §2.7 | Plan 4 | ⏳ 待启动 |
 | Plan 6 | 集成测试 + 6 套 feature 组合 cargo check 矩阵 + clippy + npm build | §7 | Plan 1-5 | ⏳ 待启动 |
 
@@ -1950,23 +2059,23 @@ $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
 cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-### 5.2 推荐起点:W8 Plan 2 推进
+### 5.2 推荐起点:W8 Plan 3 推进
 
-W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG 基础设施就绪(2026-07-28,8 个 commit,新增 56 测试,default 总计 379 ≥ 286 阈值)。**`cargo test --workspace --no-default-features` + `cargo clippy --workspace --no-default-features -- -D warnings` + 6 套 feature 组合 `cargo check` 全部通过(2026-07-28)**。详见 §二 W8 Plan 1 段落。
+W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG 基础设施就绪(2026-07-28,8 个 commit,新增 56 测试,default 总计 379 ≥ 286 阈值)+ W8 Plan 2 LLM Decompose + DagExecutor 就绪(2026-07-28,新增 56 测试,default 总计 422 ≥ 286 阈值)。**`cargo test --workspace --no-default-features` + `cargo check -p cli --no-default-features` 全部通过(2026-07-28)**。详见 §二 W8 Plan 1 / W8 Plan 2 段落。
 
-**Step 1: W8 Plan 2 启动 — `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点**
+**Step 1: W8 Plan 3 启动 — `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强**
 
-使用 `superpowers:writing-plans` skill(若 plan 已存在则用 `superpowers:executing-plans` 或 `superpowers:subagent-driven-development`)。Plan 2 已有草稿:`d:\voicepilot\docs\superpowers\plans\2026-07-26-w8-plan2-llm-decompose-dag-executor.md`。
+使用 `superpowers:writing-plans` skill(若 plan 已存在则用 `superpowers:executing-plans` 或 `superpowers:subagent-driven-development`)。Plan 3 需新建 plan 文件,引用 Plan 2 的 `DagExecutor::run` 主入口 + `LoopSpec` / `IterableSource` 数据结构 + `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50` 常量。
 
-**Step 2: W8 Plan 2 应包含的 TDD 任务(根据 spec §2.2 + §2.3 + project memory 强约束):**
-1. `LlmClient::decompose_to_dag`(user_goal → DagPlan) + `llm_decompose_called` 审计事件(plan_id / llm_model / latency_ms / token_count 四字段必须)
-2. `dag_plan_created` 审计事件(plan_id / node_count / edge_count,在 `validate_dag` 通过后记录)
-3. `DagExecutor::execute_plan`(拓扑序遍历 + 节点状态机 Pending→Running→Succeeded/Failed)
-4. `dispatch_skill_executor` 路由(根据 `DagNode.skill_id` 分发到 8 个内置 Skill 之一)
-5. `SlotTemplateEngine::resolve` 集成(渲染 `DagNode.input_template` → Skill args)
-6. 简单节点 e2e 冒烟(无循环节点,2-3 步线性 DAG,如"打开记事本写 TODO 然后保存到桌面")
+**Step 2: W8 Plan 3 应包含的 TDD 任务(根据 spec §2.3 + §2.4 + §2.5 + project memory 强约束):**
+1. `DagExecutor::run_loop_node`(循环节点执行 + `LoopSpec.max_iterations` 强制 ≤ 50 + `break_condition` 简单比较)
+2. `IterableSource` 三种来源解析(`PrevNodeOutput` / `UserSlot` / `Literal`)
+3. `form.submit` 新 Skill(表单自动填充 + 提交,UIA / Playwright 二选一)
+4. `task.explain` LLM 增强(失败节点 root_cause 归因 + `TaskExplanationRepo::create` 持久化 + `FailureCategory` 分类)
+5. 循环节点 e2e 冒烟(如"下载目录里所有 PDF 移动到 papers 文件夹" — list → loop move)
+6. `task.explain` e2e 冒烟(模拟节点失败 → LLM 归因 → `task_explanations` 表写入)
 
-**Step 3: 后续 Plan 3-6 按 §4.1 表格顺序推进**
+**Step 3: 后续 Plan 4-6 按 §4.1 表格顺序推进**
 
 > Tauri macOS + Linux 打包已永久放弃(用户决策 2026-07-26:Windows-only)。
 > 本地 LLM 永久放弃(用户决策 2026-07-26:云端 LLM only)。

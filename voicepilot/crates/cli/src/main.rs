@@ -4,6 +4,7 @@ use trust_kernel::approval::approver::Approver;
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::transaction::EffectManifest;
+use trust_kernel::skills::dag_types::DagPlan;
 use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
 use trust_kernel::state::TaskState;
 use trust_kernel::mcp::handler::McpHandler;
@@ -37,6 +38,45 @@ impl Approver for CliApprover {
             ApprovalDecision::Allow
         } else {
             ApprovalDecision::Deny
+        }
+    }
+
+    /// W8 Plan 2: DAG 骨架审批。
+    ///
+    /// CLI 实现:打印 DAG 计划摘要(plan_id / user_goal / nodes / edges),
+    /// 然后 y/N 提示。EOF 或解析失败 → Deny(安全默认)。
+    fn approve_dag_skeleton(&self, plan: &DagPlan) -> trust_kernel::error::Result<ApprovalDecision> {
+        println!("\n=== DAG Plan Skeleton ===");
+        println!("  plan_id: {}", plan.plan_id);
+        println!("  user_goal: {}", plan.user_goal);
+        println!("  nodes: {} node(s)", plan.nodes.len());
+        for n in &plan.nodes {
+            println!("    - {} [skill={}]", n.node_id, n.skill_id);
+        }
+        if !plan.edges.is_empty() {
+            println!("  edges: {}", plan.edges.len());
+            for e in &plan.edges {
+                println!("    - {} -> {}", e.from, e.to);
+            }
+        }
+        if !plan.loop_specs.is_empty() {
+            println!("  loop_specs: {} node(s)", plan.loop_specs.len());
+        }
+        println!("  max_total_steps: {}", plan.max_total_steps);
+        println!("==========================\n");
+        print!("approve DAG skeleton? [y/N] ");
+        let _ = io::stdout().flush();
+        let mut buf = String::new();
+        let n = io::stdin().read_line(&mut buf).unwrap_or(0);
+        if n == 0 {
+            // EOF — treat as deny (safer default).
+            return Ok(ApprovalDecision::Deny);
+        }
+        let trimmed = buf.trim().to_lowercase();
+        if trimmed == "y" || trimmed == "yes" {
+            Ok(ApprovalDecision::Allow)
+        } else {
+            Ok(ApprovalDecision::Deny)
         }
     }
 }

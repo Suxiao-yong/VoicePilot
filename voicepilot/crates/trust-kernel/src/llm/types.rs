@@ -29,6 +29,22 @@ pub struct ExtractedSlot {
     pub high_risk: bool,
 }
 
+/// W8 Plan 2 Task 8:`decompose_to_dag` 调用统计(供 `llm_decompose_called` 审计)。
+///
+/// 硬约束(project_memory):`llm_decompose_called` 审计事件必须携带
+/// `plan_id / llm_model / latency_ms / token_count` 4 个字段。本结构封装
+/// 后 3 个(`plan_id` 由调用方从返回的 DagPlan 中提取),让 router_bridge
+/// (Plan 4)在 LLM 失败 / 成功两种路径下都能统一记录审计。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecomposeStats {
+    /// LLM 模型名(如 "deepseek-chat"),来自 LlmClient.model
+    pub llm_model: String,
+    /// LLM 调用耗时(毫秒)— 从发请求到收到完整响应
+    pub latency_ms: u64,
+    /// LLM 响应 token 数(从 `usage.total_tokens` 提取;缺失时为 0)
+    pub token_count: u32,
+}
+
 /// LLM 错误
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum LlmError {

@@ -785,6 +785,15 @@ Expected: FAIL(scenario_3:返回 Unmatched ✓ 可能通过;scenario_4 / scenari
     {
         if let Some(llm) = kernel.llm_client() {
             if llm.is_enabled() && !kernel.privacy_mode() {
+                // spec §6.1 审计事件:llm_decompose_called(LLM 拆解调用)
+                // 在调用前预创建临时 task_id(audit_logs.task_id NOT NULL + FK),
+                // goal 标明"LLM decompose for: ..."。LLM 成功时此 task 留在 tasks 表
+                // 作为 LLM 调用历史(DagExecutor::run 会创建自己的 root_task_id,
+                // 不复用此临时 task);LLM 失败时同样保留作为审计回溯依据。
+                let llm_task_id = format!("task-llm-{}", uuid::Uuid::new_v4());
+                kernel.create_task(&llm_task_id, &format!("LLM decompose for: {}", trimmed))?;
+                let started = std::time::Instant::now();
+
                 // spec §2.2:decompose_to_dag(text, candidate_skills, user_slots)
                 // user_slots 暂传空 slice(W7 route_with_llm 也是 LLM 内部提取 slots,
                 // 不预先 regex 解析);Plan 5+ 视需要补 slot_parser 模块。
@@ -794,6 +803,23 @@ Expected: FAIL(scenario_3:返回 Unmatched ✓ 可能通过;scenario_4 / scenari
                     .await
                 {
                     Ok(dag) => {
+                        // 审计 — llm_decompose_called(成功,spec §6.1)
+                        // 关键字段:plan_id(LLM 返回的真实 plan_id)/ llm_model /
+                        // latency_ms(实际耗时)/ token_count(W9+ 由 LLM provider 返回真实计数,
+                        // 当前占位 0)
+                        let latency_ms = started.elapsed().as_millis() as i64;
+                        let _ = kernel.audit_append_external(
+                            &llm_task_id,
+                            None,
+                            "llm_decompose_called",
+                            serde_json::json!({
+                                "plan_id": dag.plan_id,
+                                "llm_model": llm.model(),
+                                "latency_ms": latency_ms,
+                                "token_count": 0i64,
+                            }),
+                        );
+
                         // 双层防御 #1(spec §2.1 / §6):LLM 返回后立即校验。
                         // validate_dag 检查:node_id 引用 / slot kind / iter 仅在循环节点 /
                         // filter predicate 支持。
@@ -813,6 +839,10 @@ Expected: FAIL(scenario_3:返回 Unmatched ✓ 可能通过;scenario_4 / scenari
                     }
                     Err(e) => {
                         // decompose_to_dag 失败(HTTP / 解析 / 超时):回退到 W7 route_with_llm。
+                        // 不发 llm_decompose_called 审计事件(LLM 调用未成功,
+                        // tracing::warn! 已记录错误;审计链路在 DagExecutor::run 内
+                        // 通过 dag_plan_created → dag_completed 闭合,LLM 失败路径
+                        // 不进入 DagExecutor,无审计缺口)。
                         tracing::warn!(
                             error = ?e,
                             "decompose_to_dag failed; falling back to W7 route_with_llm"
@@ -836,6 +866,9 @@ Expected: FAIL(scenario_3:返回 Unmatched ✓ 可能通过;scenario_4 / scenari
 - `user_slots` 暂传空 slice(spec §2.8 的 `slot_parser::parse(text)` 是占位,Plan 5+ 视需要补)。
 - `decompose_to_dag` 签名来自 Plan 2(spec §2.2):`async fn decompose_to_dag(text, skills, slots) -> Result<DagPlan>`。
 - `validate_dag` 签名来自 Plan 1:`pub fn validate_dag(plan: &DagPlan) -> Result<(), TemplateError>`。
+- **新增 spec §6.1 审计事件 `llm_decompose_called`**:LLM 成功时记录 `plan_id` / `llm_model`(Plan 2 Task 8 加的 `LlmClient::model()` accessor)/ `latency_ms`(实际耗时)/ `token_count`(0 占位,W9+ 由 LLM provider 返回真实计数)。LLM 失败时不发(避免审计噪音;`dag_plan_created` → `dag_completed` 链路在 DagExecutor::run 内闭合,LLM 失败路径不进入 DagExecutor)。
+- **临时 task_id `task-llm-{uuid}`**:`audit_logs.task_id` NOT NULL + FK 约束要求先创建 task。LLM 调用前预创建 `task-llm-{uuid}`(goal="LLM decompose for: ..."),LLM 成功/失败均保留作为审计回溯依据(DagExecutor::run 创建自己的 `root_task_id`,不复用此临时 task)。`uuid` crate 已在 trust-kernel 依赖中(Plan 2 Task 7 `format!("task-dag-{}", uuid::Uuid::new_v4())` 已使用)。
+- `kernel.create_task(&llm_task_id, ...)` 失败时返回 Err,直接 `?` 传播(route_text_with_dag 整体返回 Err,调用方处理);此情况下 LLM 不会被调用,无审计缺口。
 
 - [ ] **Step 4: 跑测试,确认 scenario_4 / scenario_7 通过**
 

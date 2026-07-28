@@ -43,14 +43,21 @@
 ### Tests
 
 - **Create** `voicepilot/crates/trust-kernel/tests/w8_e2e_dag_smoke.rs` — 8 个端到端 DAG 编排场景测试(本 Plan 核心,~900 行)
+- **Create** `voicepilot/crates/trust-kernel/tests/w8_default_boundary_smoke.rs` — Task 4.5 新增,22 个 default 组合边界用例(DagStatus 状态机 / DagPlan validate / 拓扑排序边界),闭合 spec §7.2 测试数缺口
+- **Modify** `voicepilot/crates/trust-kernel/tests/w8_template_unit.rs` — Task 4.5 追加 5 个 SlotTemplateEngine 边界用例
+- **Modify** `voicepilot/crates/trust-kernel/tests/w8_dag_repo_smoke.rs` — Task 4.5 追加 10 个 DagRepo / TaskExplanationRepo CRUD 边界用例
 
 ### Docs
 
 - **Modify** `docs/PROGRESS.md` — W8 整体段落 + 里程碑表加 6 行 + §4.1 立即任务转向 W9 候选方向
 
-### 无源码改动
+### 无源码改动(除 Task 4.5 可能的 DagStatus::transition)
 
-本 Plan 仅写测试 + 跑验收门禁 + 更新文档,不修改 `crates/trust-kernel/src/` 或 `crates/ui/src/` 任何源码文件。若 cargo check / clippy / npm build 发现编译错误或 lint 警告,修复策略严格遵循 `project_memory.md` "Lessons Learned" + W4/W7 已建立的模式(见 §Conventions)。
+本 Plan 仅写测试 + 跑验收门禁 + 更新文档,不修改 `crates/trust-kernel/src/` 或 `crates/ui/src/` 任何源码文件。
+
+**例外 — Task 4.5 Step 4A**:若 Plan 1 `DagStatus` 未实现 `pub fn transition(from: &DagStatus, to: &DagStatus) -> Result<(), KernelError>` 方法,Task 4.5 Step 4A 需在 `crates/trust-kernel/src/skills/dag_types.rs` 追加该方法(TDD:先写测试 → 跑红 → 实现 → 跑绿)。该方法仅做状态机合法性校验,无副作用,不破坏 Plan 1 既有 API。
+
+若 cargo check / clippy / npm build 发现编译错误或 lint 警告,修复策略严格遵循 `project_memory.md` "Lessons Learned" + W4/W7 已建立的模式(见 §Conventions)。
 
 ---
 
@@ -1106,6 +1113,116 @@ git commit -m "test(w8p6): add w8_e2e_dag_smoke scenarios 7-8 (invalid skill_id 
 
 ---
 
+## Task 4.5: 补 default 组合测试至 ≥ 286(闭合 spec §7.2 缺口)
+
+**Files:**
+- Create: `voicepilot/crates/trust-kernel/tests/w8_default_boundary_smoke.rs`(default 组合边界用例,无 `#[cfg(feature = "llm")]` / `#[cfg(feature = "tauri")]` 门控)
+- Modify: `voicepilot/crates/trust-kernel/tests/w8_template_unit.rs`(追加 SlotTemplateEngine 边界用例)
+- Modify: `voicepilot/crates/trust-kernel/tests/w8_dag_repo_smoke.rs`(追加 DagRepo / TaskExplanationRepo CRUD 边界用例)
+
+**背景:** spec §7.2 要求 default 组合累计测试数 ≥ 286,但 W8 完成后仅 249 个(见 §6 测试数估算)。Task 4.5 补足 37 个 default 测试,**不依赖 LLM / Tauri / Voice feature**,纯逻辑边界用例。
+
+**优先级:** P0(闭合 spec §7.2 验收门禁,本 Task 必须在 Task 5 cargo check 矩阵前完成,否则 Task 5 跑测试统计时仍 < 286)
+
+**TDD 纪律:** 每个 Step 先写失败测试 → 跑确认失败 → 实现(若需补 helper)→ 跑通 → commit。多数测试只需 `#[test]` 断言,无需新实现(数据结构 + Repo + SlotTemplateEngine 在 Plan 1 已实现)。
+
+- [ ] **Step 1: 先跑当前 default 测试数,确认 249 基线**
+
+Run: `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features -- --list | Measure-Object -L | Select-Object -ExpandProperty Lines`
+Expected: `249`(W8 Task 1-4 完成后基线,数字可能因 Plan 1-5 实际执行时测试数微调而略偏,以实际跑出的数字为准)
+记录实际数字为 `baseline_count`。
+
+- [ ] **Step 2: SlotTemplateEngine 边界用例(目标 +5 个)**
+
+在 `voicepilot/crates/trust-kernel/tests/w8_template_unit.rs` 末尾追加 5 个测试:
+
+1. `template_parse_unclosed_var_returns_err` — `${prev.output.path` 缺 `}` → `TemplateError::UnclosedVar`
+2. `template_parse_nested_var_returns_err` — `${${item}}` 嵌套 → `TemplateError::Parse`(W8 不支持嵌套)
+3. `template_parse_unknown_scope_returns_err` — `${nopdot.output.x}` 未知 scope → `TemplateError::Parse`(scope ∈ {prev, step, user, iter})
+4. `template_resolve_filter_predicate_boundary` — `${prev.output.files}[?size > 0]` 与 `[?size > 1]` 边界(W8 仅支持 size + 比较运算符,不支持其他字段)
+5. `template_validate_dag_iter_in_non_loop_node_returns_err` — 非循环节点引用 `${item}` → `TemplateError::VarNotFound`
+
+跑: `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features --test w8_template_unit`
+Expected: 5 个新测试全 PASS(若 Plan 1 实现已覆盖某场景,改写为更刁钻的边界,确保 +5 个净新增)
+
+- [ ] **Step 3: DagRepo + TaskExplanationRepo CRUD 边界用例(目标 +10 个)**
+
+在 `voicepilot/crates/trust-kernel/tests/w8_dag_repo_smoke.rs` 末尾追加 10 个测试:
+
+DagRepo(5 个):
+1. `dag_repo_create_plan_duplicate_returns_err` — 重复 plan_id 插入 → `KernelError::Db`(PRIMARY KEY 冲突)
+2. `dag_repo_get_plan_nonexistent_returns_none` — 查询不存在 plan_id → `Ok(None)`
+3. `dag_repo_update_node_status_nonexistent_returns_err` — 更新不存在 (plan_id, node_id) → Err
+4. `dag_repo_delete_plan_cascade_removes_orphan_nodes` — 删 plan 后 dag_nodes 级联删除(ON DELETE CASCADE 验证)
+5. `dag_repo_list_plans_by_status_filters_correctly` — `list_plans_by_status(Running)` 仅返回 Running 状态
+
+TaskExplanationRepo(5 个):
+6. `task_explanation_repo_create_duplicate_returns_err` — 重复 explanation_id → `KernelError::Db`
+7. `task_explanation_repo_get_by_step_id_nonexistent_returns_none` — 查询不存在 step_id → `Ok(None)`
+8. `task_explanation_repo_delete_removes_record` — 删除后 get 返回 None
+9. `task_explanation_repo_create_with_null_suggested_fix` — suggested_fix=None(NULL 列)写入 + 读回 None
+10. `task_explanation_repo_create_with_null_llm_model` — llm_model=None 写入 + 读回 None
+
+跑: `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features --test w8_dag_repo_smoke`
+Expected: 10 个新测试全 PASS
+
+- [ ] **Step 4: 新建 w8_default_boundary_smoke.rs(目标 +22 个)**
+
+创建 `voicepilot/crates/trust-kernel/tests/w8_default_boundary_smoke.rs`,覆盖以下 3 类边界:
+
+**A. DagStatus 状态机转换(8 个)**:
+1. `dag_status_pending_to_running_legal` — Pending → Running 合法
+2. `dag_status_running_to_succeeded_legal` — Running → Succeeded 合法
+3. `dag_status_running_to_failed_legal` — Running → Failed 合法
+4. `dag_status_running_to_partially_succeeded_legal` — Running → PartiallySucceeded 合法
+5. `dag_status_running_to_cancelled_legal` — Running → Cancelled 合法
+6. `dag_status_succeeded_to_running_illegal` — Succeeded → Running 非法(返回 Err)
+7. `dag_status_failed_to_pending_illegal` — Failed → Pending 非法
+8. `dag_status_cancelled_to_running_illegal` — Cancelled → Running 非法
+
+注:若 Plan 1 `DagStatus` 未实现 `transition(from, to) -> Result<()>` 方法,本 Step 先在 `dag_types.rs` 加 `pub fn transition(from: &DagStatus, to: &DagStatus) -> Result<(), KernelError>` 方法(TDD:先写测试 → 跑红 → 实现 → 跑绿)。
+
+**B. DagPlan::validate_edges + validate_loop_specs(7 个)**:
+9. `dag_plan_validate_edges_unknown_from_returns_err` — edge.from 不在 nodes → Err
+10. `dag_plan_validate_edges_unknown_to_returns_err` — edge.to 不在 nodes → Err
+11. `dag_plan_validate_edges_self_loop_returns_err` — from == to → Err(自环)
+12. `dag_plan_validate_edges_duplicate_returns_err` — 重复 edge → Err
+13. `dag_plan_validate_loop_specs_max_iterations_zero_returns_err` — max_iterations=0 → Err
+14. `dag_plan_validate_loop_specs_max_iterations_51_returns_err` — max_iterations=51 → Err(硬上限 50)
+15. `dag_plan_validate_loop_specs_unknown_node_returns_err` — loop_specs 含不存在 node_id → Err
+
+**C. 拓扑排序边界(7 个)**:
+16. `topo_sort_empty_graph_returns_empty` — 空 nodes + edges → Ok([])
+17. `topo_sort_single_node_no_edges_returns_one` — 单节点无边 → Ok(["n1"])
+18. `topo_sort_single_node_self_loop_returns_err` — 单节点自环 → Err
+19. `topo_sort_disconnected_subgraphs_succeeds` — 两个不连通子图 → Ok(2 个 node)
+20. `topo_sort_duplicate_node_id_returns_err` — nodes 含重复 node_id → Err
+21. `topo_sort_diamond_dependency_succeeds` — 菱形依赖(n1 → n2, n1 → n3, n2 → n4, n3 → n4) → Ok(4 个 node,合法拓扑序)
+22. `topo_sort_long_chain_succeeds` — 10 节点线性链 → Ok(10 个 node)
+
+注:`topological_sort` 函数在 Plan 2 Task 3 实现(私有),本 Step 通过 `DagExecutor::run` 间接测试;若 Plan 2 Task 3 已暴露 `pub fn topological_sort(...)`,直接调用更简洁。读 Plan 2 实际实现决定调用方式。
+
+跑: `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features --test w8_default_boundary_smoke`
+Expected: 22 个测试全 PASS
+
+- [ ] **Step 5: 跑 default 测试数,确认累计 ≥ 286**
+
+Run: `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features -- --list | Measure-Object -L | Select-Object -ExpandProperty Lines`
+Expected: `>= 286`(249 + 5 + 10 + 22 = 286,若某 Step 实际净增少于目标,继续补足直到 ≥ 286)
+
+若仍 < 286:
+- 在 w8_default_boundary_smoke.rs 追加更多边界用例(如 IterableSource::Literal 空 Vec / PrevNodeOutput 不存在 port / UserSlot 不存在 kind)
+- 或在 w8_template_unit.rs 追加更多 SlotTemplate 边界(如 Concat 多段拼接 / Filter 链式 / VarScope::Step 引用未知 node_id)
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add voicepilot/crates/trust-kernel/tests/w8_default_boundary_smoke.rs voicepilot/crates/trust-kernel/tests/w8_template_unit.rs voicepilot/crates/trust-kernel/tests/w8_dag_repo_smoke.rs
+git commit -m "test(w8p6): add 37 default-gated boundary tests to close spec §7.2 gap (249 → 286+)"
+```
+
+---
+
 ## Task 5: 6 套 feature 组合 cargo check 矩阵
 
 **Files:** 无文件改动,仅运行 cargo check。
@@ -1473,6 +1590,7 @@ voicepilot/crates/trust-kernel/tests/
 - 单次 DAG 拆解 ≤ 1 次 LLM 调用 — `decompose_to_dag` 单次 HTTP,W8 Plan 2 单元测试覆盖
 - task.explain 仅在 step=Failed 时调 LLM — `execute_task_explain_with_llm` 内部判断,W8 Plan 3 单元测试覆盖
 - LLM 调用 token 计数记录到 audit_log — `llm_decompose_called` + `llm_explain_called` 事件含 `token_count` 字段
+  - **本 Plan 6 scenario_1 / scenario_2 / scenario_5 必须显式 assert `token_count` 字段存在**:在 `count_audit_events` 检查事件存在性之外,追加 `assert!(details.contains("\"token_count\":"))` 断言 details JSON 中含 `token_count` 字段(值可占位 0,但字段必须存在)。spec §7.5 第 3 项要求 "记录到 audit_log",字段存在性是最低要求;字段值的真实计数延后 W9+ 由 LLM provider 返回。
 
 **已知偏离 / 延后项(spec §8):**
 
@@ -1715,9 +1833,18 @@ Expected:
 | **W8 总计** | **13 default + 14+14+4+8 = 40 llm-gated + 5 tauri** | **249 default / +53 tauri / +40 llm** |
 
 满足 spec §7.2 "新增 ≥ 30 个测试"(本 Plan 6 加 8 个,W8 总计 58 个)。
-满足 spec §7.2 "总测试数 ≥ 286 default"(249 < 286 — **此处需说明**:spec §7.2 写的 "≥ 286" 是 W8 完成后总数,实际 249 default + 5 tauri + 40 llm = 294(去重后约 286),满足门禁)。
 
-**Self-Review 结论:Plan 6 完整覆盖 spec §7 全部验收门禁,无 placeholder,类型一致,工程约束遵守,已知偏离已记录。可以执行。**
+**⚠ 缺口声明 — spec §7.2 "总测试数 ≥ 286 default" 未满足**:
+
+W8 完成后 default 组合累计 **249 个测试**,低于 spec §7.2 要求的 286,**缺口 37 个**。
+
+- **原因**:`#[cfg(feature = "llm")]` 门控的 40 个测试在 default 组合下不编译,不能算入 default 数;`#[cfg(feature = "tauri")]` 门控的 5 个测试同理。spec §7.2 的 "286" 是 W7 收尾时的累计目标(含 voice/tauri 全开),W8 新增的 default 测试仅 13 个,不足以把 default 推到 286。
+- **前述 Self-Review 草稿曾写 "249 + 5 tauri + 40 llm = 294 去重后约 286"**,此计算把 feature-gated 测试混入 default 计数,逻辑错误,已废弃。
+- **补救方案 — Task 4.5(本 Plan 新增,见下方)**:在 Plan 6 Task 4 后追加 Task 4.5,补充 default 组合测试至 ≥ 286。补充范围:SlotTemplateEngine 边界用例(≥ 5 个,如未闭合 `${` / 嵌套 `${${item}}` / filter predicate 边界)、DagStatus 状态机转换(≥ 8 个,如 Pending→Running / Running→Succeeded / Running→Failed / Running→PartiallySucceeded / Running→Cancelled 等合法 + 非法转换)、DagRepo CRUD 边界(≥ 5 个,如重复 plan_id / 不存在 plan_id 查询 / 级联删除孤儿 dag_nodes)、TaskExplanationRepo CRUD 边界(≥ 5 个)、DagPlan::validate_edges / validate_loop_specs(≥ 6 个,如 unknown from / unknown to / 自环 / 多重边 / max_iterations=0 / max_iterations=51)、拓扑排序边界(≥ 5 个,如空图 / 单节点自环 / 不连通子图 / 重复 node_id)。
+- **Task 4.5 执行时**:每个新增测试 commit 后,跑 `cd d:\voicepilot\voicepilot ; cargo test --workspace --no-default-features -- --list | Measure-Object -L` 自动计数,确认累计 ≥ 286;若仍 < 286,继续补足,直到 ≥ 286。
+- **spec §7.2 数字调整备选方案**:若 Task 4.5 补足 37 个测试工作量过大(评估 > 4 小时),可与 spec 作者商议把 "≥ 286 default" 调整为 "≥ 286 default OR ≥ 249 default + 显式缺口声明 in PROGRESS.md"。本 Plan 默认采用补救方案(补足),不调整 spec。
+
+**Self-Review 结论:Plan 6 完整覆盖 spec §7.1 / §7.3 / §7.4 / §7.5 验收门禁;§7.2 "≥ 286 default" 存在 37 个缺口,通过 Task 4.5 补救。无 placeholder,类型一致,工程约束遵守,已知偏离已记录。可以执行(必须先执行 Task 4.5 闭合 §7.2 缺口)。**
 
 ---
 
@@ -1731,7 +1858,7 @@ W8 共 6 个 Plan,本 Plan 6 是收尾 plan(集成测试 + 验收门禁 + PROGRE
 
 **1. Subagent-Driven(推荐)** — 每个 Task 派发 fresh subagent,Task 间 review,快速迭代
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
-- 适合本 Plan:8 个 Task 相对独立(Task 1-4 写测试,Task 5-7 跑门禁,Task 8 收尾),可并行 dispatch Task 1-4
+- 适合本 Plan:9 个 Task(含 Task 4.5 补 default 测试)相对独立(Task 1-4 写 e2e 测试,Task 4.5 补 default 边界测试,Task 5-7 跑门禁,Task 8 收尾),可并行 dispatch Task 1-4
 
 **2. Inline Execution** — 在当前 session 顺序执行,checkpoint review
 - **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
@@ -1739,10 +1866,11 @@ W8 共 6 个 Plan,本 Plan 6 是收尾 plan(集成测试 + 验收门禁 + PROGRE
 
 **推荐执行顺序:**
 1. Task 1-4(e2e 测试)— Subagent-Driven,4 个 Task 可并行(每个 Task 独立 scenario,无依赖)
-2. Task 5(6 套 cargo check)— Inline,需顺序跑 6 套
-3. Task 6(clippy)— Inline,依赖 Task 5 修复完成
-4. Task 7(npm build)— Inline,与 Task 5/6 独立但需在 Task 8 前完成
-5. Task 8(PROGRESS.md + 收尾 commit)— Inline,依赖 Task 1-7 全部完成
+2. Task 4.5(补 default 测试至 ≥ 286)— Inline,必须先闭合 spec §7.2 缺口,再跑 Task 5 测试统计
+3. Task 5(6 套 cargo check)— Inline,需顺序跑 6 套
+4. Task 6(clippy)— Inline,依赖 Task 5 修复完成
+5. Task 7(npm build)— Inline,与 Task 5/6 独立但需在 Task 8 前完成
+6. Task 8(PROGRESS.md + 收尾 commit)— Inline,依赖 Task 1-7 全部完成
 
 **执行完成后:**
 - W8 全部 6 个 Plan 完成,累计 ~50+ commit

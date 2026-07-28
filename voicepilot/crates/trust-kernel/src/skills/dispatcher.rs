@@ -17,6 +17,7 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill, SkillExecution};
 use crate::skills::form_prepare::{execute_form_prepare, FormPrepareInput};
+use crate::skills::form_submit::{execute_form_submit, FormSubmitInput};
 use crate::skills::research_save::{execute_research_save, ResearchSaveInput};
 use crate::skills::task_compensate::{execute_compensate, TaskCompensateInput};
 use crate::skills::task_explain::{execute_explain, TaskExplainInput};
@@ -114,6 +115,18 @@ pub fn dispatch_skill_executor(
     task_id: &str,
     step_id: &str,
 ) -> Result<DispatchOutcome> {
+    // Normalize: 若 resolved_input 是 String,尝试解析为 JSON 对象。
+    // LLM 拆解时 input_template.template 常返回 JSON 字符串(如 '{"limit": 5}'),
+    // SlotTemplateEngine::resolve 把 Literal 编译为 Value::String,
+    // 此处把 String 解析回 Object,让 dispatch_* 的 extract_* 能正常工作。
+    // 解析失败则保留原值(dispatch_* 会按字段缺失报错)。
+    let normalized: serde_json::Value = if let Some(s) = resolved_input.as_str() {
+        serde_json::from_str(s).unwrap_or_else(|_| resolved_input.clone())
+    } else {
+        resolved_input.clone()
+    };
+    let resolved_input = &normalized;
+
     match skill_id {
         "files.organize" => {
             dispatch_files_organize(kernel, resolved_input, approver, task_id, step_id)
@@ -139,9 +152,7 @@ pub fn dispatch_skill_executor(
         "form.prepare" => {
             dispatch_form_prepare(kernel, resolved_input, approver, task_id, step_id)
         }
-        "form.submit" => Err(KernelError::Skill(
-            "form.submit not implemented in Plan 2; see Plan 3".into(),
-        )),
+        "form.submit" => dispatch_form_submit(kernel, resolved_input, approver, task_id, step_id),
         _ => Err(KernelError::Skill(format!("unknown skill_id: {}", skill_id))),
     }
 }
@@ -291,6 +302,30 @@ fn dispatch_form_prepare(
         fields,
     };
     let returned = execute_form_prepare(kernel, &input, approver)?;
+    Ok(DispatchOutcome::from_task_id(returned, step_id.into()))
+}
+
+fn dispatch_form_submit(
+    kernel: &TrustKernel,
+    resolved_input: &serde_json::Value,
+    approver: &dyn Approver,
+    task_id: &str,
+    step_id: &str,
+) -> Result<DispatchOutcome> {
+    let url = extract_string(resolved_input, "url")?;
+    // submit_selector 可选 — 缺失时用空串,executor 内部会 fallback 到 default
+    let submit_selector = match resolved_input.get("submit_selector") {
+        None => String::new(),
+        Some(serde_json::Value::Null) => String::new(),
+        Some(v) => v.as_str().map(|s| s.to_string()).unwrap_or_default(),
+    };
+    let input = FormSubmitInput {
+        task_id: task_id.to_string(),
+        step_id: step_id.to_string(),
+        url,
+        submit_selector,
+    };
+    let returned = execute_form_submit(kernel, &input, approver)?;
     Ok(DispatchOutcome::from_task_id(returned, step_id.into()))
 }
 

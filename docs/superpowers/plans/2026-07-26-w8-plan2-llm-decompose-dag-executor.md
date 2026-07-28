@@ -2676,6 +2676,15 @@ git commit -m "feat(w8p2): emit 6 DAG audit event types (plan_created/skeleton_a
         Ok(plan)
     }
 
+    /// W8 Plan 2 Task 8:LLM 模型名 accessor(供 router_bridge 在
+    /// `llm_decompose_called` 审计事件中记录 `llm_model` 字段,spec §6.1)。
+    ///
+    /// 不暴露 `api_key` / `base_url` 等敏感字段,仅暴露模型名。
+    #[cfg(feature = "llm")]
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     /// 构建 DAG 拆解的 system prompt(中文约束)。
     #[cfg(feature = "llm")]
     fn build_decompose_system_prompt(

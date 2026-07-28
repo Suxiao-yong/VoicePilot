@@ -1,7 +1,8 @@
 //! W8 Plan 2 Task 2: dispatch_skill_executor 路由测试.
 //!
 //! 覆盖 9 路 skill_id 命中 + 1 路未知 skill_id 报错。
-//! 注:form.submit 在 Plan 3 实现,本 plan 测试期望 Err("not implemented")。
+//! W8 Plan 3:`form.submit` 占位已替换为真实 dispatch,本 plan 测试
+//! 改为断言"不再是 not implemented"。
 //! uia 相关测试受 `windows + uia` feature 门控,默认 feature 下跳过。
 
 use trust_kernel::approval::approver::AutoApprover;
@@ -31,7 +32,8 @@ fn dispatch_unknown_skill_id_returns_err() {
 }
 
 #[test]
-fn dispatch_form_submit_returns_not_implemented_err() {
+fn dispatch_form_submit_routes_to_executor_in_plan3() {
+    // Plan 3: form.submit 不再返回 "not implemented",而是路由到 execute_form_submit
     let kernel = kernel();
     let approver = AutoApprover;
     let input = serde_json::json!({"url": "https://example.com", "submit_selector": "button[type=submit]"});
@@ -40,12 +42,19 @@ fn dispatch_form_submit_returns_not_implemented_err() {
         &kernel,
         &input,
         &approver,
-        "task-submit",
-        "step-submit",
+        "task-submit-plan2",
+        "step-submit-plan2",
     );
-    let err = result.unwrap_err();
-    let msg = format!("{}", err);
-    assert!(msg.contains("not implemented"), "got: {}", msg);
+    // Plan 3:可能成功(若 playwright MCP 可用)或失败(MCP 不可用),
+    // 但不应是 "not implemented" 错误
+    if let Err(e) = result {
+        let msg = format!("{}", e);
+        assert!(
+            !msg.contains("not implemented"),
+            "Plan 3 should not return 'not implemented', got: {}",
+            msg
+        );
+    }
 }
 
 #[test]

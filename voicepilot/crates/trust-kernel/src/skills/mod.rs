@@ -22,6 +22,8 @@ pub mod dag_repo;
 pub mod explanation_repo;
 // W8 Plan 2 Task 2: dispatch_skill_executor 路由 + DispatchOutcome 适配器
 pub mod dispatcher;
+// W8 Plan 2 Task 3: DagExecutor 简单节点调度
+pub mod dag_executor;
 
 // W7 Plan 4 Task 3: quick.app_control executor (launch/focus/close).
 // `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`)
@@ -44,3 +46,7 @@ pub mod research_save;
 // W7 Plan 5 Task 5: form.prepare executor (navigate + snapshot + fill,
 // no submit). Cross-platform — only depends on the MCP client.
 pub mod form_prepare;
+
+// W8 Plan 3 Task 5: form.submit executor (navigate + click submit).
+// Cross-platform — only depends on the MCP client.
+pub mod form_submit;
