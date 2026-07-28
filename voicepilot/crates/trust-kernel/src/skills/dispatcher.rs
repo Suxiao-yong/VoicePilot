@@ -25,9 +25,9 @@ use crate::skills::task_repeat::{execute_repeat_verified, TaskRepeatVerifiedInpu
 use crate::toolresult::ToolStatus;
 
 #[cfg(all(windows, feature = "uia"))]
-use crate::skills::app_control::{execute_app_control, AppControlInput};
+use crate::skills::app_control::AppControlInput;
 #[cfg(all(windows, feature = "uia"))]
-use crate::skills::note_capture::{execute_note_capture, NoteCaptureInput};
+use crate::skills::note_capture::NoteCaptureInput;
 
 /// dispatch_skill_executor 的统一返回值。
 ///
@@ -237,17 +237,31 @@ fn dispatch_app_control(
     task_id: &str,
     step_id: &str,
 ) -> Result<DispatchOutcome> {
-    let action = extract_string(resolved_input, "action")
+    // W8 Plan 4 修复:`execute_app_control` 需要 `adapter: &dyn UiaAdapter`
+    // 参数(W7 Plan 4 加入),但 `dispatch_skill_executor` 签名不携带 adapter。
+    // Plan 2 原始代码漏传 adapter,在 `voice,tauri,llm,uia` feature 组合下
+    // 编译失败(此前 W8 验收门禁只跑 `--no-default-features` 未暴露)。
+    //
+    // 本 Plan 4 修复策略:保留字段校验(extract_string),不调 execute_*,
+    // 返回 Err 表明 UIA-in-DAG 待 Plan 6 集成时通过 DagExecutor::new 加
+    // `Option<Arc<dyn UiaAdapter>>` 字段并透传到 dispatch_*。UiaAdapter 是
+    // `!Send + !Sync`(COM apartment 模型),Plan 6 需评估 DagExecutor 是否
+    // 改为 `!Send` 或用 thread-local adapter。
+    let _ = (kernel, approver, task_id, step_id);
+    let _action = extract_string(resolved_input, "action")
         .ok()
         .unwrap_or_else(|| "launch".into());
-    let input = AppControlInput {
+    let _app_name = extract_string(resolved_input, "app_name")?;
+    // 校验通过 → 构造 input 仅为了失败信息更清晰(不实际执行)。
+    let _input = AppControlInput {
         task_id: task_id.to_string(),
         step_id: step_id.to_string(),
-        app_name: extract_string(resolved_input, "app_name")?,
-        action,
+        app_name: _app_name,
+        action: _action,
     };
-    let returned = execute_app_control(kernel, &input, approver)?;
-    Ok(DispatchOutcome::from_task_id(returned, step_id.into()))
+    Err(KernelError::Skill(
+        "quick.app_control in DagExecutor requires UiaAdapter plumbing — Plan 6 work".into(),
+    ))
 }
 
 #[cfg(all(windows, feature = "uia"))]
@@ -258,14 +272,21 @@ fn dispatch_note_capture(
     task_id: &str,
     step_id: &str,
 ) -> Result<DispatchOutcome> {
-    let input = NoteCaptureInput {
+    // W8 Plan 4 修复:同 dispatch_app_control,execute_note_capture 需要
+    // `adapter: &dyn UiaAdapter`,Plan 2 漏传。保留字段校验,返回 Err。
+    // Plan 6 集成时通过 DagExecutor 透传 adapter。
+    let _ = (kernel, approver, task_id, step_id);
+    let _content = extract_string(resolved_input, "content")?;
+    let _save_path = extract_string(resolved_input, "save_path")?;
+    let _input = NoteCaptureInput {
         task_id: task_id.to_string(),
         step_id: step_id.to_string(),
-        content: extract_string(resolved_input, "content")?,
-        save_path: extract_string(resolved_input, "save_path")?,
+        content: _content,
+        save_path: _save_path,
     };
-    let returned = execute_note_capture(kernel, &input, approver)?;
-    Ok(DispatchOutcome::from_task_id(returned, step_id.into()))
+    Err(KernelError::Skill(
+        "note.capture in DagExecutor requires UiaAdapter plumbing — Plan 6 work".into(),
+    ))
 }
 
 fn dispatch_research_save(

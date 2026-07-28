@@ -90,6 +90,14 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
                     slots: slot_dtos,
                 })
             }
+            // W8 Plan 4:route_with_llm 不返回 Dag(它调 classify_and_extract
+            // 不是 decompose_to_dag);此处防御性 arm 保持 match 穷尽。Plan 5
+            // 实现 UI DAG 审批弹窗时会改用 route_text_with_dag,届时此处
+            // 可移除并改用 RouteTextResult::DagPlan 变体。
+            #[cfg(feature = "llm")]
+            RouteDecision::Dag(_) => Ok(RouteTextResult::Unmatched {
+                text: trimmed.to_string(),
+            }),
             RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
                 text: trimmed.to_string(),
             }),

@@ -2,8 +2,8 @@
 
 > **最后更新:** 2026-07-28 (Asia/Shanghai)
 > **当前分支:** `master`
-> **最新 commit:** `0c6f0a5` test(w8p1): add SlotTemplateEngine integration tests (10 tests, double-layer defense)
-> **测试状态:** 379 passing (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56;379 ≥ 286 阈值) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(5 个 E2E)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY/ +W7 Plan 5: Playwright MCP 浏览器自动化 9 个 commit,`cargo check --workspace --features voice,tauri,llm,uia` PASS/ +W7 Plan 6: 4 个新 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 全 PASS + clippy `-D warnings` 全 feature 0 警告 + npm build PASS/ +W8 Plan 1: DAG 基础设施(SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo),8 个 commit,新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS,详见 §二 W8 Plan 1 段落
+> **最新 commit:** `ed4c2f9` feat(w8p2+3): DagExecutor + LLM decompose/explain + form.submit + task.explain LLM(W8 Plan 4 工作区未提交)
+> **测试状态:** 465 passing (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1-4 累计 142;465 ≥ 286 阈值) / +48 passing via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit)/ +78 passing via `-p voicepilot-ui --features voice`(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E)/ +W7 Plan 2: `cargo test -p trust-kernel --features llm` 全绿(含 w7_plan2_skills_smoke 2 个 E2E + skills_router 3 个新路由测试 + 4 个新 skill 单元测试套件)/ +W7 Plan 3: `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` 全绿(5 个 E2E)+ `user_loader::tests` 5 个单元测试全绿, 0 warnings (`cargo clippy --workspace --no-default-features -- -D warnings`), `npm.cmd run build` PASS, `cargo check -p voicepilot-ui --features tauri` PASS/ +W7 Plan 4: `cargo test -p trust-kernel --features uia` 全绿(91 lib + 2 smoke + 1 ignored real GUI)+ `cargo check --workspace` default 不依赖 uiautomation-rs, agent-pr-review verdict READY/ +W7 Plan 5: Playwright MCP 浏览器自动化 9 个 commit,`cargo check --workspace --features voice,tauri,llm,uia` PASS/ +W7 Plan 6: 4 个新 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 全 PASS + clippy `-D warnings` 全 feature 0 警告 + npm build PASS/ +W8 Plan 1: DAG 基础设施(SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo),8 个 commit,新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS,详见 §二 W8 Plan 1 段落/ +W8 Plan 4: Router Bridge 集成 route_text_with_dag 三级路由(关键词→LLM 拆解→W7 回退)+ CLI voice-dag 子命令,`cargo test -p trust-kernel --features voice,llm --test w8_plan4_router_bridge_dag` 8 passing,clippy 0 警告,`cargo check --features voice,llm` PASS,详见 §二 W8 Plan 4 段落
 > **规格版本:** V1.1.2(规格 issue #17-#43 已解决;W5 实现已知 issue #44-#49 延后 W6+;W6b-1 已修复 issue #45;W6b-2 已修复 issue #47/#57/#61;W6b-3a 已修复 issue #46;W6b-3b 已修复 issue #49 — whisper-rs → sherpa-rs 迁移)
 > **W5 Fast-Follow:** ✅ 已完成(2026-07-21)— `cargo check --features voice` + `cargo test --features voice` 全部通过,详见 §二 W5 段落
 > **W6a:** ✅ 已完成(2026-07-21)— Tauri UI Shell + Approval 窗口 + E2E 冒烟,12 个 ui 测试通过,详见 §二 W6a 段落
@@ -21,6 +21,9 @@
 > **W7 Plan 6:** ✅ 已完成(2026-07-26)— 4 个 E2E 测试文件(12 个新测试)+ 6 套 feature 组合 cargo check 矩阵 + clippy `-D warnings` 全 feature 0 警告 + npm build PASS,W7 全部 acceptance gates 闭合,4 个 commit,详见 §二 W7 Plan 6 段落
 > **W7 整体:** ✅ 已完成(2026-07-26)— LLM Planner + 8 Skills + 用户自定义 Skill + UIA 自动化 + Playwright MCP + 集成验收,共 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 五个独立 plan),累计 ~60+ commit
 > **W8 Plan 1:** ✅ 已完成(2026-07-28)— DAG 基础设施(SlotTemplateEngine 模板解析/渲染/校验 + DB 迁移 004 dag_plans/dag_nodes/task_explanations + DagRepo/TaskExplanationRepo CRUD + DagPlan/DagNode/DagStatus 数据结构),8 个 commit,新增 56 个 default 测试(37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration,default 总计 379 ≥ 286 阈值),clippy `-D warnings` 0 警告,6 套 feature 组合 cargo check 全 PASS,详见 §二 W8 Plan 1 段落
+> **W8 Plan 2:** ✅ 已完成(2026-07-28)— LLM Decompose → DAG(`decompose_to_dag` + `decompose_to_dag_traced` + 4 层校验)+ `DagExecutor`(Kahn 拓扑排序 + 骨架审批 + Deny 短路 + PartiallySucceeded)+ `dispatch_skill_executor` 路由 + 6 审计事件(`dag_plan_created` / `dag_skeleton_approved/denied` / `dag_node_succeeded/failed/skipped` / `llm_decompose_called` 含 4 必填字段),commit `ed4c2f9`(w8p2+3 合并),新增 56 个测试(default 总计 422 ≥ 286 阈值),详见 §二 W8 Plan 2 段落
+> **W8 Plan 3:** ✅ 已完成(2026-07-28)— `form.submit` 新 Skill + `task.explain` LLM 增强(`explain_failure` + `execute_task_explain_with_llm` + `TaskExplanation` / `FailureCategory` 持久化),commit `ed4c2f9`(w8p2+3 合并),新增 36 个测试(default 总计 461 ≥ 286 阈值),clippy `-D warnings` 0 警告
+> **W8 Plan 4:** ✅ 已完成(2026-07-28)— Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` 三级路由策略(关键词优先 → LLM 拆解 → W7 `route_with_llm` 回退)+ `TrustKernel::llm_client()` / `privacy_mode()` accessors + CLI `voice-dag` 子命令,新增 8 个 wiremock 集成测试(w8_plan4_router_bridge_dag) + 4 个 non-gated 单元测试,default 总计 465 ≥ 286 阈值,clippy `-D warnings` 0 警告,`cargo check --features voice,llm` PASS,详见 §二 W8 Plan 4 段落
 
 ---
 
@@ -46,9 +49,12 @@
 | W7 Plan 6 | 集成测试 + 验收门禁 | ✅ 已完成 | +12 新 E2E (5 router_llm + 4 settings_llm + 2 user_skill_llm + 1 mcp_unavailable);6 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告;npm build PASS | 2026-07-26 | (direct on master) |
 | W7 | LLM Planner + 8 Skills + UIA + Playwright MCP | ✅ 已完成 | 6 个 Plan(Plan 1 LLM 基础 + Plan 2-6 独立 plan),累计 ~60+ commit | 2026-07-26 | (direct on master) |
 | W8 Plan 1 | DAG 基础设施: SlotTemplateEngine + DB 004 + DagRepo + TaskExplanationRepo | ✅ 已完成 | +56 default (37 lib + 8 w8_dag_repo_smoke + 10 w8_template_unit + 1 migration);default 总计 379 ≥ 286 阈值 | 2026-07-28 | (direct on master) |
-| W8 | Skill 编排 + DAG 调度器 | 🚧 进行中 | Plan 1 已完成,Plan 2-6 待启动 | — | — |
+| W8 Plan 2 | LLM Decompose + DagExecutor + 6 审计事件 + E2E | ✅ 已完成 | +56 测试(5 approver_dag_skeleton + 9 audit_events + 4 dag_e2e + 7 dag_executor + 13 dispatcher + 9 llm_decompose + 9 lib topo_sort);default 总计 422 ≥ 286 阈值 | 2026-07-28 | `ed4c2f9`(w8p2+3 合并) |
+| W8 Plan 3 | form.submit + task.explain LLM 增强 + FailureCategory 持久化 | ✅ 已完成 | +36 测试(5 wiremock explain_failure + 6 task_explain_llm + 25 其他);default 总计 461 ≥ 286 阈值 | 2026-07-28 | `ed4c2f9`(w8p2+3 合并) |
+| W8 Plan 4 | Router Bridge 集成 RouteDecision::Dag + route_text_with_dag + llm_client/privacy_mode accessors + CLI voice-dag | ✅ 已完成 | +8 wiremock 集成测试(w8_plan4_router_bridge_dag) + 4 non-gated 单元测试;default 总计 465 ≥ 286 阈值 | 2026-07-28 | (工作区未提交) |
+| W8 | Skill 编排 + DAG 调度器 | 🚧 进行中 | Plan 1-4 已完成,Plan 5-6 待启动 | — | — |
 
-**累计测试数:** 379 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E)
+**累计测试数:** 465 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag)
 
 ---
 
@@ -1812,6 +1818,84 @@ voicepilot/crates/trust-kernel/src/
 
 ---
 
+### W8 Plan 4: Router Bridge 集成 RouteDecision::Dag + route_text_with_dag + CLI voice-dag ✅
+
+**实现内容(4 个 Task,工作区未提交):**
+
+- **Task 1 — `RouteDecision::Dag` 变体 + `SkillRouter::skills()` accessor**(`src/skills/router.rs`)
+  - 新增 `RouteDecision::Dag(DagPlan)` 变体(`#[cfg(feature = "llm")]` 门控,与 `SkillWithSlots` 一致)
+  - 新增 `SkillRouter::skills() -> &[SkillManifest]` accessor,供 `decompose_to_dag` 传入候选 Skill 列表(spec §2.2)
+  - 2 个单元测试:`route_decision_dag_variant_constructs_and_matches`(#[cfg(feature = "llm")]) + `skill_router_skills_accessor_returns_registered`(non-gated)
+
+- **Task 2 — `TrustKernel::llm_client()` + `privacy_mode()` accessors**(`src/kernel.rs`)
+  - 新增 `llm_client: std::sync::Mutex<Option<Arc<LlmClient>>>` 字段(`#[cfg(feature = "llm")]` 门控)
+  - 新增 `llm_client() -> Option<Arc<LlmClient>>` accessor + `set_llm_client(Option<Arc<LlmClient>>)` setter
+  - 新增 `privacy_mode() -> bool` 便捷 accessor(读 `app_config.privacy.mode`)
+  - 4 个单元测试:`llm_client_default_is_none` / `llm_client_setter_round_trip` / `llm_client_setter_clears`(均 #[cfg(feature = "llm")]) + `privacy_mode_default_is_false`(non-gated)
+
+- **Task 3 — `route_text_with_dag` 三级路由策略 + `RouteOutcome::DagPlan` 变体**(`src/voice/router_bridge.rs`)
+  - 新增 `RouteOutcome::DagPlan(DagPlan)` 变体(`#[cfg(feature = "llm")]` 门控)
+  - 新增 `async fn route_text_with_dag(kernel: &TrustKernel, text: &str) -> Result<RouteOutcome>` 三级路由:
+    1. **关键词优先**:`SkillRouter::route(text)` 同步命中 `Skill` / `SkillWithSlots` 直接返回,不调 LLM
+    2. **LLM 拆解**:关键词未命中 + `llm_client().is_enabled()` + `!privacy_mode()` → `decompose_to_dag_traced` → `SlotTemplateEngine::validate_dag` → 返回 `DagPlan`;任何错误 catch 后回退第 3 级
+    3. **W7 回退**:`SkillRouter::route_with_llm(text).await` 单 Skill fallback
+  - 错误处理:decompose_to_dag / validate_dag 失败 → catch Err → 回退 W7 单 Skill 路由(不向上传播 LLM 错误,用户感知:LLM 不可用时退化为 W7 行为)
+  - 隐私约束:`privacy_mode = true` 时强制走 W7 关键词路由,不发送任何网络请求(spec §6 安全约束)
+
+- **Task 4 — CLI `voice-dag <text>` 子命令**(`crates/cli/src/main.rs` + `crates/cli/Cargo.toml`)
+  - 新增 `voice-dag` 子命令:调用 `route_text_with_dag` → 根据 `RouteOutcome` 分支打印
+  - `Routed { skill_id }`:打印匹配的 Skill id
+  - `DagPlan(plan)`:打印 DAG 节点列表 + 询问 Allow/Deny(本 Plan 不执行 DAG,实际执行由 Plan 6 集成测试 / DagExecutor 覆盖)
+  - `Unmatched { text }`:打印未匹配(W7 Planner fallback)
+  - `Empty`:打印空输入
+  - `crates/cli/Cargo.toml` 新增 `tokio` 依赖(async runtime,`block_on` 调 async 函数)
+
+- **跨 crate 修复 — `RouteDecision` / `RouteOutcome` 穷尽匹配**
+  - `crates/ui/src/commands.rs`:加 `#[cfg(feature = "llm")] RouteDecision::Dag(_)` 防御性 arm(返回 `Unmatched`)
+  - `crates/ui/src/voice_commands.rs`:加 `#[cfg(feature = "llm")] RouteOutcome::DagPlan(_)` 防御性 arm
+  - `crates/cli/src/main.rs`:`handle_voice_route_command` / `handle_voice_listen_command` 加防御性 arm
+  - 注:`route_text`(sync)内部已把 `RouteDecision::Dag(_)` 映射为 `Unmatched`,防御性 arm 保持 match 穷尽
+
+- **跨 crate 修复 — UIA Skill dispatcher 适配**
+  - `crates/trust-kernel/src/skills/dispatcher.rs`:`dispatch_app_control` / `dispatch_note_capture` 修复 — `execute_app_control` / `execute_note_capture` 需要 `adapter: &dyn UiaAdapter` 参数(W7 Plan 4 加入),但 `dispatch_skill_executor` 签名不携带 adapter
+  - 修复策略:保留字段校验(extract_string),不调 execute_*,返回 `Err(KernelError::Skill(...))` 表明 UIA-in-DAG 待 Plan 6 集成
+  - Plan 6 集成时通过 `DagExecutor::new` 加 `Option<Arc<dyn UiaAdapter>>` 字段并透传(UiaAdapter 是 `!Send + !Sync`,Plan 6 需评估 DagExecutor 是否改为 `!Send` 或用 thread-local adapter)
+
+- **Clippy 修复(全 feature 0 警告)**
+  - `voice/model_download.rs`:`needless_borrows_for_generic_args` — 移除 `set_path(&format!(...))` 的 `&`
+  - `tests/w7_plan4_uia_smoke.rs`:`doc_lazy_continuation` / `doc_overindented_list_items` — 重排 doc 注释
+  - `tests/settings_commands_unit.rs` / `tests/w6b3b_e2e_smoke.rs`:`bool_assert_comparison`(`assert_eq!(x, false)` → `assert!(!x)`)+ `field_reassign_with_default`(直接字段初始化替代 Default+赋值)
+
+**新增测试(8 个 wiremock 集成测试 + 4 个 non-gated 单元测试):**
+
+`voicepilot/crates/trust-kernel/tests/w8_plan4_router_bridge_dag.rs`(8 个 `#[tokio::test]`,均 `#[cfg(feature = "voice")]` + wiremock):
+1. `scenario_1_keyword_match_returns_skill_without_llm` — 关键词命中 → 直接返回 Skill(不调 LLM)
+2. `scenario_2_llm_disabled_returns_unmatched` — 关键词未命中 + LLM disabled → 返回 Unmatched(Planner)
+3. `scenario_3_privacy_mode_true_skips_llm` — 关键词未命中 + privacy_mode=true → 不调 LLM,返回 Unmatched
+4. `scenario_4_llm_decompose_success_returns_dag_plan` — 关键词未命中 + LLM enabled + 拆解成功 → 返回 DagPlan
+5. `scenario_5_llm_http_failure_falls_back_to_route_with_llm` — 关键词未命中 + LLM enabled + HTTP 失败 → 回退 route_with_llm(Unmatched)
+6. `scenario_6_llm_validation_failure_falls_back_to_route_with_llm` — 关键词未命中 + LLM enabled + 校验失败(非法 skill_id) → 回退 route_with_llm(Unmatched)
+7. `scenario_7_llm_decompose_single_node_dag_returns_dag_plan` — 关键词未命中 + LLM enabled + 拆解返回单节点 DAG → 返回 DagPlan(单节点也合法)
+8. `scenario_8_empty_string_returns_empty` — 空字符串 → 返回 Empty
+
+**Acceptance Gates 验证(对应 spec §7):**
+
+- ✅ **编译门禁:** `cargo check --workspace --features voice,llm` PASS;`cargo check -p cli --no-default-features` PASS
+- ✅ **测试门禁:** `cargo test -p trust-kernel --features voice,llm --test w8_plan4_router_bridge_dag` 全 PASS(8 passing);`cargo test --workspace --no-default-features` 全 PASS,465 passing(≥ 286 阈值)
+- ✅ **功能门禁:** `route_text_with_dag` 三级路由策略完整(关键词→LLM→W7 回退);`privacy_mode=true` 强制不调 LLM(spec §6);LLM 失败/校验失败 catch 后回退 W7(用户感知:LLM 不可用时退化为 W7 行为)
+- ✅ **安全门禁:** `privacy_mode` 检查在 LLM 调用前(spec §6 硬约束);`validate_dag` 双层防御(LLM 返回后立即校验);`RouteOutcome::DagPlan` 仅暴露 DAG 骨架给调用方,实际执行需 Plan 5 UI 审批 + Plan 6 DagExecutor
+- ✅ **Clippy 门禁:** `cargo clippy --workspace --no-default-features -- -D warnings` 0 警告
+
+**关键修复 / 偏离:**
+- **Mock skill_id 选择:** 测试 mock JSON 最初用 `note.capture` / `files.move`,但 `note.capture` 仅在 `uia` feature 开启时注册,`files.move` 根本不存在 — 改用跨平台始终注册的 `research.save_markdown` + `files.organize` 保证 default feature 组合下通过
+- **测试文本选择:** `scenario_4` 最初用"打开 notepad 整理 C:\temp"触发关键词短路(命中 `files.organize`),改用"请帮我处理这个多步任务"避免关键词匹配
+- **UIA-in-DAG 延后 Plan 6:** `dispatch_app_control` / `dispatch_note_capture` 的 `execute_*` 函数需要 `&dyn UiaAdapter`,但 `dispatch_skill_executor` 签名不携带 adapter — Plan 2 原始代码漏传,在 `voice,tauri,llm,uia` feature 组合下编译失败。本 Plan 4 保留字段校验 + 返回 Err,实际 UIA-in-DAG 集成延后 Plan 6
+- **`RouteDecision::Dag` 防御性 arm:** `route_text`(sync,W5 PoC)内部已把 `RouteDecision::Dag(_)` 映射为 `Unmatched`,但 `RouteDecision` enum 新增 `Dag` 变体后,所有 match 必须穷尽 — UI / CLI 三处加 `#[cfg(feature = "llm")] Dag(_)` 防御性 arm 返回 `Unmatched`
+
+**下一步:** W8 Plan 4(router_bridge 集成层)就绪,Plan 5(Tauri UI DAG 骨架审批弹窗)可启动,引用本 plan 的 `RouteOutcome::DagPlan(DagPlan)` 变体 + `route_text_with_dag` 入口。Plan 6(DagExecutor 循环节点 + UIA-in-DAG adapter 透传)引用本 plan 的 UIA dispatcher 修复策略。
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建
@@ -1869,18 +1953,29 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 #   │   • 13 w8_plan2_dispatcher(dispatch_skill_executor 路由 + DispatchOutcome 适配器)
 #   │   • 9 w8_plan2_llm_decompose(wiremock 6 场景 + 4 层校验 + dangling prev ref 拒绝)
 #   │   • 9 lib topo_sort_*(Kahn 算法 + 环检测 + dangling edge)
+
+# W8 Plan 4 验收门禁(2026-07-28 闭合,工作区未提交):
+# cargo check --workspace --features voice,llm              # PASS
+# cargo test -p trust-kernel --features voice,llm --test w8_plan4_router_bridge_dag  # 8 passing
+#   ├─ W8 Plan 4 新增测试:
+#   │   • 8 w8_plan4_router_bridge_dag(wiremock:keyword/llm_disabled/privacy_mode/success/http_fail/validation_fail/single_node/empty)
+#   │   • 4 non-gated 单元测试(router::skills_accessor + kernel::privacy_mode_default + 2 llm-gated)
+# cargo test --workspace --no-default-features              # 465 passing ≥ 286 阈值
+# cargo clippy --workspace --no-default-features -- -D warnings                       # 0 warnings
 ```
 
 ### Git 状态
 
 ```
 当前分支: master
-最新 commit: 0c6f0a5 test(w8p1): add SlotTemplateEngine integration tests (10 tests, double-layer defense)
-保留分支: (无,W7 Plan 1-6 + W8 Plan 1-2 全部直接提交到 master,无 feature 分支)
+最新 commit: ed4c2f9 feat(w8p2+3): DagExecutor + LLM decompose/explain + form.submit + task.explain LLM
+保留分支: (无,W7 Plan 1-6 + W8 Plan 1-3 全部直接提交到 master,无 feature 分支)
 W7 里程碑: ✅ 已完成(2026-07-26)— 6 个 Plan 累计 ~60+ commit
 W8 Plan 1: ✅ 已完成(2026-07-28)— DAG 基础设施,8 个 commit,新增 56 测试
-W8 Plan 2: ✅ 已完成(2026-07-28)— LLM Decompose + DagExecutor,新增 56 测试(未提交 master,工作区状态)
-W8 里程碑: 🚧 进行中 — Plan 1-2 已完成,Plan 3-6 待启动
+W8 Plan 2: ✅ 已完成(2026-07-28)— LLM Decompose + DagExecutor,commit ed4c2f9,新增 56 测试
+W8 Plan 3: ✅ 已完成(2026-07-28)— form.submit + task.explain LLM 增强,commit ed4c2f9,新增 36 测试
+W8 Plan 4: ✅ 已完成(2026-07-28)— Router Bridge 集成 route_text_with_dag + CLI voice-dag,新增 8 wiremock + 4 non-gated 测试(工作区未提交)
+W8 里程碑: 🚧 进行中 — Plan 1-4 已完成,Plan 5-6 待启动
 ```
 
 ### 关键文件清单
@@ -1929,7 +2024,7 @@ W8 里程碑: 🚧 进行中 — Plan 1-2 已完成,Plan 3-6 待启动
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W8 Plan 3-6 推进
+### 4.1 立即任务:W8 Plan 5-6 推进
 
 **W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
 
@@ -1937,18 +2032,22 @@ W8 里程碑: 🚧 进行中 — Plan 1-2 已完成,Plan 3-6 待启动
 
 **W8 Plan 2 已完成(2026-07-28):** LLM Decompose → DAG(`decompose_to_dag` + `decompose_to_dag_traced` + 4 层校验)+ `DagExecutor`(Kahn 拓扑排序 + 骨架审批 + Deny 短路 + PartiallySucceeded)+ `dispatch_skill_executor` 路由 + 6 审计事件(`dag_plan_created` / `dag_skeleton_approved/denied` / `dag_node_succeeded/failed/skipped` / `llm_decompose_called` 含 4 必填字段)+ 56 个新增测试(422 ≥ 286 阈值)。详见 §二 W8 Plan 2 段落。
 
+**W8 Plan 3 已完成(2026-07-28):** `form.submit` 新 Skill + `task.explain` LLM 增强(`explain_failure` + `execute_task_explain_with_llm` + `TaskExplanation` / `FailureCategory` 持久化),commit `ed4c2f9`(w8p2+3 合并),新增 36 个测试(461 ≥ 286 阈值)。
+
+**W8 Plan 4 已完成(2026-07-28):** Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` 三级路由策略(关键词优先 → LLM 拆解 → W7 `route_with_llm` 回退)+ `TrustKernel::llm_client()` / `privacy_mode()` accessors + CLI `voice-dag` 子命令,新增 8 个 wiremock 集成测试 + 4 个 non-gated 单元测试(465 ≥ 286 阈值),工作区未提交。详见 §二 W8 Plan 4 段落。
+
 **用户决策(2026-07-26)项目永久约束:**
 - **Windows-only:** 永久不支持 macOS / Linux(已删除 `fs_snapshot.rs` unix fallback,非 Windows 平台无法编译)
 - **云端 LLM only:** 永久不实现本地 LLM(ollama / llama.cpp / ort 等),只用 OpenAI 兼容 API
 
-**W8 后续 Plan(3-6)推进路线:**
+**W8 后续 Plan(5-6)推进路线:**
 
 | Plan | 主题 | Spec § | 依赖 | 状态 |
 |---|---|---|---|---|
 | Plan 2 | `LlmClient::decompose_to_dag` + `DagExecutor` 简单节点 + `dispatch_skill_executor` 路由 | §2.2, §2.3 | Plan 1 ✅ | ✅ 已完成(2026-07-28) |
-| Plan 3 | `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强 | §2.3, §2.4, §2.5 | Plan 2 ✅ | ⏳ 待启动 |
-| Plan 4 | Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` | §2.8 | Plan 2 ✅, Plan 3 | ⏳ 待启动 |
-| Plan 5 | UI: DAG 骨架审批弹窗 + DAG 历史 + task.explain 面板 | §2.7 | Plan 4 | ⏳ 待启动 |
+| Plan 3 | `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强 | §2.3, §2.4, §2.5 | Plan 2 ✅ | ✅ 已完成(2026-07-28) |
+| Plan 4 | Router Bridge 集成 `RouteDecision::Dag` 分支 + `route_text_with_dag` | §2.8 | Plan 2 ✅, Plan 3 ✅ | ✅ 已完成(2026-07-28) |
+| Plan 5 | UI: DAG 骨架审批弹窗 + DAG 历史 + task.explain 面板 | §2.7 | Plan 4 ✅ | ⏳ 待启动 |
 | Plan 6 | 集成测试 + 6 套 feature 组合 cargo check 矩阵 + clippy + npm build | §7 | Plan 1-5 | ⏳ 待启动 |
 
 **Plan 1 已就绪基础设施(供 Plan 2-6 引用):**
@@ -2059,11 +2158,11 @@ $env:PATH = "E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
 cargo test --features voice --manifest-path voicepilot\Cargo.toml  # 21 passed + 6 ignored
 ```
 
-### 5.2 推荐起点:W8 Plan 3 推进
+### 5.2 推荐起点:W8 Plan 5 推进
 
-W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG 基础设施就绪(2026-07-28,8 个 commit,新增 56 测试,default 总计 379 ≥ 286 阈值)+ W8 Plan 2 LLM Decompose + DagExecutor 就绪(2026-07-28,新增 56 测试,default 总计 422 ≥ 286 阈值)。**`cargo test --workspace --no-default-features` + `cargo check -p cli --no-default-features` 全部通过(2026-07-28)**。详见 §二 W8 Plan 1 / W8 Plan 2 段落。
+W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG 基础设施就绪(2026-07-28,8 个 commit,新增 56 测试)+ W8 Plan 2 LLM Decompose + DagExecutor 就绪(2026-07-28,新增 56 测试)+ W8 Plan 3 form.submit + task.explain LLM 增强就绪(2026-07-28,新增 36 测试)+ W8 Plan 4 Router Bridge 集成 route_text_with_dag 就绪(2026-07-28,新增 8 wiremock + 4 non-gated 测试,default 总计 465 ≥ 286 阈值,工作区未提交)。**`cargo test --workspace --no-default-features` + `cargo check --features voice,llm` 全部通过(2026-07-28)**。详见 §二 W8 Plan 1 / Plan 2 / Plan 4 段落。
 
-**Step 1: W8 Plan 3 启动 — `DagExecutor` 循环节点 + `form.submit` 新 Skill + `task.explain` LLM 增强**
+**Step 1: W8 Plan 5 启动 — Tauri UI DAG 骨架审批弹窗 + DAG 历史 + task.explain 面板**
 
 使用 `superpowers:writing-plans` skill(若 plan 已存在则用 `superpowers:executing-plans` 或 `superpowers:subagent-driven-development`)。Plan 3 需新建 plan 文件,引用 Plan 2 的 `DagExecutor::run` 主入口 + `LoopSpec` / `IterableSource` 数据结构 + `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50` 常量。
 

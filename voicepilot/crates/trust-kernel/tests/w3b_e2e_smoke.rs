@@ -48,6 +48,11 @@ fn end_to_end_files_organize_skill_smoke() {
         trust_kernel::skills::router::RouteDecision::SkillWithSlots(_, _) => {
             panic!("sync route() should not return SkillWithSlots")
         }
+        // W8 Plan 4:同步 route() 不返回 Dag(它不做 LLM 拆解);若返回则契约被破坏。
+        #[cfg(feature = "llm")]
+        trust_kernel::skills::router::RouteDecision::Dag(_) => {
+            panic!("sync route() should not return Dag")
+        }
     };
     assert_eq!(skill_manifest.id, "files.organize");
 

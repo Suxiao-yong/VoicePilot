@@ -28,6 +28,11 @@ pub enum RouteDecision {
     /// W7 新增:LLM 提取了 Slot,经 UI 反馈给用户修改/Apply 后再执行
     #[cfg(feature = "llm")]
     SkillWithSlots(Box<SkillManifest>, Vec<ExtractedSlot>),
+    /// W8 Plan 4 新增:LLM 拆解为多步 DAG(spec §2.8)。
+    /// 调用方(CLI / Tauri)收到此变体时应弹 DAG 骨架审批 UI(Plan 5 实现)。
+    /// 同步 `route()` 从不返回此变体(Dag 需要 LLM 调用,async only)。
+    #[cfg(feature = "llm")]
+    Dag(crate::skills::dag_types::DagPlan),
     Planner,
 }
 
@@ -66,6 +71,12 @@ impl SkillRouter {
         } else {
             self.skills.push(manifest);
         }
+    }
+
+    /// W8 Plan 4: 返回已注册的 Skill manifest 列表(供 LLM decompose_to_dag
+    /// 作为候选 Skill 传入)。spec §2.2 `decompose_to_dag(text, candidate_skills, user_slots)`。
+    pub fn skills(&self) -> &[SkillManifest] {
+        &self.skills
     }
 
     /// 同步路由(W6 行为,关键词匹配,不调 LLM)
@@ -265,5 +276,53 @@ mod tests {
             }
             other => panic!("expected SkillWithSlots, got {:?}", other),
         }
+    }
+
+    // ===== W8 Plan 4 Task 1: RouteDecision::Dag 变体 + skills() accessor =====
+
+    #[cfg(feature = "llm")]
+    #[test]
+    fn route_decision_dag_variant_constructs_and_matches() {
+        use crate::skills::dag_types::{DagNode, DagPlan};
+        use crate::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
+        use crate::policy::types::ELevel;
+        use std::collections::HashMap;
+
+        let node = DagNode {
+            node_id: "n1".into(),
+            skill_id: "note.capture".into(),
+            input_template: SlotTemplate {
+                kind: SlotKind::Text,
+                template: TemplateExpr::Literal("notepad".into()),
+            },
+            risk_ceiling: ELevel::E1,
+        };
+        let plan = DagPlan {
+            plan_id: "p1".into(),
+            user_goal: "test".into(),
+            nodes: vec![node],
+            edges: vec![],
+            loop_specs: HashMap::new(),
+            max_total_steps: 5,
+        };
+        let decision = RouteDecision::Dag(plan);
+        match decision {
+            RouteDecision::Dag(p) => {
+                assert_eq!(p.plan_id, "p1");
+                assert_eq!(p.nodes.len(), 1);
+                assert_eq!(p.nodes[0].skill_id, "note.capture");
+            }
+            _ => panic!("expected Dag variant"),
+        }
+    }
+
+    #[cfg(feature = "llm")]
+    #[test]
+    fn skill_router_skills_accessor_returns_registered() {
+        let mut router = SkillRouter::new();
+        router.register(files_organize_manifest());
+        let skills = router.skills();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "files.organize");
     }
 }

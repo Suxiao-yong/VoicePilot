@@ -199,6 +199,14 @@ impl VoiceListenImpl {
             },
             Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
             Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
+            // W8 Plan 4:route_text (sync) 内部已把 RouteDecision::Dag(_)
+            // 映射为 Unmatched,理论上不会到达此 arm;此处防御性 arm 保持
+            // match 穷尽。voice pipeline 不调 route_text_with_dag,DAG 审批
+            // UI 由 Plan 5 实现(届时 route() 可改调 route_text_with_dag)。
+            #[cfg(feature = "llm")]
+            Ok(RouteOutcome::DagPlan(_)) => RouteTextResult::Unmatched {
+                text: text.to_string(),
+            },
             Err(_) => RouteTextResult::Empty,
         }
     }

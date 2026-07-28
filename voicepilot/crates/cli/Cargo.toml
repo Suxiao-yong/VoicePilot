@@ -16,6 +16,8 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+# W8 Plan 4: voice-dag 子命令需要 tokio runtime 来调 async route_text_with_dag
+tokio = { workspace = true }
 
 [features]
 default = ["llm"]

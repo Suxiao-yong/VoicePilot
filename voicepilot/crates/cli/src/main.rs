@@ -111,6 +111,8 @@ fn main() -> Result<()> {
     #[cfg(feature = "voice")]
     println!("  voice route <text>        Route text through SkillRouter (no audio, no execution)");
     #[cfg(feature = "voice")]
+    println!("  voice-dag <text>          Route text via W8 DAG-aware router (keyword→LLM decompose→W7 fallback)");
+    #[cfg(feature = "voice")]
     println!("  voice listen             Record 5s audio, transcribe, route to Skill");
     println!("  quit");
     println!();
@@ -160,6 +162,15 @@ fn main() -> Result<()> {
             if let Some(rest) = line.strip_prefix("voice route ") {
                 let text = rest.trim();
                 handle_voice_route_command(text)?;
+                return Ok(());
+            }
+            // W8 Plan 4: voice-dag <text> 子命令 — 调用 route_text_with_dag
+            // (keyword→LLM decompose→W7 fallback 三级路由)。
+            if let Some(rest) = line.strip_prefix("voice-dag ") {
+                let text = rest.trim();
+                let rt = tokio::runtime::Runtime::new()
+                    .map_err(|e| anyhow!("failed to create tokio runtime: {}", e))?;
+                rt.block_on(handle_voice_dag_command(&kernel, text))?;
                 return Ok(());
             }
             if line == "voice listen" {
@@ -506,6 +517,14 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
             println!("Matched skill: {}", skill_id);
             Ok(())
         }
+        // W8 Plan 4:route_text (sync) 不返回 DagPlan(它把 RouteDecision::Dag
+        // 映射为 Unmatched);此处防御性 arm 保持 match 穷尽。DAG 路由请用
+        // `voice-dag <text>` 子命令(调 route_text_with_dag)。
+        #[cfg(feature = "llm")]
+        RouteOutcome::DagPlan(_) => {
+            println!("(DAG plan not handled by `voice route` — use `voice-dag <text>` for DAG routing)");
+            Ok(())
+        }
         RouteOutcome::Unmatched { text } => {
             println!("No skill matched for: {:?}", text);
             println!("(W7 LLM Planner fallback not yet implemented)");
@@ -516,6 +535,72 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// W8 Plan 4: `voice-dag <text>` 子命令。
+///
+/// 调用 `route_text_with_dag`(三级路由:keyword→LLM decompose→W7 fallback),
+/// 根据 `RouteOutcome` 分支打印:
+/// - `Routed { skill_id }`:打印匹配的 Skill id
+/// - `DagPlan(plan)`:打印 DAG 节点列表 + 询问 Allow/Deny(本 Plan 不执行 DAG,
+///   实际执行由 Plan 6 集成测试 / DagExecutor 覆盖)
+/// - `Unmatched { text }`:打印未匹配(W7 Planner fallback)
+/// - `Empty`:打印空输入
+#[cfg(feature = "voice")]
+async fn handle_voice_dag_command(kernel: &TrustKernel, text: &str) -> anyhow::Result<()> {
+    use trust_kernel::voice::router_bridge::{route_text_with_dag, RouteOutcome};
+
+    let outcome = route_text_with_dag(kernel, text)
+        .await
+        .map_err(|e| anyhow!("route_text_with_dag failed: {}", e))?;
+
+    match outcome {
+        RouteOutcome::Routed { skill_id } => {
+            println!("Routed → skill_id: {}", skill_id);
+            println!("(W8 Plan 4: 执行由 Plan 5 UI / Plan 6 e2e 覆盖)");
+        }
+        #[cfg(feature = "llm")]
+        RouteOutcome::DagPlan(plan) => {
+            println!("DagPlan → plan_id: {}", plan.plan_id);
+            println!("  user_goal: {}", plan.user_goal);
+            println!("  max_total_steps: {}", plan.max_total_steps);
+            println!("  nodes ({}):", plan.nodes.len());
+            for node in &plan.nodes {
+                println!(
+                    "    - {} | skill_id: {} | risk: {:?}",
+                    node.node_id, node.skill_id, node.risk_ceiling
+                );
+            }
+            println!("  edges ({}):", plan.edges.len());
+            for edge in &plan.edges {
+                println!(
+                    "    - {} → {} (port: {:?})",
+                    edge.from, edge.to, edge.port_binding
+                );
+            }
+            // 简单 Allow/Deny 询问(本 Plan 不实际执行 DAG)。
+            print!("\nAllow DAG skeleton execution? [y/N] ");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let mut buf = String::new();
+            let n = std::io::stdin().read_line(&mut buf).unwrap_or(0);
+            if n == 0 {
+                println!("(EOF → Deny)");
+            } else if buf.trim().eq_ignore_ascii_case("y") {
+                println!("(W8 Plan 4: DAG 执行由 DagExecutor 实现,本 Plan 仅路由)");
+                // Plan 6 集成测试会调 DagExecutor::run。
+            } else {
+                println!("Denied — DAG not executed.");
+            }
+        }
+        RouteOutcome::Unmatched { text } => {
+            println!("Unmatched → text: {}", text);
+            println!("(W7 Planner fallback)");
+        }
+        RouteOutcome::Empty => {
+            println!("Empty — no input text.");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "voice")]
@@ -573,6 +658,13 @@ fn handle_voice_listen_command() -> anyhow::Result<()> {
         RouteOutcome::Routed { skill_id, .. } => {
             println!("Matched skill: {}", skill_id);
             println!("(Skill execution requires user-supplied args; use `voicepilot organize` to run)");
+        }
+        // W8 Plan 4:route_text (sync) 内部已把 RouteDecision::Dag(_) 映射为
+        // Unmatched,理论上不会到达此 arm;此处防御性 arm 保持 match 穷尽。
+        // voice listen pipeline 不调 route_text_with_dag,DAG 审批 UI 由 Plan 5 实现。
+        #[cfg(feature = "llm")]
+        RouteOutcome::DagPlan(_) => {
+            println!("(DAG plan not handled in voice listen pipeline — use `voice-dag <text>` for DAG routing)");
         }
         RouteOutcome::Unmatched { text } => {
             println!("No skill matched for: {:?}", text);

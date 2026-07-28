@@ -49,7 +49,7 @@ fn settings_dto_roundtrip_through_kv() {
     assert_eq!(restored.voice_threads, 8);
     assert!(restored.privacy_mode);
     assert_eq!(restored.compensation_ttl_hours, 48);
-    assert_eq!(restored.tts_enabled, false);
+    assert!(!restored.tts_enabled);
     assert_eq!(restored.tts_model_path, "/models/tts-test");
 }
 

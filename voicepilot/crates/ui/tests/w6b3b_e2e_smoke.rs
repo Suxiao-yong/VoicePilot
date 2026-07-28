@@ -116,12 +116,14 @@ fn build_final_payload_includes_slots() {
 /// 修改后 flatten → merge 应保留自定义值。
 #[test]
 fn tts_settings_roundtrip() {
-    let mut dto = SettingsDto::default();
-    dto.tts_enabled = false;
-    dto.tts_model_path = "/models/custom-tts".to_string();
+    let dto = SettingsDto {
+        tts_enabled: false,
+        tts_model_path: "/models/custom-tts".to_string(),
+        ..Default::default()
+    };
     let kv = flatten_to_kv(&dto);
     let restored = merge_from_kv(&kv).expect("merge should succeed");
-    assert_eq!(restored.tts_enabled, false);
+    assert!(!restored.tts_enabled);
     assert_eq!(restored.tts_model_path, "/models/custom-tts");
 }
 

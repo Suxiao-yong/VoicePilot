@@ -316,7 +316,7 @@ mod tests {
             let model_bytes = b"FAKE_ONNX_MODEL_BYTES";
             let mut file_header = tar::Header::new_gnu();
             file_header
-                .set_path(&format!("{}/model.onnx", model_name))
+                .set_path(format!("{}/model.onnx", model_name))
                 .unwrap();
             file_header.set_size(model_bytes.len() as u64);
             file_header.set_mode(0o644);
@@ -330,7 +330,7 @@ mod tests {
             let tokens_bytes = b"<silence>\n<unk>\nhello\nworld\n";
             let mut tokens_header = tar::Header::new_gnu();
             tokens_header
-                .set_path(&format!("{}/tokens.txt", model_name))
+                .set_path(format!("{}/tokens.txt", model_name))
                 .unwrap();
             tokens_header.set_size(tokens_bytes.len() as u64);
             tokens_header.set_mode(0o644);

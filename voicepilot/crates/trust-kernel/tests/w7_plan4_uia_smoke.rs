@@ -194,10 +194,10 @@ mod smoke {
     /// Test 1: `quick.app_control` launch notepad (mock adapter).
     ///
     /// End-to-end pipeline:
-    /// 1. `TrustKernel::open_in_memory()`
-    /// 1b. `kernel.set_allowed_apps(vec![])` — force out-of-whitelist path so
-    ///     PerStep approval is exercised (default whitelist contains
-    ///     "notepad", which would skip approval per spec §2.6 line 304).
+    /// 1. `TrustKernel::open_in_memory()` then `kernel.set_allowed_apps(vec![])`
+    ///    to force out-of-whitelist path so PerStep approval is exercised
+    ///    (default whitelist contains "notepad", which would skip approval
+    ///    per spec §2.6 line 304).
     /// 2. `MockAdapter` records calls into `Rc<RefCell<MockState>>`
     /// 3. `AutoApprover`
     /// 4. `AppControlInput { task_id, step_id, app_name: "notepad", action: "launch" }`

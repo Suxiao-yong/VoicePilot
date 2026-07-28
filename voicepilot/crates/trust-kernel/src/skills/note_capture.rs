@@ -441,6 +441,16 @@ mod tests {
         fn prompt(&self, _manifest: &EffectManifest) -> ApprovalDecision {
             ApprovalDecision::Modify
         }
+
+        /// W8 Plan 4: DAG 骨架审批回调。`AutoModifier` 仅用于 note_capture
+        /// 的 Modify-path 测试,不参与 DAG 流程;返回 `Deny` 作为安全默认
+        /// (note_capture 测试不触发 DAG,此方法不会被调用)。
+        fn approve_dag_skeleton(
+            &self,
+            _plan: &crate::skills::dag_types::DagPlan,
+        ) -> Result<ApprovalDecision> {
+            Ok(ApprovalDecision::Deny)
+        }
     }
 
     #[test]

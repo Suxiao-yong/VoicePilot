@@ -29,6 +29,14 @@ pub struct TrustKernel {
     // 默认 ["notepad", "explorer", "calc"]。Settings 面板可编辑,持久化到 app_config。
     // 即使 `uia` feature 关闭此字段也存在(纯数据,无害)——避免 DTO 形状随 feature 变化。
     allowed_apps: Arc<std::sync::Mutex<Vec<String>>>,
+    // W8 Plan 4: LLM 客户端(可选,None = 不调 LLM)。
+    // `#[cfg(feature = "llm")]` 门控:无 llm feature 时不持有 LlmClient,
+    // route_text_with_dag 直接走关键词 + Planner 回退(spec §6)。
+    // 用 `Mutex<Option<Arc<LlmClient>>>` 而非 `Arc<Mutex<...>>`:kernel 是唯一 owner,
+    // 不需要 Arc 共享;LlmClient 内部有 reqwest::Client(不可 Clone),
+    // 用 Arc<LlmClient> 让 setter / getter 不需要 ownership transfer。
+    #[cfg(feature = "llm")]
+    llm_client: std::sync::Mutex<Option<Arc<crate::llm::client::LlmClient>>>,
 }
 
 impl TrustKernel {
@@ -67,6 +75,10 @@ impl TrustKernel {
                 "explorer".to_string(),
                 "calc".to_string(),
             ])),
+            // W8 Plan 4: 默认无 LLM 客户端(None)。Settings 面板在 LLM 启用时
+            // 调 `set_llm_client(Some(Arc::new(LlmClient::new(...))))` 注入。
+            #[cfg(feature = "llm")]
+            llm_client: std::sync::Mutex::new(None),
         };
         // W7 Plan 4: 从 KV 加载 allowed_apps(Settings 持久化值)覆盖默认值。
         // 缺失 / 空串 / 反序列化失败时保持默认 ["notepad", "explorer", "calc"]。
@@ -161,6 +173,41 @@ impl TrustKernel {
     /// (从 `serde_json::from_str` 反序列化得到),传 Vec 避免额外 clone。
     pub fn set_allowed_apps(&self, apps: Vec<String>) {
         *self.allowed_apps.lock().unwrap() = apps;
+    }
+
+    // ===== W8 Plan 4: LLM client + privacy_mode accessors =====
+
+    /// W8 Plan 4: 返回当前 LLM 客户端的 Arc 克隆(若有)。
+    /// `route_text_with_dag` 用此方法判断是否调 LLM 拆解 DAG。
+    /// 返回 `Option<Arc<LlmClient>>` 而非 `Option<&LlmClient>`:内部用
+    /// `Mutex<Option<Arc<LlmClient>>>` 存储,返回引用需要持有 guard,API 不便;
+    /// 克隆 Arc(参考计数 +1)开销极低,调用方拿到 Arc 后可自由持有。
+    #[cfg(feature = "llm")]
+    pub fn llm_client(&self) -> Option<Arc<crate::llm::client::LlmClient>> {
+        let guard = self.llm_client.lock().unwrap();
+        guard.clone()
+    }
+
+    /// W8 Plan 4: 注入或清除 LLM 客户端。
+    /// Settings 面板 `update_settings_command` 在 LLM 启用且 api_key 非空时
+    /// 调 `set_llm_client(Some(Arc::new(LlmClient::new(...))))`;
+    /// privacy_mode 切换为 true 或 LLM 禁用时调 `set_llm_client(None)`。
+    #[cfg(feature = "llm")]
+    pub fn set_llm_client(&self, client: Option<Arc<crate::llm::client::LlmClient>>) {
+        let mut guard = self.llm_client.lock().unwrap();
+        *guard = client;
+    }
+
+    /// W8 Plan 4: 读取 privacy_mode(spec §6 安全约束)。
+    /// 从 `app_config.privacy.mode` 读取,value="true" → true,其他 → false。
+    /// 读取失败 / key 缺失 / value 非法 → 默认 false(保守策略)。
+    /// `route_text_with_dag` 在 privacy_mode=true 时禁止调 LLM 拆解。
+    pub fn privacy_mode(&self) -> bool {
+        let conn = self.conn();
+        match self.config_repo().get(&conn, "privacy.mode") {
+            Ok(Some(v)) => v.trim().eq_ignore_ascii_case("true"),
+            _ => false,
+        }
     }
 
     /// Access the Compensation repository.
@@ -715,5 +762,97 @@ mod tests {
                 ]
             );
         }
+    }
+
+    // ===== W8 Plan 4 Task 2: llm_client + privacy_mode accessors =====
+
+    #[cfg(feature = "llm")]
+    #[test]
+    fn llm_client_default_is_none() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        assert!(kernel.llm_client().is_none(), "default llm_client must be None");
+    }
+
+    #[cfg(feature = "llm")]
+    #[test]
+    fn llm_client_setter_round_trip() {
+        use crate::llm::client::LlmClient;
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let llm = Arc::new(LlmClient::new(
+            "https://api.deepseek.com/v1",
+            "sk-test",
+            "deepseek-chat",
+        ));
+        kernel.set_llm_client(Some(llm.clone()));
+        let got = kernel.llm_client();
+        assert!(got.is_some());
+        assert!(got.as_ref().unwrap().is_enabled());
+        assert_eq!(got.as_ref().unwrap().base_url(), "https://api.deepseek.com/v1");
+    }
+
+    #[cfg(feature = "llm")]
+    #[test]
+    fn llm_client_setter_clears() {
+        use crate::llm::client::LlmClient;
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let llm = Arc::new(LlmClient::new("https://x", "sk", "m"));
+        kernel.set_llm_client(Some(llm));
+        assert!(kernel.llm_client().is_some());
+        kernel.set_llm_client(None);
+        assert!(kernel.llm_client().is_none());
+    }
+
+    #[test]
+    fn privacy_mode_default_is_false() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        assert!(!kernel.privacy_mode(), "default privacy_mode must be false");
+    }
+
+    #[test]
+    fn privacy_mode_reads_true_from_kv() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8");
+        {
+            let kernel = TrustKernel::open_file(path).unwrap();
+            let conn = kernel.conn();
+            kernel
+                .config_repo()
+                .set(&conn, "privacy.mode", "true")
+                .unwrap();
+        }
+        let kernel = TrustKernel::open_file(path).unwrap();
+        assert!(kernel.privacy_mode(), "privacy_mode=true must be read from KV");
+    }
+
+    #[test]
+    fn privacy_mode_reads_false_from_kv() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8");
+        {
+            let kernel = TrustKernel::open_file(path).unwrap();
+            let conn = kernel.conn();
+            kernel
+                .config_repo()
+                .set(&conn, "privacy.mode", "false")
+                .unwrap();
+        }
+        let kernel = TrustKernel::open_file(path).unwrap();
+        assert!(!kernel.privacy_mode());
+    }
+
+    #[test]
+    fn privacy_mode_treats_invalid_as_false() {
+        let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
+        let path = tmp.path().to_str().expect("tempfile path is utf-8");
+        {
+            let kernel = TrustKernel::open_file(path).unwrap();
+            let conn = kernel.conn();
+            kernel
+                .config_repo()
+                .set(&conn, "privacy.mode", "not-a-bool")
+                .unwrap();
+        }
+        let kernel = TrustKernel::open_file(path).unwrap();
+        assert!(!kernel.privacy_mode(), "invalid privacy.mode value must default to false");
     }
 }

@@ -200,27 +200,31 @@ mod tests {
 
     #[test]
     fn settings_dto_tts_roundtrip() {
-        let mut dto = SettingsDto::default();
-        dto.tts_enabled = false;
-        dto.tts_model_path = "custom-tts-model".to_string();
+        let dto = SettingsDto {
+            tts_enabled: false,
+            tts_model_path: "custom-tts-model".to_string(),
+            ..Default::default()
+        };
         let kv = flatten_to_kv(&dto);
         let parsed = merge_from_kv(&kv).unwrap();
-        assert_eq!(parsed.tts_enabled, false);
+        assert!(!parsed.tts_enabled);
         assert_eq!(parsed.tts_model_path, "custom-tts-model");
     }
 
     #[test]
     fn llm_settings_roundtrip() {
-        let mut dto = SettingsDto::default();
-        dto.llm_enabled = true;
-        dto.llm_api_key = "sk-test".to_string();
-        dto.llm_base_url = "https://api.deepseek.com/v1".to_string();
-        dto.llm_model = "deepseek-chat".to_string();
-        dto.llm_provider_url = "https://platform.deepseek.com/api_keys".to_string();
+        let dto = SettingsDto {
+            llm_enabled: true,
+            llm_api_key: "sk-test".to_string(),
+            llm_base_url: "https://api.deepseek.com/v1".to_string(),
+            llm_model: "deepseek-chat".to_string(),
+            llm_provider_url: "https://platform.deepseek.com/api_keys".to_string(),
+            ..Default::default()
+        };
 
         let kv = flatten_to_kv(&dto);
         let restored = merge_from_kv(&kv).unwrap();
-        assert_eq!(restored.llm_enabled, true);
+        assert!(restored.llm_enabled);
         assert_eq!(restored.llm_api_key, "sk-test");
         assert_eq!(restored.llm_base_url, "https://api.deepseek.com/v1");
         assert_eq!(restored.llm_model, "deepseek-chat");
@@ -241,7 +245,7 @@ mod tests {
 
     #[test]
     fn uia_allowed_apps_roundtrip() {
-        let mut dto = SettingsDto::default();
+        let dto = SettingsDto::default();
         assert_eq!(
             dto.uia_allowed_apps,
             vec![
@@ -251,7 +255,10 @@ mod tests {
             ]
         );
 
-        dto.uia_allowed_apps = vec!["notepad".to_string(), "code".to_string()];
+        let dto = SettingsDto {
+            uia_allowed_apps: vec!["notepad".to_string(), "code".to_string()],
+            ..Default::default()
+        };
         let kv = flatten_to_kv(&dto);
         let restored = merge_from_kv(&kv).unwrap();
         assert_eq!(
@@ -268,8 +275,10 @@ mod tests {
 
     #[test]
     fn uia_allowed_apps_empty_serialization() {
-        let mut dto = SettingsDto::default();
-        dto.uia_allowed_apps = vec![];
+        let dto = SettingsDto {
+            uia_allowed_apps: vec![],
+            ..Default::default()
+        };
         let kv = flatten_to_kv(&dto);
         let restored = merge_from_kv(&kv).unwrap();
         assert!(restored.uia_allowed_apps.is_empty());
@@ -302,8 +311,10 @@ mod tests {
         }
 
         // 调 update_settings 写入自定义白名单(仅 KV persist,不动 runtime)。
-        let mut dto = SettingsDto::default();
-        dto.uia_allowed_apps = vec!["code".to_string(), "terminal".to_string()];
+        let dto = SettingsDto {
+            uia_allowed_apps: vec!["code".to_string(), "terminal".to_string()],
+            ..Default::default()
+        };
         update_settings(&state, &dto).expect("update_settings");
 
         // 镜像 update_settings_command 函数体:显式调 set_allowed_apps
@@ -340,8 +351,10 @@ mod tests {
         // Phase 1: 通过 AppState::new_file 写入自定义白名单(镜像 command body)。
         {
             let state = crate::state::AppState::new_file(&path).expect("AppState::new_file");
-            let mut dto = SettingsDto::default();
-            dto.uia_allowed_apps = vec!["vim".to_string(), "emacs".to_string()];
+            let dto = SettingsDto {
+                uia_allowed_apps: vec!["vim".to_string(), "emacs".to_string()],
+                ..Default::default()
+            };
             update_settings(&state, &dto).expect("update_settings");
             // 镜像 update_settings_command 函数体:显式刷新 runtime(B1 fix)。
             state.kernel.set_allowed_apps(dto.uia_allowed_apps.clone());
