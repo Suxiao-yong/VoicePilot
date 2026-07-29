@@ -26,8 +26,6 @@ use std::sync::Arc;
 
 use crate::approval::approver::Approver;
 use crate::approval::approver::DagApprovalOutcome;
-#[allow(unused_imports)] // Task 2 完整实现 Modify 分支后删除此行 use
-use crate::approval::types::ApprovalDecision;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::dag_repo::DagRepo;
@@ -117,9 +115,12 @@ impl DagExecutor {
         )?;
 
         // Step 1: 拓扑排序(Kahn 算法)— 检测 edges 中的隐式环
-        let order = topological_sort(&plan.nodes, &plan.edges)?;
+        // W9 修复(P0-2):保留前置 fail-fast 环检测语义,不消费 order
+        // (execute_nodes 内部对 effective_plan 重新调 topological_sort 拿 order,
+        // 因 modified_plan 节点可能变化)。
+        topological_sort(&plan.nodes, &plan.edges)?;
 
-        // Step 2: 全局审批 — DAG 骨架 Allow/Deny/Modify(决策 #2,W9 Plan 4)
+        // Step 2: 全局审批 — DAG 骨架 Allow/Deny/Modify(决策 #2 + W9 Plan 4 Modify 分支)
         let outcome = self.approver.approve_dag_skeleton(plan)?;
         // 审计 — dag_skeleton_approved(无论 Allow/Deny/Modify 都记录)
         self.kernel.audit_append_external(
@@ -129,26 +130,159 @@ impl DagExecutor {
             serde_json::json!({
                 "plan_id": plan.plan_id,
                 "decision": outcome.as_str(),
+                "phase": "initial",
             }),
         )?;
-        if matches!(outcome, DagApprovalOutcome::Deny) {
-            // Deny → 0 节点执行 + DagStatus=Cancelled
-            self.persist_dag_status(plan, &DagStatus::Cancelled)?;
-            // 审计 — dag_completed(Cancelled)
-            self.kernel.audit_append_external(
-                &root_task_id,
-                None,
-                "dag_completed",
-                serde_json::json!({
-                    "plan_id": plan.plan_id,
-                    "final_status": "cancelled",
-                    "succeeded_count": 0,
-                }),
-            )?;
-            return Ok(DagResult::cancelled());
-        }
 
-        // Step 3: 按拓扑序执行简单节点(循环节点 Plan 3 实现,本 plan skip)
+        let effective_plan: DagPlan = match outcome {
+            DagApprovalOutcome::Allow => plan.clone(),
+            DagApprovalOutcome::Deny => {
+                // Deny → 0 节点执行 + DagStatus=Cancelled
+                self.persist_dag_status(plan, &DagStatus::Cancelled)?;
+                // 审计 — dag_completed(Cancelled)
+                self.kernel.audit_append_external(
+                    &root_task_id,
+                    None,
+                    "dag_completed",
+                    serde_json::json!({
+                        "plan_id": plan.plan_id,
+                        "final_status": "cancelled",
+                        "succeeded_count": 0,
+                    }),
+                )?;
+                return Ok(DagResult::cancelled());
+            }
+            DagApprovalOutcome::Modify { modified_plan } => {
+                // W9 Plan 4:审计 dag_skeleton_modified + 重新校验 + run_modified(第二次审批)
+                let modified_node_count = modified_plan.nodes.len();
+                let added_count = modified_plan
+                    .nodes
+                    .iter()
+                    .filter(|n| !plan.nodes.iter().any(|o| o.node_id == n.node_id))
+                    .count();
+                let removed_count = plan
+                    .nodes
+                    .iter()
+                    .filter(|o| !modified_plan.nodes.iter().any(|n| n.node_id == o.node_id))
+                    .count();
+                self.kernel.audit_append_external(
+                    &root_task_id,
+                    None,
+                    "dag_skeleton_modified",
+                    serde_json::json!({
+                        "plan_id": plan.plan_id,
+                        "modified_node_count": modified_node_count,
+                        "added_count": added_count,
+                        "removed_count": removed_count,
+                    }),
+                )?;
+
+                // 重新校验 modified_plan(SlotTemplateEngine::validate_dag)
+                if let Err(e) = SlotTemplateEngine::validate_dag(&modified_plan) {
+                    return Err(KernelError::Skill(format!("modified_plan validate_dag failed: {}", e)));
+                }
+
+                // risk_ceiling 提权检查(spec §6.3 第三条)
+                Self::check_risk_ceiling_no_escalation(plan, &modified_plan)?;
+
+                // W9 修复(P0-2):对 modified_plan 做环检测(前置 fail-fast,避免 execute_nodes 内才报错)
+                topological_sort(&modified_plan.nodes, &modified_plan.edges)?;
+
+                // 第二次审批(只允许 Allow / Deny)
+                return self.run_modified(&modified_plan, &root_task_id);
+            }
+        };
+
+        // Step 3-4:节点执行(抽为 execute_nodes,W9 Plan 4 重构)
+        self.execute_nodes(&effective_plan, &root_task_id)
+    }
+
+    /// W9 Plan 4:第二次审批 — 只允许 Allow / Deny,Modify 返回 `DagModifyLimitExceeded`。
+    ///
+    /// spec §6.3 第二条:Modify 只允许一次,防止无限递归。
+    /// W9 修复(P0-3):modified_plan 用新 plan_id,单独走完整审计链
+    /// (dag_plan_created + persist_dag_status(Pending) + dag_skeleton_approved + ...)。
+    fn run_modified(&self, modified_plan: &DagPlan, root_task_id: &str) -> Result<DagResult> {
+        // W9 修复(P0-3):modified_plan 用新 plan_id,单独走完整审计链
+        let modified_plan_with_id = DagPlan {
+            plan_id: format!("{}_modified", modified_plan.plan_id),
+            ..modified_plan.clone()
+        };
+        // 持久化 modified_plan 到 dag_plans 表(必须先 INSERT,否则后续 create_node 会触发 FK 违规)
+        {
+            let conn = self.kernel.conn();
+            self.dag_repo.create_plan(
+                &conn,
+                &modified_plan_with_id,
+                &DagStatus::Pending,
+                Some(root_task_id),
+            )?;
+        }
+        self.kernel.audit_append_external(
+            root_task_id,
+            None,
+            "dag_plan_created",
+            serde_json::json!({
+                "plan_id": modified_plan_with_id.plan_id,
+                "source": "modify",
+                "original_plan_id": modified_plan.plan_id,
+            }),
+        )?;
+
+        let outcome = self.approver.approve_dag_skeleton(&modified_plan_with_id)?;
+        self.kernel.audit_append_external(
+            root_task_id,
+            None,
+            "dag_skeleton_approved",
+            serde_json::json!({
+                "plan_id": modified_plan_with_id.plan_id,
+                "decision": outcome.as_str(),
+                "phase": "after_modify",
+            }),
+        )?;
+
+        match outcome {
+            DagApprovalOutcome::Allow => {
+                // 第二次 Allow → 用 modified_plan_with_id 走完整执行路径
+                self.execute_nodes(&modified_plan_with_id, root_task_id)
+            }
+            DagApprovalOutcome::Deny => {
+                self.persist_dag_status(&modified_plan_with_id, &DagStatus::Cancelled)?;
+                self.kernel.audit_append_external(
+                    root_task_id,
+                    None,
+                    "dag_completed",
+                    serde_json::json!({
+                        "plan_id": modified_plan_with_id.plan_id,
+                        "final_status": "cancelled",
+                        "succeeded_count": 0,
+                    }),
+                )?;
+                Ok(DagResult::cancelled())
+            }
+            DagApprovalOutcome::Modify { .. } => {
+                // 第二次 Modify → 拒绝(spec §6.3 第二条)
+                self.kernel.audit_append_external(
+                    root_task_id,
+                    None,
+                    "dag_modify_limit_exceeded",
+                    serde_json::json!({
+                        "plan_id": modified_plan_with_id.plan_id,
+                    }),
+                )?;
+                Err(KernelError::DagModifyLimitExceeded {
+                    plan_id: modified_plan_with_id.plan_id,
+                })
+            }
+        }
+    }
+
+    /// W9 Plan 4:节点执行循环(原 run 方法 Step 3-4 抽出,供 run_modified 复用)。
+    ///
+    /// 输入:`plan`(effective_plan,可能是原 plan 或 modified_plan)+ `root_task_id`
+    /// 输出:DagResult(Succeeded / Failed / PartiallySucceeded)
+    fn execute_nodes(&self, plan: &DagPlan, root_task_id: &str) -> Result<DagResult> {
+        let order = topological_sort(&plan.nodes, &plan.edges)?;
         let mut node_outputs: HashMap<String, serde_json::Value> = HashMap::new();
         let mut node_results: HashMap<String, DagNodeStatus> = HashMap::new();
         let mut prev_node_id: Option<String> = None;
@@ -164,7 +298,7 @@ impl DagExecutor {
 
             // 审计 — dag_node_started
             self.kernel.audit_append_external(
-                &root_task_id,
+                root_task_id,
                 None,
                 "dag_node_started",
                 serde_json::json!({
@@ -177,7 +311,7 @@ impl DagExecutor {
             // 节点执行 — spec §2.3:
             //   - 循环节点 → run_loop_node(Plan 3 Task 1;占位实现返回 Succeeded 空数组)
             //   - 简单节点 → run_simple_node(Plan 2)
-            // 两者都返回 Ok(DagNodeStatus);失败语义由 run() 统一处理。
+            // 两者都返回 Ok(DagNodeStatus);失败语义由 execute_nodes 统一处理。
             let status = if let Some(loop_spec) = plan.loop_specs.get(node_id) {
                 self.run_loop_node(node_id, plan, loop_spec, &node_outputs, prev_node_id.as_deref())?
             } else {
@@ -186,7 +320,7 @@ impl DagExecutor {
                     plan,
                     &node_outputs,
                     prev_node_id.as_deref(),
-                    &root_task_id,
+                    root_task_id,
                 )?
             };
 
@@ -196,7 +330,7 @@ impl DagExecutor {
                 prev_node_id = Some(node_id.clone());
                 // 审计 — dag_node_succeeded
                 self.kernel.audit_append_external(
-                    &root_task_id,
+                    root_task_id,
                     None,
                     "dag_node_succeeded",
                     serde_json::json!({
@@ -213,7 +347,7 @@ impl DagExecutor {
                     _ => String::new(),
                 };
                 self.kernel.audit_append_external(
-                    &root_task_id,
+                    root_task_id,
                     None,
                     "dag_node_failed",
                     serde_json::json!({
@@ -265,7 +399,7 @@ impl DagExecutor {
                     })
                     .count();
                 self.kernel.audit_append_external(
-                    &root_task_id,
+                    root_task_id,
                     None,
                     "dag_completed",
                     serde_json::json!({
@@ -288,7 +422,7 @@ impl DagExecutor {
         // 审计 — dag_completed(Succeeded)
         let succeeded_count = node_results.values().filter(|s| s.is_succeeded()).count();
         self.kernel.audit_append_external(
-            &root_task_id,
+            root_task_id,
             None,
             "dag_completed",
             serde_json::json!({
@@ -298,6 +432,46 @@ impl DagExecutor {
             }),
         )?;
         Ok(DagResult::succeeded(node_results))
+    }
+
+    /// W9 Plan 4:检查 modified_plan 的 risk_ceiling 没有超过原 plan 的 max risk。
+    ///
+    /// spec §6.3 第三条:用户不能通过 Modify 提权。
+    /// 规则:
+    ///   - 既有节点:modified.risk_ceiling ≤ original.risk_ceiling(同 node_id)
+    ///   - 新增节点:modified.risk_ceiling ≤ max(original.nodes.risk_ceiling)
+    ///
+    /// `ELevel` 实现 `Ord`(`policy/types.rs`),直接比较。
+    fn check_risk_ceiling_no_escalation(original: &DagPlan, modified: &DagPlan) -> Result<()> {
+        use crate::policy::types::ELevel;
+        let original_max: ELevel = original
+            .nodes
+            .iter()
+            .map(|n| n.risk_ceiling)
+            .max()
+            .unwrap_or(ELevel::E0);
+
+        for modified_node in &modified.nodes {
+            let ceiling = modified_node.risk_ceiling;
+            if let Some(original_node) = original.nodes.iter().find(|n| n.node_id == modified_node.node_id) {
+                // 既有节点:不能超过原 ceiling
+                if ceiling > original_node.risk_ceiling {
+                    return Err(KernelError::Skill(format!(
+                        "risk ceiling escalated for node {}: {:?} > {:?}",
+                        modified_node.node_id, ceiling, original_node.risk_ceiling
+                    )));
+                }
+            } else {
+                // 新增节点:不能超过原 plan max ceiling
+                if ceiling > original_max {
+                    return Err(KernelError::Skill(format!(
+                        "risk ceiling escalated for new node {}: {:?} > original max {:?}",
+                        modified_node.node_id, ceiling, original_max
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// 简单节点执行(spec §2.3)。

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Operation risk level — V1.1 §4.1.
 /// E0: pure read; E1: local reversible; E2: local important; E3: irreversible/egress.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ELevel {
     E0,

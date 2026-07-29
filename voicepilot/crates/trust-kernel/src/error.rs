@@ -62,6 +62,9 @@ pub enum KernelError {
         taints: Vec<String>,
         sink: String,
     },
+    /// W9 Plan 4:DAG Modify 超过单次上限(第二次 Modify 被拒绝,防无限递归)。
+    #[error("dag modify limit exceeded: plan_id={plan_id}")]
+    DagModifyLimitExceeded { plan_id: String },
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;
