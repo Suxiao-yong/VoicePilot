@@ -164,3 +164,104 @@ fn modify_with_escalated_risk_ceiling_rejected() {
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("risk ceiling escalated"), "got: {}", err_msg);
 }
+
+#[test]
+fn second_modify_returns_dag_modify_limit_exceeded() {
+    let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
+    let dag_repo = Arc::new(DagRepo::new());
+
+    // 沿用 Task 2 模式:task.explain + SlotKind::Number + E0
+    // (第二次 Modify 在 dispatcher 之前 fail-fast,skill_id 不影响测试)
+    let original_node = literal_text_node("n1", "task.explain", "5");
+    let original_plan = one_node_plan("w9p4-double-modify", original_node);
+
+    let modified_plan_v1 = original_plan.clone();
+    let modified_plan_v2 = original_plan.clone();
+
+    // 第一次 Modify → 第二次仍 Modify → 应返回 DagModifyLimitExceeded
+    let approver = Arc::new(ScriptedApprover::new(vec![
+        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan_v1) },
+        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan_v2) },
+    ]));
+
+    let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
+    let result = executor.run(&original_plan);
+
+    assert!(result.is_err(), "expected Err for second Modify");
+    match result.unwrap_err() {
+        trust_kernel::error::KernelError::DagModifyLimitExceeded { plan_id } => {
+            // run_modified 用 format!("{}_modified", plan_id) 生成新 plan_id
+            assert_eq!(plan_id, "w9p4-double-modify_modified");
+        }
+        other => panic!("expected DagModifyLimitExceeded, got {:?}", other),
+    }
+
+    // 验证审计:dag_modify_limit_exceeded 事件存在
+    let conn = kernel.conn();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM audit_logs WHERE event_type = 'dag_modify_limit_exceeded'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "dag_modify_limit_exceeded audit event must be emitted");
+}
+
+#[test]
+fn modify_emits_complete_audit_events() {
+    let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
+    let dag_repo = Arc::new(DagRepo::new());
+
+    // 沿用 Task 2 模式:task.explain + SlotKind::Number + E0(确保 dispatch 成功,
+    // 完整审计链含 dag_node_succeeded)
+    let original_node = literal_text_node("n1", "task.explain", "5");
+    let original_plan = one_node_plan("w9p4-audit-chain", original_node);
+
+    let modified_node = literal_text_node("n1", "task.explain", "7");
+    let mut modified_plan = original_plan.clone();
+    modified_plan.nodes = vec![modified_node];
+
+    let approver = Arc::new(ScriptedApprover::new(vec![
+        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
+        DagApprovalOutcome::Allow,
+    ]));
+
+    let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
+    let _ = executor.run(&original_plan).unwrap();
+
+    // 验证审计链(顺序)— audit_logs 表用 timestamp 列(非 created_at)
+    let conn = kernel.conn();
+    let mut stmt = conn
+        .prepare("SELECT event_type FROM audit_logs ORDER BY timestamp ASC")
+        .unwrap();
+    let event_types: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+
+    // 期望序列:dag_plan_created → dag_skeleton_approved(decision=modify) →
+    //          dag_skeleton_modified → dag_plan_created(modified_plan_with_id) →
+    //          dag_skeleton_approved(decision=allow, phase=after_modify) →
+    //          dag_node_started → dag_node_succeeded → dag_completed
+    assert!(event_types.iter().any(|e| e == "dag_plan_created"), "missing dag_plan_created");
+    assert!(event_types.iter().any(|e| e == "dag_skeleton_modified"), "missing dag_skeleton_modified");
+    assert!(event_types.iter().any(|e| e == "dag_skeleton_approved"), "missing dag_skeleton_approved");
+
+    // 验证 dag_skeleton_modified details 不含 input_template / nodes 内容(隐私约束)
+    let mut stmt2 = conn
+        .prepare("SELECT details FROM audit_logs WHERE event_type = 'dag_skeleton_modified'")
+        .unwrap();
+    let details_str: String = stmt2
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .next()
+        .unwrap();
+    // W9 修复(P1-9):解析 JSON 后检查字段,避免字符串 contains 误判
+    let details: serde_json::Value = serde_json::from_str(&details_str).unwrap();
+    assert!(details.get("input_template").is_none(), "details must not contain input_template field, got: {}", details_str);
+    assert!(details.get("nodes").is_none(), "details must not contain nodes field (may contain input_template in nodes), got: {}", details_str);
+    assert!(details.get("modified_node_count").is_some(), "details must contain modified_node_count, got: {}", details_str);
+}
