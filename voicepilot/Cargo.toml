@@ -51,3 +51,10 @@ regex = "1"
 # W7: LLM + 用户自定义 Skill 解析(UIA 依赖在 Plan 4 添加)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde_yaml = "0.9"
+# W9 Plan 1: Stronghold 加密基础(spec §2.1 feature flag + §6.1 密钥管理)
+# - tauri-plugin-stronghold: 封装 IOTA Stronghold(XChaCha20Poly1305 + Argon2id + SaltClientHash)
+# - iota_stronghold: procedures API(AeadEncrypt/AeadDecrypt/WriteVault),tauri-plugin-stronghold 未 re-export
+# - argon2: 密钥派生(user_password -> derived_key,参数 m=64MB t=3 p=4)
+tauri-plugin-stronghold = "2"
+iota_stronghold = "2"
+argon2 = "0.5"

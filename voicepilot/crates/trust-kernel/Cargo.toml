@@ -34,6 +34,17 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true }
 # W7 Plan 3: user_loader.rs 用 regex 校验 skill id。
 regex = { workspace = true }
+# W9 Plan 1: Stronghold 加密辅助库(非 optional,因为 EncryptedPayload 的 Serialize/Deserialize
+# 在 feature 关闭时也需要类型存在 —— 但 StrongholdVault 本身用 #[cfg(feature)] 门控)
+bincode = "1"
+base64 = "0.22"
+# W9 审查修复 P1-1:zeroize 改为 optional,通过 stronghold feature 启用,
+# 确保 derived_key 的 Zeroizing 包装在 feature 关闭时不会被错误引用。
+zeroize = { version = "1", optional = true, features = ["derive"] }
+# W9 Plan 1: Stronghold 加密(optional,通过 stronghold feature 启用)
+tauri-plugin-stronghold = { workspace = true, optional = true }
+iota_stronghold = { workspace = true, optional = true }
+argon2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
@@ -47,6 +58,12 @@ default = ["llm"]
 voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:bzip2", "dep:tar"]
 llm = ["dep:reqwest"]
 uia = ["dep:uiautomation"]
+# W9 Plan 1: Stronghold 加密基础(spec §2.1 feature flag)。
+# 与 voice / tauri / llm feature 正交,可独立编译(spec §10 第 7 条)。
+# 启用方式:cargo check --features stronghold / cargo test --features stronghold
+# W9 审查修复 P1-1:加 dep:zeroize,使 derived_key 的 Zeroizing 包装可用。
+# W9 实现修复:加 dep:iota_stronghold,procedures API(AeadEncrypt/AeadDecrypt/WriteVault)需要直接依赖。
+stronghold = ["dep:tauri-plugin-stronghold", "dep:iota_stronghold", "dep:argon2", "dep:zeroize"]
 
 [target.'cfg(windows)'.dependencies]
 # W7 Plan 4: Windows UIA 自动化(opt-in via `uia` feature, Windows-only)。
