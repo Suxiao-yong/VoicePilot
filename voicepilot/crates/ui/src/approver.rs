@@ -48,15 +48,31 @@ pub struct DagApprovalRequestPayload {
     pub plan_json: serde_json::Value,
 }
 
+/// W9 Plan 4:携带 modified_plan 的 DAG 审批决策 payload。
+///
+/// 通过 oneshot channel 从 `submit_dag_skeleton_approval` 命令投递到
+/// `TauriApprover::approve_dag_skeleton`(阻塞等待中)。
+/// `decision = Modify` 时 `modified_plan` 必须为 `Some`,否则 TauriApprover
+/// 返回 `Err(KernelError::Approval("Modify without modified_plan"))`。
+// W9 修复(P1-14):仅 Serialize(从 UI 后端投递到 TauriApprover,无需 Deserialize)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DagApprovalPayload {
+    pub decision: ApprovalDecision,
+    pub modified_plan: Option<DagPlan>,
+}
+
 #[derive(Clone)]
 pub struct ApprovalRegistry {
     senders: Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>,
+    /// W9 Plan 4:DAG 骨架审批专用 senders(与 `senders` 平行,不破坏既有 `prompt` 语义)。
+    dag_senders: Arc<Mutex<HashMap<String, oneshot::Sender<DagApprovalPayload>>>>,
 }
 
 impl ApprovalRegistry {
     pub fn new() -> Self {
         Self {
             senders: Arc::new(Mutex::new(HashMap::new())),
+            dag_senders: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -80,6 +96,66 @@ impl ApprovalRegistry {
     /// 如果请求已被消费或已过期,返回 None。
     pub fn take_sender(&self, approval_id: &str) -> Option<oneshot::Sender<ApprovalDecision>> {
         self.senders.lock().unwrap().remove(approval_id)
+    }
+
+    /// W9 Plan 4:创建 DAG 骨架审批请求(专用 oneshot channel)。
+    ///
+    /// 与 `create_request` 区别:
+    /// - 用 `dag_xxx` 前缀的 approval_request_id(与 `apr_xxx` 区分)
+    /// - 投递 `DagApprovalPayload`(含 modified_plan)而非 `ApprovalDecision`
+    // W9 修复(P1-15):删除未使用的 plan 参数(原 plan 仅用于日志占位,不影响 channel 语义)
+    pub fn create_dag_request(
+        &self,
+    ) -> (String, oneshot::Receiver<DagApprovalPayload>) {
+        let approval_id = format!("dag_{}", Uuid::new_v4());
+        let (tx, rx) = oneshot::channel::<DagApprovalPayload>();
+        self.dag_senders
+            .lock()
+            .unwrap()
+            .insert(approval_id.clone(), tx);
+        (approval_id, rx)
+    }
+
+    /// W9 Plan 4:取出 DAG 骨架审批的 sender(由 `submit_dag_skeleton_approval` 调用)。
+    pub fn take_dag_sender(&self, approval_id: &str) -> Option<oneshot::Sender<DagApprovalPayload>> {
+        self.dag_senders.lock().unwrap().remove(approval_id)
+    }
+
+    /// W9 Plan 4:阻塞等待 DAG 审批决策,超时或 sender dropped 返回 Deny(默认安全)。
+    // W9 修复(P0-5):用 Handle::try_current() 检测当前是否在 tokio runtime 内,
+    // 避免 #[tokio::test] 上下文触发 "runtime within runtime" panic。
+    pub fn wait_for_dag_decision(
+        &self,
+        rx: oneshot::Receiver<DagApprovalPayload>,
+        timeout: Duration,
+    ) -> DagApprovalPayload {
+        let wait_fn = || async move {
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(payload)) => payload,
+                Ok(Err(_)) => DagApprovalPayload {
+                    decision: ApprovalDecision::Deny,
+                    modified_plan: None,
+                }, // sender dropped
+                Err(_) => DagApprovalPayload {
+                    decision: ApprovalDecision::Deny,
+                    modified_plan: None,
+                }, // timeout
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // 已在 runtime 内(如 #[tokio::test]),用 handle.block_on 避免嵌套 runtime panic
+                handle.block_on(wait_fn())
+            }
+            Err(_) => {
+                // 不在 runtime 内(如 #[test] 同步上下文),新建 current_thread runtime
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .expect("failed to build tokio runtime");
+                rt.block_on(wait_fn())
+            }
+        }
     }
 
     /// 阻塞直到决定到达或超时。
@@ -112,6 +188,8 @@ impl Default for ApprovalRegistry {
 pub struct TauriApprover {
     registry: ApprovalRegistry,
     app: Option<AppHandle>,
+    /// W9 Plan 4:最近一次 create_dag_request 生成的 approval_id(测试协调用)。
+    latest_dag_approval_id: Arc<Mutex<Option<String>>>,
 }
 
 impl TauriApprover {
@@ -120,6 +198,7 @@ impl TauriApprover {
         Self {
             registry,
             app: None,
+            latest_dag_approval_id: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -128,11 +207,21 @@ impl TauriApprover {
         Self {
             registry,
             app: Some(app),
+            latest_dag_approval_id: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn registry(&self) -> &ApprovalRegistry {
         &self.registry
+    }
+
+    /// W9 Plan 4 测试 hook:返回最近一次 create_dag_request 生成的 approval_id。
+    #[cfg(test)]
+    pub fn latest_approval_id(&self) -> Option<String> {
+        self.latest_dag_approval_id
+            .lock()
+            .unwrap()
+            .clone()
     }
 }
 
@@ -153,46 +242,37 @@ impl Approver for TauriApprover {
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 
-    /// W9 Plan 4 Task 1 临时占位:trait 签名已扩展为 `Result<DagApprovalOutcome>`,
-    /// 但完整 Modify payload 回传逻辑在 Task 5 实现。此处返回 `Allow` 占位以保持
-    /// workspace 编译通过 — **Task 5 必须替换为真实 IPC 实现**:
-    ///   - emit `dag-approval-request` 事件 + oneshot channel
-    ///   - 5min timeout → Deny
-    ///   - 接收 `modified_plan: Option<DagPlan>` payload,构造 `DagApprovalOutcome::Modify`
+    /// W9 Plan 4:DAG 骨架审批入口(委托给 inherent `approve_dag_skeleton_outcome`)。
     ///
-    /// 注:inherent method `TauriApprover::approve_dag_skeleton`(W8 Plan 5 实现,
-    /// 返回 `ApprovalDecision`)暂时保留,Task 5 重写为返回 `DagApprovalOutcome`。
-    #[allow(unused_variables)]
+    /// 完整 IPC 实现:emit `dag-approval-request` 事件 + oneshot channel +
+    /// 5min timeout → Deny + 接收 `modified_plan: Option<DagPlan>` payload,
+    /// 构造 `DagApprovalOutcome::Modify`。
     fn approve_dag_skeleton(&self, plan: &DagPlan) -> KernelResult<DagApprovalOutcome> {
-        Ok(DagApprovalOutcome::Allow)
+        TauriApprover::approve_dag_skeleton_outcome(self, plan)
     }
 }
 
 // ===== W8 Plan 5: DAG 骨架审批 =====
 
 impl TauriApprover {
-    /// W8 §2.3 + §2.7:DAG 骨架审批入口。
+    /// W9 Plan 4:DAG 骨架审批入口(实现 `Approver::approve_dag_skeleton` 逻辑)。
     ///
-    /// 由 `DagExecutor::run` 在拓扑排序后、节点执行前调用。
     /// 创建 oneshot channel + approval_request_id,emit `dag-approval-request`
     /// 事件给 webview,阻塞等待决策(5min timeout,默认 Deny)。
+    /// 返回 `DagApprovalOutcome`(含 Modify payload)。
     ///
     /// 与 `prompt` 的区别:
     /// - `prompt` 用于单步 Skill 审批(payload = EffectManifest,事件 `approval-request`)
-    /// - `approve_dag_skeleton` 用于 DAG 骨架审批(payload = DagPlan,事件 `dag-approval-request`)
+    /// - `approve_dag_skeleton_outcome` 用于 DAG 骨架审批(payload = DagPlan,事件 `dag-approval-request`)
     ///
-    /// 一次性语义:`approval_request_id` 用后即焚,`take_sender` 移除 sender,
+    /// 一次性语义:`approval_request_id` 用后即焚,`take_dag_sender` 移除 sender,
     /// 防重放(参考 project_memory.md "Tauri IPC 三安全规则")。
-    pub fn approve_dag_skeleton(&self, plan: &DagPlan) -> ApprovalDecision {
-        // DagPlan 不实现 EffectManifest 转换,用 dummy manifest 占位创建 oneshot channel。
-        // ApprovalRegistry::create_request 的 manifest 参数仅用于日志,不影响 channel 语义。
-        let dummy_manifest = EffectManifest {
-            sources: vec![],
-            destination: format!("dag://{}", plan.plan_id),
-            conflicts: vec![],
-            total_bytes: 0,
-        };
-        let (approval_id, rx) = self.registry.create_request(&dummy_manifest);
+    pub fn approve_dag_skeleton_outcome(&self, plan: &DagPlan) -> KernelResult<DagApprovalOutcome> {
+        use trust_kernel::error::KernelError;
+
+        let (approval_id, rx) = self.registry.create_dag_request();
+        // W9 Plan 4:记录 approval_id 供测试 hook 协调
+        *self.latest_dag_approval_id.lock().unwrap() = Some(approval_id.clone());
 
         if let Some(app) = &self.app {
             let plan_json = serde_json::to_value(plan).unwrap_or(serde_json::json!({}));
@@ -207,21 +287,27 @@ impl TauriApprover {
             let _ = app.emit("dag-approval-request", payload);
         }
 
-        self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
+        let dag_payload = self.registry.wait_for_dag_decision(rx, DEFAULT_APPROVAL_TIMEOUT);
+        match dag_payload.decision {
+            ApprovalDecision::Allow => Ok(DagApprovalOutcome::Allow),
+            ApprovalDecision::Deny => Ok(DagApprovalOutcome::Deny),
+            ApprovalDecision::Modify => {
+                let modified_plan = dag_payload.modified_plan.ok_or_else(|| {
+                    KernelError::Approval("Modify without modified_plan".into())
+                })?;
+                Ok(DagApprovalOutcome::Modify {
+                    modified_plan: Box::new(modified_plan),
+                })
+            }
+        }
     }
 
-    /// 测试用:不 emit 事件,直接返回 approval_request_id + receiver。
-    /// 单元测试调 `take_sender(id).send(decision)` 模拟用户决策。
+    /// W9 Plan 4 测试用:不 emit 事件,直接返回 approval_request_id + receiver。
+    /// 单元测试调 `take_dag_sender(id).send(DagApprovalPayload { decision, modified_plan })` 模拟用户决策。
+    // W9 修复(P1-15):删除未使用的 plan 参数(委托 create_dag_request,后者已删 plan 参数)
     pub fn create_dag_approval_request_for_test(
         &self,
-        plan: &DagPlan,
-    ) -> (String, oneshot::Receiver<ApprovalDecision>) {
-        let dummy_manifest = EffectManifest {
-            sources: vec![],
-            destination: format!("dag://{}", plan.plan_id),
-            conflicts: vec![],
-            total_bytes: 0,
-        };
-        self.registry.create_request(&dummy_manifest)
+    ) -> (String, oneshot::Receiver<DagApprovalPayload>) {
+        self.registry.create_dag_request()
     }
 }

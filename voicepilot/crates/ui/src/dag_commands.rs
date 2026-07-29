@@ -17,6 +17,7 @@ use tauri::State;
 use crate::error::UiResult;
 use crate::state::AppState;
 use trust_kernel::approval::types::ApprovalDecision;
+use trust_kernel::skills::dag_types::DagPlan;
 
 /// W8 §2.7:DAG 骨架审批决策。
 /// 与 `ApprovalDecision` 一致,但单独定义以便未来扩展 Modify payload。
@@ -39,21 +40,29 @@ impl From<DagApprovalDecision> for ApprovalDecision {
     }
 }
 
-/// 提交 DAG 骨架审批决策。
+/// 提交 DAG 骨架审批决策(W9 Plan 4:支持 modified_plan payload)。
 ///
-/// 由 webview `DagApprovalDialog` 在用户点击 Allow/Deny 后调用。
-/// 通过 `ApprovalRegistry::take_sender` 取出 oneshot sender,发送决策。
+/// 由 webview `DagApprovalDialog` 在用户点击 Allow/Deny/Modify 后调用:
+/// - Allow / Deny:`modified_plan = None`
+/// - Modify:`modified_plan = Some(DagPlan)`(用户编辑后的 plan)
+///
+/// 通过 `ApprovalRegistry::take_dag_sender` 取出 oneshot sender,投递 `DagApprovalPayload`。
 /// 返回 true = 投递成功,false = 请求已被消费 / 已过期 / 不存在(一次性语义)。
 pub fn submit_dag_skeleton_approval(
     state: &AppState,
     approval_request_id: &str,
     decision: DagApprovalDecision,
+    modified_plan: Option<DagPlan>,
 ) -> UiResult<bool> {
-    let sender = match state.approval_registry.take_sender(approval_request_id) {
+    let sender = match state.approval_registry.take_dag_sender(approval_request_id) {
         Some(s) => s,
         None => return Ok(false),
     };
-    let _ = sender.send(decision.into());
+    let payload = crate::approver::DagApprovalPayload {
+        decision: decision.into(),
+        modified_plan,
+    };
+    let _ = sender.send(payload);
     Ok(true)
 }
 
@@ -63,8 +72,10 @@ pub async fn approve_dag_skeleton_command(
     state: State<'_, AppState>,
     approval_request_id: String,
     decision: DagApprovalDecision,
+    modified_plan: Option<DagPlan>,
 ) -> Result<bool, String> {
-    submit_dag_skeleton_approval(&state, &approval_request_id, decision).map_err(Into::into)
+    submit_dag_skeleton_approval(&state, &approval_request_id, decision, modified_plan)
+        .map_err(Into::into)
 }
 
 // ===== W8 Plan 5 Task 2: list_dag_history + get_dag_plan =====

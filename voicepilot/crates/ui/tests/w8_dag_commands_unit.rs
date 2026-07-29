@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{
@@ -347,20 +348,18 @@ use voicepilot_ui::dag_commands::{submit_dag_skeleton_approval, DagApprovalDecis
 
 #[test]
 fn full_dag_approval_flow_delivers_allow_decision() {
-    // 完整流程:创建请求 → 提交决策 → 验证 oneshot 收到 Allow
+    // 完整流程:创建 DAG 审批请求 → 提交决策 → 验证 oneshot 收到 Allow
     let state = AppState::new_in_memory().unwrap();
-    use trust_kernel::policy::transaction::EffectManifest;
-    let dummy = EffectManifest {
-        sources: vec![],
-        destination: "dag://flow-test".into(),
-        conflicts: vec![],
-        total_bytes: 0,
-    };
-    let (approval_id, rx) = state.approval_registry.create_request(&dummy);
+    let (approval_id, rx) = state.approval_registry.create_dag_request();
 
     // 模拟用户点击 Allow
-    let delivered =
-        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow).unwrap();
+    let delivered = submit_dag_skeleton_approval(
+        &state,
+        &approval_id,
+        DagApprovalDecision::Allow,
+        None,
+    )
+    .unwrap();
     assert!(delivered, "decision should be delivered");
 
     // 验证 oneshot 收到 Allow
@@ -368,69 +367,66 @@ fn full_dag_approval_flow_delivers_allow_decision() {
         .enable_time()
         .build()
         .unwrap();
-    let decision = rt.block_on(async move {
+    let payload = rt.block_on(async move {
         tokio::time::timeout(std::time::Duration::from_millis(100), rx)
             .await
             .unwrap()
             .unwrap()
     });
-    assert_eq!(
-        decision,
-        trust_kernel::approval::types::ApprovalDecision::Allow
-    );
+    assert_eq!(payload.decision, ApprovalDecision::Allow);
+    assert!(payload.modified_plan.is_none());
 }
 
 #[test]
 fn full_dag_approval_flow_delivers_deny_decision() {
     let state = AppState::new_in_memory().unwrap();
-    use trust_kernel::policy::transaction::EffectManifest;
-    let dummy = EffectManifest {
-        sources: vec![],
-        destination: "dag://deny-test".into(),
-        conflicts: vec![],
-        total_bytes: 0,
-    };
-    let (approval_id, rx) = state.approval_registry.create_request(&dummy);
+    let (approval_id, rx) = state.approval_registry.create_dag_request();
 
-    let delivered =
-        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny).unwrap();
+    let delivered = submit_dag_skeleton_approval(
+        &state,
+        &approval_id,
+        DagApprovalDecision::Deny,
+        None,
+    )
+    .unwrap();
     assert!(delivered, "decision should be delivered");
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
         .unwrap();
-    let decision = rt.block_on(async move {
+    let payload = rt.block_on(async move {
         tokio::time::timeout(std::time::Duration::from_millis(100), rx)
             .await
             .unwrap()
             .unwrap()
     });
-    assert_eq!(
-        decision,
-        trust_kernel::approval::types::ApprovalDecision::Deny
-    );
+    assert_eq!(payload.decision, ApprovalDecision::Deny);
+    assert!(payload.modified_plan.is_none());
 }
 
 #[test]
 fn submit_dag_skeleton_approval_returns_false_for_consumed_id() {
     // 一次性语义:同一 approval_request_id 第二次提交返回 false
     let state = AppState::new_in_memory().unwrap();
-    use trust_kernel::policy::transaction::EffectManifest;
-    let dummy = EffectManifest {
-        sources: vec![],
-        destination: "dag://consumed-test".into(),
-        conflicts: vec![],
-        total_bytes: 0,
-    };
-    let (approval_id, _rx) = state.approval_registry.create_request(&dummy);
+    let (approval_id, _rx) = state.approval_registry.create_dag_request();
 
-    let first =
-        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow).unwrap();
+    let first = submit_dag_skeleton_approval(
+        &state,
+        &approval_id,
+        DagApprovalDecision::Allow,
+        None,
+    )
+    .unwrap();
     assert!(first, "first submission should succeed");
 
-    let second =
-        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny).unwrap();
+    let second = submit_dag_skeleton_approval(
+        &state,
+        &approval_id,
+        DagApprovalDecision::Deny,
+        None,
+    )
+    .unwrap();
     assert!(
         !second,
         "second submission should fail (single-use semantic)"
@@ -440,7 +436,12 @@ fn submit_dag_skeleton_approval_returns_false_for_consumed_id() {
 #[test]
 fn submit_dag_skeleton_approval_returns_false_for_unknown_id() {
     let state = AppState::new_in_memory().unwrap();
-    let result =
-        submit_dag_skeleton_approval(&state, "apr_nonexistent", DagApprovalDecision::Allow).unwrap();
+    let result = submit_dag_skeleton_approval(
+        &state,
+        "apr_nonexistent",
+        DagApprovalDecision::Allow,
+        None,
+    )
+    .unwrap();
     assert!(!result, "unknown approval_id should return false");
 }
