@@ -37,6 +37,17 @@ pub struct TrustKernel {
     // 用 Arc<LlmClient> 让 setter / getter 不需要 ownership transfer。
     #[cfg(feature = "llm")]
     llm_client: std::sync::Mutex<Option<Arc<crate::llm::client::LlmClient>>>,
+    // W9 Plan 1: Stronghold vault(可选,None = 未注入 / feature 未启用)。
+    // 用 `Mutex<Option<Arc<StrongholdVault>>>` 而非 `Arc<Mutex<...>>`:kernel 是唯一 owner,
+    // 不需要 Arc 共享;StrongholdVault 内部已有 Mutex<Option<Stronghold>>,
+    // 外层 Mutex 仅保护 "是否已注入" 状态的替换(set_stronghold_vault)。
+    //
+    // 门控决策:`#[cfg(feature = "stronghold")]` 门控(与 `llm_client` 模式一致)。
+    // vault 不是 DTO(不跨进程边界 / 不序列化),字段形状随 feature 变化可接受;
+    // `set_stronghold_vault` / `stronghold_vault` 方法同样门控;
+    // `stronghold_enabled` / `ensure_stronghold_ready_for_privacy` 不门控(用内部 #[cfg] 分支)。
+    #[cfg(feature = "stronghold")]
+    stronghold_vault: std::sync::Mutex<Option<Arc<crate::crypto::stronghold::StrongholdVault>>>,
 }
 
 impl TrustKernel {
@@ -79,6 +90,10 @@ impl TrustKernel {
             // 调 `set_llm_client(Some(Arc::new(LlmClient::new(...))))` 注入。
             #[cfg(feature = "llm")]
             llm_client: std::sync::Mutex::new(None),
+            // W9 Plan 1: 默认无 Stronghold vault(None)。Settings 面板或启动逻辑
+            // 在用户输入密码后调 `set_stronghold_vault(Some(Arc::new(StrongholdVault::create(...))))` 注入。
+            #[cfg(feature = "stronghold")]
+            stronghold_vault: std::sync::Mutex::new(None),
         };
         // W7 Plan 4: 从 KV 加载 allowed_apps(Settings 持久化值)覆盖默认值。
         // 缺失 / 空串 / 反序列化失败时保持默认 ["notepad", "explorer", "calc"]。
@@ -198,6 +213,84 @@ impl TrustKernel {
         *guard = client;
     }
 
+    // ===== W9 Plan 1: Stronghold vault accessors =====
+
+    /// W9 Plan 1: 注入或清除 Stronghold vault。
+    /// Settings 面板 / 启动逻辑在用户输入密码后调
+    /// `set_stronghold_vault(Some(Arc::new(StrongholdVault::create(password, &conn))))`;
+    /// 降级模式调 `set_stronghold_vault(Some(Arc::new(StrongholdVault::degraded(&conn))))`;
+    /// 退出登录调 `set_stronghold_vault(None)`(内部会先 lock 旧 vault 清零 key material)。
+    #[cfg(feature = "stronghold")]
+    pub fn set_stronghold_vault(
+        &self,
+        vault: Option<Arc<crate::crypto::stronghold::StrongholdVault>>,
+    ) {
+        // 若已有 vault,先 lock()(清零 key material)再替换。单次 lock 获取,避免双锁。
+        let mut guard = self.stronghold_vault.lock().unwrap();
+        if let Some(old) = guard.take() {
+            old.lock();
+        }
+        *guard = vault;
+    }
+
+    /// W9 Plan 1: 返回当前 Stronghold vault 的 Arc 克隆(若有)。
+    /// Plan 2 `create_post_commit_compensation` / `reverse_compensation` 用此方法
+    /// 判断是否调 vault.encrypt() / vault.decrypt()。
+    #[cfg(feature = "stronghold")]
+    pub fn stronghold_vault(&self) -> Option<Arc<crate::crypto::stronghold::StrongholdVault>> {
+        self.stronghold_vault.lock().unwrap().clone()
+    }
+
+    /// W9 Plan 1: Stronghold feature 是否启用 + 配置是否启用。
+    /// - feature 关闭(编译时):返回 false
+    /// - feature 启用 + app_config.stronghold.enabled 缺失 / "true":返回 true
+    /// - feature 启用 + app_config.stronghold.enabled = "false":返回 false(测试用)
+    pub fn stronghold_enabled(&self) -> bool {
+        #[cfg(feature = "stronghold")]
+        {
+            let conn = self.conn();
+            crate::crypto::stronghold::is_stronghold_enabled_in_config(&conn)
+        }
+        #[cfg(not(feature = "stronghold"))]
+        {
+            false
+        }
+    }
+
+    /// W9 Plan 1: privacy_mode 联动校验(spec §2.1 与 privacy_mode 联动)。
+    ///
+    /// 调用时机:启动逻辑 / Settings 切换 privacy_mode=true 时 / route_text_with_dag 入口。
+    ///
+    /// 规则:
+    /// - privacy_mode = false:直接返回 Ok(())(允许 Stronghold 降级模式启动)
+    /// - privacy_mode = true + stronghold_enabled = false:返回 Err(StrongholdRequired)
+    ///   (高隐私模式必须启用 Stronghold,防止 reverse_payload 明文落盘)
+    /// - privacy_mode = true + stronghold_enabled = true + vault 未注入:返回 Err(StrongholdRequired)
+    /// - privacy_mode = true + stronghold_enabled = true + vault 已注入但未解锁:返回 Err(StrongholdRequired)
+    /// - privacy_mode = true + stronghold_enabled = true + vault 已解锁:返回 Ok(())
+    ///
+    /// 注意:此方法不门控 #[cfg(feature = "stronghold")],因为 privacy_mode 在所有
+    /// feature 组合下都存在(W8 Plan 4 实现);feature 关闭时 stronghold_enabled() 恒 false,
+    /// privacy_mode=true 必然返回 Err(防绕过)。
+    pub fn ensure_stronghold_ready_for_privacy(&self) -> Result<()> {
+        if !self.privacy_mode() {
+            return Ok(());
+        }
+        // privacy_mode = true:要求 stronghold_enabled + vault 已注入 + 已解锁
+        if !self.stronghold_enabled() {
+            return Err(KernelError::StrongholdRequired);
+        }
+        #[cfg(feature = "stronghold")]
+        {
+            let vault = self.stronghold_vault().ok_or(KernelError::StrongholdRequired)?;
+            if !vault.is_unlocked() {
+                return Err(KernelError::StrongholdRequired);
+            }
+        }
+        // feature 关闭时 stronghold_enabled() 已返回 false,不会走到这里
+        Ok(())
+    }
+
     /// W8 Plan 4: 读取 privacy_mode(spec §6 安全约束)。
     /// 从 `app_config.privacy.mode` 读取,value="true" → true,其他 → false。
     /// 读取失败 / key 缺失 / value 非法 → 默认 false(保守策略)。
@@ -295,6 +388,37 @@ impl TrustKernel {
         details: serde_json::Value,
     ) -> Result<()> {
         self.audit_append(task_id, step_id, event_type, details)
+    }
+
+    /// W9 Plan 1: 记录 Stronghold 降级模式进入事件(spec §6.4 审计事件表)。
+    ///
+    /// `reason` 仅取 "wrong_password" / "vault_corrupted" 等常量,不含密码 /
+    /// derived_key / salt 等敏感字段(spec §6.1 第 4 条 + §6.4)。
+    ///
+    /// task_id 占位:降级模式无活跃 task,但 `audit_logs.task_id` 是 FK
+    /// REFERENCES `tasks(task_id)`(migrations/001_init.sql:77),字面量
+    /// "unknown-task" 会触发 FK 违约。本方法先创建占位 task 行满足 FK,
+    /// 再用其 task_id 写审计。step_id = None。
+    pub fn stronghold_enter_degraded_mode(&self, reason: &str) -> Result<()> {
+        // FK 约束要求 task_id 必须存在于 tasks 表中。先创建占位 task。
+        // 用 block scope 限制 MutexGuard 生命周期,避免 audit_append 二次加锁死锁。
+        let placeholder_task_id = format!("stronghold-degraded-{}", Uuid::new_v4());
+        {
+            let conn = self.conn();
+            let placeholder = TaskRecord::new(
+                &placeholder_task_id,
+                "stronghold degraded mode placeholder",
+            );
+            self.task_repo.create(&conn, &placeholder)?;
+        }
+        self.audit_append(
+            &placeholder_task_id,
+            None,
+            "stronghold_degraded_mode_entered",
+            serde_json::json!({
+                "reason": reason,
+            }),
+        )
     }
 
     // ===== Compensation accessors (W3b) =====
@@ -524,7 +648,7 @@ impl TrustKernel {
     /// The W3b plan originally proposed "unknown-task" placeholders and
     /// deferred the lookup to W7, but FK enforcement (foreign_keys=ON in
     /// db.rs) requires the lookup now.
-    fn task_id_for_step(&self, step_id: &str) -> Result<Option<String>> {
+    pub fn task_id_for_step(&self, step_id: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let task_id: Option<String> = conn
             .query_row(

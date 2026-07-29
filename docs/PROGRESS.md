@@ -2061,6 +2061,272 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 
 ---
 
+### W9 Plan 1: Stronghold 加密基础 + 密钥管理 ✅
+
+**实现日期:** 2026-07-29
+**状态:** ✅ 完成(8 个 stronghold 单元测试全 PASS + 8 套 feature cargo check 矩阵全 PASS + clippy 0 警告)
+**Feature flag:** `stronghold = ["dep:tauri-plugin-stronghold", "dep:iota_stronghold", "dep:argon2", "dep:rand", "dep:zeroize"]`(与 voice/tauri/llm/uia 正交,可独立编译)
+**测试运行:** `cargo test --features stronghold -p trust-kernel --test w9_stronghold_unit`(8 passed; 0 failed; 124.92s — Argon2id m=64MB t=3 p=4 故意重计算)
+
+**新增文件:**
+- `crates/trust-kernel/src/crypto/mod.rs` — 加密原语模块入口,`#[cfg(feature = "stronghold")] pub mod stronghold;`
+- `crates/trust-kernel/src/crypto/stronghold.rs` — StrongholdVault 核心模块(~550 行):create / unlock / lock / encrypt / decrypt / degraded / enter_degraded_mode
+- `crates/trust-kernel/tests/w9_stronghold_api_smoke.rs` — Stronghold 真实 API 签名 smoke 测试(WriteVault + AeadEncrypt + AeadDecrypt roundtrip + save)
+- `crates/trust-kernel/tests/w9_stronghold_unit.rs` — 8 个单元测试覆盖 spec §2.1 全部 API + §6.1 安全约束 + 降级模式语义
+
+**修改文件:**
+- `voicepilot/Cargo.toml` — workspace 依赖 +4 项(`tauri-plugin-stronghold` / `iota_stronghold` / `argon2` / `rand`)
+- `voicepilot/crates/trust-kernel/Cargo.toml` — 依赖 +5 项(`bincode` / `base64` 非可选 + `tauri-plugin-stronghold` / `iota_stronghold` / `argon2` / `rand` / `zeroize` 可选)+ feature +1 项(`stronghold`)
+- `crates/trust-kernel/src/lib.rs` — `pub mod crypto;`(模块内部门控)
+- `crates/trust-kernel/src/error.rs` — `KernelError` 加 2 个变体:`Stronghold(#[from] StrongholdError)` + `StrongholdRequired`
+- `crates/trust-kernel/src/kernel.rs` — `stronghold_vault` 字段 + 5 个方法:`set_stronghold_vault` / `stronghold_vault` / `stronghold_enabled` / `ensure_stronghold_ready_for_privacy` / `stronghold_enter_degraded_mode`
+
+**核心实现要点:**
+
+1. **真实 API 适配(W9 审查 P1-3 修复):** `tauri-plugin-stronghold` 2.3.1 的 `Stronghold` 只暴露 `new` / `save` / `inner` / `Deref`,无 `encrypt` / `decrypt` 方法。加密通过 `iota_stronghold::procedures::{AeadEncrypt, AeadDecrypt, WriteVault}` 实现,需要 Client + Location + Key 管理
+2. **加密算法偏离:** 实际用 **XChaCha20Poly1305**(非 spec 写的 XSalsa20Poly1305),因为 `iota_stronghold` v2.1.0 的 `AeadCipher` enum 只暴露 `Aes256Gcm` / `XChaCha20Poly1305` 两个变体。两者均为 AEAD,24 字节 nonce + 16 字节 Poly1305 tag,安全级别相同
+3. **Argon2id 参数固定(spec §6.1):** m=64MB t=3 p=4 output_len=32,不可配置(防降级攻击);derived_key 用 `Zeroizing<[u8; 32]>` 包装,Drop 自动清零
+4. **Stronghold key 派生链路:** `user_password → Argon2id(password, salt) → derived_key (32B) → Stronghold::new(vault_path, derived_key)`,内部 KeyProvider 用 NCKey::load 限制 32 字节
+5. **加密流程:** `Stronghold::new` → `create_client(CLIENT_PATH)` → `WriteVault { data: random_key, location }` 写入 vault 内部 key → `AeadEncrypt { cipher: XChaCha20Poly1305, plaintext, nonce, key: location }` 输出 = tag(16B) + ciphertext 拼接
+6. **解密流程:** 拆分 `ciphertext[..16]` 为 tag + `ciphertext[16..]` 为实际密文 → `AeadDecrypt { cipher, ciphertext, tag, nonce, key }` 还原 plaintext
+7. **降级模式语义(spec §2.1):** `degraded()` 构造的 vault `is_unlocked() = false`,`encrypt()` / `decrypt()` 返回 `StrongholdError::NotUnlocked`;Plan 2 据此跳过加密 + 标记 `snapshot_vault_ref = "degraded"`
+8. **privacy_mode 联动(spec §2.1):** `privacy_mode = true` 时,`ensure_stronghold_ready_for_privacy()` 强制要求 `stronghold_enabled = true` + vault 已注入 + 已解锁,否则返回 `KernelError::StrongholdRequired`(防绕过:feature 关闭时 `stronghold_enabled()` 恒 false,privacy_mode=true 必然 Err)
+9. **侧信道防护(spec §6.1 第 4 条):** `StrongholdError::WrongPassword` 的 Display 实现只写 `"wrong password or corrupted vault"`,不区分密码错和文件损坏(攻击者无法区分);密码不在任何日志 / 审计 / 错误消息中出现
+10. **审计事件:** `stronghold_degraded_mode_entered`(reason 字段仅 `"wrong_password"` / `"vault_corrupted"` 常量,不含密码本身),用占位 task 满足 FK 约束
+11. **TrustKernel 非 Clone 适配:** `stronghold_vault: Mutex<Option<Arc<StrongholdVault>>>`(沿用 W8 Plan 4 `set_llm_client` 模式),`set_stronghold_vault` 替换前先 `old.lock()` 清零 key material
+
+**8 个单元测试覆盖(w9_stronghold_unit.rs):**
+1. `vault_create_persists_salt_and_path` — create 后 salt 持久化 + vault 文件创建
+2. `vault_unlock_with_correct_password_succeeds` — create → lock → unlock 成功
+3. `vault_unlock_with_wrong_password_returns_error` — 错误密码返回 WrongPassword
+4. `vault_encrypt_decrypt_roundtrip` — 加密 / 解密 roundtrip 一致
+5. `vault_degraded_mode_is_unlocked_false` — degraded 模式 is_unlocked = false,encrypt 返回 NotUnlocked
+6. `vault_lock_clears_key_material` — lock 后 encrypt 返回 NotUnlocked(key material 已清零)
+7. `privacy_mode_forces_stronghold_unlocked` — privacy_mode 联动 4 个场景(privacy_mode=false → Ok;privacy_mode=true + 未注入 → Err;+ degraded → Err;+ unlocked → Ok)
+8. `vault_corrupted_returns_error` — vault 文件损坏时 unlock 返回 WrongPassword 或 VaultCorrupted(防侧信道)
+
+**验收门禁(全部闭合):**
+
+| 门禁 | 命令 | 期望 | 实际 |
+|---|---|---|---|
+| stronghold feature 编译 | `cargo check --features stronghold -p trust-kernel` | Finished 无错误 | ✅ PASS |
+| default feature 编译 | `cargo check -p trust-kernel` | Finished 无错误 | ✅ PASS |
+| 8 套 feature cargo check 矩阵 | `cargo check --workspace --features <each>` | 全部 Finished | ✅ 8/8 PASS |
+| clippy stronghold | `cargo clippy --workspace --no-default-features -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| clippy 全 feature | `cargo clippy --workspace --features voice,tauri,llm,uia,stronghold -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| Stronghold 单元测试 | `cargo test --features stronghold -p trust-kernel --test w9_stronghold_unit` | 8 passed | ✅ 8 passed (124.92s) |
+| 全量 default 测试 | `cargo test --workspace --jobs 1` | 全部 PASS | ✅ 全部 PASS |
+| 非门控测试数 | `cargo test --workspace --no-default-features -- --list \| Measure-Object -L` | ≥ 286 | ✅ 465 |
+
+**8 套 feature cargo check 矩阵(全部 Finished):**
+- `--no-default-features`(4.81s)
+- `--features llm`(4.02s)
+- `--features tauri`(8.78s)
+- `--features voice,tauri`(10.01s)
+- `--features voice,tauri,llm`(3.19s)
+- `--features voice,tauri,llm,uia`(9.35s)
+- `--features voice,tauri,llm,uia,stronghold`(36.95s)
+- `--features stronghold`(17.44s)
+
+**已知偏离:**
+
+1. **加密算法:** 用 XChaCha20Poly1305 而非 spec §2.1 写的 XSalsa20Poly1305 — `iota_stronghold` v2.1.0 的 `AeadCipher` enum 只暴露 `Aes256Gcm` / `XChaCha20Poly1305`。两者均为 AEAD,24 字节 nonce + 16 字节 Poly1305 tag,安全级别相同。不回改 spec(§10 第 10 条),记录在此
+2. **stronghold feature 默认禁用:** `default = ["llm"]` 不含 stronghold,W9 Plan 7 验收矩阵新增 `--features stronghold` / `--features voice,tauri,llm,uia,stronghold` 两套组合。Plan 2 修改 `create_post_commit_compensation` 时需在 cargo test 命令加 `--features stronghold`
+3. **Argon2id 性能:** m=64MB t=3 p=4 参数固定(spec §6.1 防降级攻击),每次 create/unlock 约 0.5s,8 个单元测试总耗时 124.92s。低端 Windows 设备若 OOM 需延后 W10+ 优化(本 Plan 不降级参数)
+4. **vault 文件路径默认:** `${data_dir}/voicepilot/stronghold.bin`(`dirs::data_dir()`),用户可在 `app_config.stronghold.vault_path` 覆盖。当前未实现文件权限 600(Windows ACL)— 延后到 Plan 7 / W10+
+5. **Plan 1 不修改 CompensationRepo:** `compensations.snapshot_encrypted BLOB` + `snapshot_vault_ref TEXT` 列已存在但 `snapshot_encrypted = None` 永远 — Plan 2 修复,本 Plan 仅提供 vault 能力
+6. **Stronghold 真实 API 与 spec 假设不符:** spec 假设 `Stronghold::encrypt(plaintext, &nonce)` 等高层 API,实际 `tauri-plugin-stronghold` 2.3.1 只暴露 `new` / `save` / `inner` / `Deref`;加密必须用 `iota_stronghold::procedures::{AeadEncrypt, AeadDecrypt, WriteVault}` procedures API(需 Client + Location + Key 管理)。本 Plan 已用真实 API 实现,不回改 spec
+
+**Fitness Functions:**
+- Stronghold 加密基础:8 个单元测试 PASS ✅
+- privacy_mode 联动:测试 7 验证 4 个场景 ✅
+- 降级模式:测试 5 + 测试 6 验证 ✅
+- clippy -D warnings:2 套 feature 组合 0 警告 ✅
+- 8 套 feature cargo check 矩阵:全部 Finished ✅
+- 非门控测试数 465 ≥ 286 阈值 ✅
+
+**下游依赖:**
+- Plan 2(create_post_commit_compensation 注入 Stronghold)依赖本 Plan 完成后启动
+- Plan 3(taint tracking)与本 Plan 正交,可并行
+- Plan 7(集成验收)需在 cargo test 命令加 `--features stronghold`
+
+---
+
+### W9 Plan 2: snapshot_encrypted 真实加密 + 明文 PoC 移除 ✅
+
+**实现日期:** 2026-07-29
+**状态:** ✅ 完成(5 个 smoke 集成测试全 PASS + 7 套 feature cargo check 矩阵全 PASS + 2 套 clippy 0 警告 + 非门控测试数 640 ≥ 286 + 既有测试不回归)
+**Feature flag:** `stronghold,llm` 启用(与 Plan 1 一致,与 voice/tauri/uia 正交)
+**测试运行:** `cargo test --features stronghold,llm --test w9_snapshot_encrypted_smoke`(5 passed; 0 failed; 59.28s)
+
+**新增文件:**
+- `crates/trust-kernel/src/migrations/005_compensations_reverse_payload_columns.sql` — W9 Plan 2 新增 migration,落实 `reverse_payload TEXT DEFAULT ''` + `compensate_fn TEXT DEFAULT ''` 真实列
+- `crates/trust-kernel/tests/w9_snapshot_encrypted_smoke.rs` — 5 个集成测试覆盖 spec §2.2 三分支(加密成功 / 降级模式 / feature 禁用)+ 解密回滚 + 解密失败审计
+- `docs/superpowers/scripts/w9-plan2-plaintext-residue-check.ps1` — 明文残留检测 PowerShell 脚本(ASCII only,避免 PS 编码问题)
+
+**修改文件:**
+- `crates/trust-kernel/src/db.rs` — 加载 migration 005 + 应用层数据迁移 hook `migrate_005_compensations_stash`(把 W3a PoC stash 从 `snapshot_vault_ref` 列精确解析到真实列,清空 stash)
+- `crates/trust-kernel/src/compensation/repo.rs` — `create` / `get` / `list_active` 用真实列,移除 W3a PoC stash 逻辑(`parse_poc_payload` 删除)
+- `crates/trust-kernel/src/skills/common.rs::create_post_commit_compensation` — 注入 Stronghold 三分支加密逻辑(分支 1 加密成功 + 审计;分支 2 降级模式;分支 3 feature 禁用走明文 PoC)
+- `crates/trust-kernel/src/skills/task_compensate.rs` — 新增 `decrypt_compensation_if_needed` 函数,解密 `snapshot_encrypted` 后调 `auto_reverse_move`;解密失败时审计 `stronghold_snapshot_decrypt_failed`(error 字段仅记变体名,不含密钥/密文/密码)
+- `crates/trust-kernel/src/kernel.rs` — `task_id_for_step` 改为 pub(供 `create_post_commit_compensation` 审计事件用)
+
+**核心实现要点:**
+
+1. **schema 偏离修复:** spec §2.2 明文残留检测 SQL `WHERE reverse_payload != ''` 假设 `reverse_payload` 是真实列,但 W3a PoC 把 `{"compensate_fn":...,"reverse_payload":...}` JSON stash 在 `snapshot_vault_ref` 列。Plan 2 Task 3a 加 migration 005 落实真实列,Task 3b 移除 PoC stash
+2. **三分支加密逻辑(spec §2.2):**
+   - 分支 1(stronghold_enabled + vault 解锁):`snapshot_encrypted = Some(bincode(EncryptedPayload))` + `snapshot_vault_ref = Some(UUID v4)` + `reverse_payload = ""` + 审计 `stronghold_snapshot_encrypted`
+   - 分支 2(降级模式:vault 未注入 / 未解锁):`snapshot_encrypted = None` + `snapshot_vault_ref = Some("degraded")` + `reverse_payload = 明文 JSON`
+   - 分支 3(feature 禁用 / 运行时 config stronghold.enabled = "false"):`snapshot_encrypted = None` + `snapshot_vault_ref = None` + `reverse_payload = 明文 JSON`
+3. **解密流程(task_compensate.rs):** `decrypt_compensation_if_needed` 在 `execute_compensate` 调 `auto_reverse_move` 之前执行:取 vault → bincode 反序列化 → AEAD 解密 → UTF-8 字符串 → 替换 `reverse_payload`;解密失败时审计 `stronghold_snapshot_decrypt_failed` + 返回 Err
+4. **审计隐私处理(spec §6.4):** `stronghold_snapshot_encrypted` details = `{compensation_id, vault_ref, plaintext_len}`(不含 plaintext);`stronghold_snapshot_decrypt_failed` details = `{compensation_id, target_step_id, error}`(error 是变体名如 `"NotUnlocked"` / `"DecryptionFailed"` / `"BincodeDecodeFailed: ..."`,不含密钥 / 密文 / 密码)
+5. **明文残留检测门禁(spec §2.2):** `SELECT COUNT(*) FROM compensations WHERE snapshot_encrypted IS NULL AND snapshot_vault_ref IS NULL AND reverse_payload != ''` = 0(stronghold 启用时)。由 `w9_snapshot_encrypted_smoke.rs::stronghold_encrypts_reverse_payload_when_unlocked` 三条断言覆盖:`snapshot_encrypted.is_some()` + `reverse_payload == ""` + `snapshot_vault_ref` 是 UUID v4
+6. **W3a PoC 数据迁移:** `migrate_005_compensations_stash` 应用层 hook 精确解析 stash JSON,把 `reverse_payload`(已被 serde_json::to_string 二次转义)写入真实列,清空 `snapshot_vault_ref`(置 NULL)。幂等:已迁移的行 `snapshot_vault_ref` 不再以 `{` 开头,SELECT WHERE 子句过滤后不会重复命中
+7. **feature 独立性:** `stronghold` feature 不依赖 `voice` / `tauri` / `llm`,`cargo check --features stronghold` 独立编译;`#[cfg(not(feature = "stronghold"))]` fallback 保证 W3a-W8 既有测试不回归
+
+**5 个集成测试覆盖(w9_snapshot_encrypted_smoke.rs):**
+1. `stronghold_encrypts_reverse_payload_when_unlocked` — 加密成功路径:snapshot_encrypted 非空 + reverse_payload 为空 + vault_ref 是 UUID + 审计事件触发 + details 不含 plaintext
+2. `stronghold_degraded_mode_skips_encryption` — 降级模式:snapshot_encrypted = None + snapshot_vault_ref = "degraded" + reverse_payload 含明文
+3. `stronghold_feature_disabled_keeps_plaintext_poc` — feature 运行时禁用(config stronghold.enabled = "false"):snapshot_encrypted = None + snapshot_vault_ref = None + reverse_payload 含明文
+4. `reverse_compensation_decrypts_and_reverses_move` — 解密 + 反向移动成功:加密的 compensation → execute_compensate → 文件从 curr 移回 orig
+5. `reverse_compensation_fails_when_vault_locked` — vault 锁定时解密失败 + 审计:execute_compensate 返回 Err + 审计 `stronghold_snapshot_decrypt_failed` + details 不含 password
+
+**验收门禁(全部闭合):**
+
+| 门禁 | 命令 | 期望 | 实际 |
+|---|---|---|---|
+| 7 套 feature cargo check 矩阵 | `cargo check --workspace --features <each>` | 全部 Finished | ✅ 7/7 PASS |
+| clippy default | `cargo clippy --workspace --no-default-features -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| clippy 全 feature | `cargo clippy --workspace --features voice,tauri,llm,stronghold -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| smoke 集成测试 | `cargo test --features stronghold,llm --test w9_snapshot_encrypted_smoke` | 5 passed | ✅ 5 passed (59.28s) |
+| 非门控测试数 | `cargo test --workspace --no-default-features -- --list \| Measure-Object -L` | ≥ 286 | ✅ 640 |
+| 既有 compensation_repo 测试 | `cargo test --test compensation_repo` | 不回归 | ✅ 4 passed |
+| 既有 compensation_reverse 测试 | `cargo test --test compensation_reverse` | 不回归 | ✅ 4 passed |
+| 既有 skills::common 单元测试 | `cargo test --lib skills::common` | 不回归 | ✅ 29 passed |
+| 既有 skills::task_compensate 测试 | `cargo test --lib skills::task_compensate` | 不回归 | ✅ 4 passed |
+| W9 Plan 1 stronghold 测试 | `cargo test --features stronghold --test w9_stronghold_unit` | 不回归 | ✅ 8 passed (125.93s) |
+| 明文残留检测脚本 | `.\docs\superpowers\scripts\w9-plan2-plaintext-residue-check.ps1` | PASS | ✅ PASS |
+
+**7 套 feature cargo check 矩阵(全部 Finished):**
+- `--no-default-features`(3.79s)
+- `--features llm`(3.69s)
+- `--features tauri`(4.99s)
+- `--features voice,tauri`(5.40s)
+- `--features voice,tauri,llm`(1.88s)
+- `--features voice,tauri,llm,uia`(5.34s)
+- `--features voice,tauri,llm,uia,stronghold`(6.13s)
+
+**已知偏离:**
+
+1. **schema 偏离修正:** spec §2.2 SQL `WHERE reverse_payload != ''` 假设 `reverse_payload` 是真实列,但 W3a PoC stash 在 `snapshot_vault_ref` 列。Plan 2 Task 3a 加 migration 005 落实真实列,Task 3b 移除 PoC stash。此修正已记录,不回改 spec(§10 第 10 条)
+2. **明文残留检测脚本语言:** 脚本用 ASCII only(非中文),避免 PowerShell 5.x 默认 GBK 编码读取 UTF-8 文件时中文乱码导致解析错误。脚本逻辑等价于 plan 中的中文版本
+
+**Fitness Functions:**
+- snapshot_encrypted 真实加密:5 个 smoke 测试 PASS ✅
+- 明文残留检测:COUNT = 0(stronghold 启用)✅
+- 审计事件隐私:details 不含 plaintext / password / 密钥 ✅
+- 既有测试不回归:compensation_repo / reverse / common / task_compensate 全 PASS ✅
+- W9 Plan 1 不回归:8 个 stronghold 单元测试全 PASS ✅
+- clippy -D warnings:2 套 feature 组合 0 警告 ✅
+- 7 套 feature cargo check 矩阵:全部 Finished ✅
+- 非门控测试数 640 ≥ 286 阈值 ✅
+
+**下游依赖:**
+- Plan 3(taint tracking)与本 Plan 正交,可并行
+- Plan 4(DAG Modify)与本 Plan 修改的 `common.rs` / `task_compensate.rs` / `compensation/repo.rs` 无重叠,可并行
+- Plan 7(集成验收)需在 cargo test 命令加 `--features stronghold,llm`
+
+---
+
+### W9 Plan 3: Taint Tracking 污点传播(CRUD + 查表驱动 Gateway)✅
+
+**实现日期:** 2026-07-29
+**状态:** ✅ 完成(11 单元 + 6 集成 = 17 个测试全 PASS + 6 套 trust-kernel feature cargo check 矩阵全 PASS + 2 套 clippy 0 警告 + 非门控测试数 482 ≥ 286 + 全量 default 测试套件不回归)
+**Feature flag:** 无新增(本 Plan 代码无 `#[cfg(feature = ...)]` 门控,`taints` 表在 default feature 下存在)
+**测试运行:** `cargo test -p trust-kernel --test w9_taint_tracking_unit`(11 passed; 0 failed)+ `cargo test -p trust-kernel --test w9_gateway_taint_smoke`(6 passed; 0 failed)
+
+**新增文件:**
+- `crates/trust-kernel/src/policy/taint_repo.rs` — `TaintRepo` CRUD(`upsert` / `find_by_value` / `find_by_hash` / `list_by_provenance` / `list_by_source` / `delete_by_source`)+ `TaintRecord` struct + `compute_value_hash`(canonical JSON + SHA256)+ `merge_taints` + `make_taint_record` + `now_iso8601` 辅助函数
+- `crates/trust-kernel/src/migrations/006_taints_unique_index.sql` — `taints.value_hash` UNIQUE 约束(W9 修复 P1-12),支持 `upsert` 用 `ON CONFLICT(value_hash) DO UPDATE` 幂等写入
+- `crates/trust-kernel/tests/w9_taint_tracking_unit.rs` — 11 个 TaintRepo CRUD 单元测试(upsert / find / list_by_provenance / list_by_source / delete_by_source / 合并去重 / value_hash 稳定性 / source_ref 处理 / 级联精确性 / 空 taints / merge_taints helper / now_iso8601 格式)
+- `crates/trust-kernel/tests/w9_gateway_taint_smoke.rs` — 6 个 Gateway 查表驱动集成测试(web_page → ToolArgument 拦截 / llm_output → LocalFile 拦截 / clean value 全 sink 放行 / multi-taint 拦截 / user_input 放行 / `taint_blocked` 审计事件发射 + details 隐私约束)
+
+**修改文件:**
+- `crates/trust-kernel/src/policy/mod.rs` — 加 `pub mod taint_repo;` 注册新模块
+- `crates/trust-kernel/src/db.rs` — 加载 migration 006(`MIGRATION_006` 常量 + `include_str!`)
+- `crates/trust-kernel/src/error.rs` — 新增 `KernelError::TaintPropagationBlocked { taints: Vec<String>, sink: String }` 变体(W9 修复 P1-16:加 `#[error]` 属性)
+- `crates/trust-kernel/src/gateway.rs` — 删除 `decide` 方法第 79-80 行硬编码 web_page 规则(W9 修复 P0-10/P0-11);新增独立函数 `check_taint_policy(conn, value_hash, egress_dest)`(非 `ActionGateway` 方法,因 gateway 不持有 DB 连接,由调用方传入 `&Connection`)+ `check_taint_policy_and_audit` 封装(持锁查 taint → 释放锁 → 审计 `taint_blocked` 事件,避免 reentrancy deadlock)
+- `crates/trust-kernel/src/skills/dispatcher.rs` — `dispatch_skill_executor` 入口计算 `input_hash` → 查 `TaintRepo::find_by_hash` 取 `input_taints`;出口 `outcome.succeeded && !output.is_null()` 时 upsert 输出 taint(继承 `input_taints` + 加 `executor_output:<skill_id>`)+ 审计 `taint_propagated`(details 仅含 `source_ref` / `input_hash` / `output_hash` / `taints`,不含原始 value,spec §6.2)
+- `crates/trust-kernel/src/llm/client.rs` — 新增 `tag_dag_plan_literals(kernel, task_id, plan)` 函数(W9 修复 P0-12:不改 `decompose_to_dag` / `decompose_to_dag_traced` 签名,避免破坏 12+ 测试 callsite);递归遍历 `SlotTemplate.template` AST,对每个 `TemplateExpr::Literal(s)` 计算 SHA256 + upsert `llm_output` taint + 审计 `taint_propagated`(details 含 `literal_len`,不含原始 literal)
+- `crates/trust-kernel/src/voice/router_bridge.rs` — 在 `decompose_to_dag_traced` 成功且 `validate_dag` 通过后调 `tag_dag_plan_literals`
+- `crates/trust-kernel/src/mcp/server.rs` — `McpServer` struct 加 `server_id: String` 字段(W9 修复 P0-13),`new` / `with_arc` 构造时生成 UUID v4,`with_server_id` 链式方法供生产代码设置有意义标识;`handle_tools_call` 在成功结果返回前计算 SHA256 + upsert `mcp_tool:<server_id>` taint + 审计 `taint_propagated`(仅当 task_id 存在,FK 约束 `audit_logs.task_id`)
+- `crates/cli/src/main.rs` — `mcp-serve` 命令构造 `McpServer` 时调 `.with_server_id("voicepilot-stdio")` 设置生产 server_id
+
+**核心实现要点:**
+
+1. **值级 taint 传播(spec §2.3):** 三处注入点覆盖所有 value 流入路径:
+   - **Skill dispatcher:** 入口查询 input value 关联 taints,出口 upsert output value 继承 input_taints + 加 `executor_output:<skill_id>` 标签
+   - **LLM 拆解:** `tag_dag_plan_literals` 递归遍历 `TemplateExpr` AST(含 `Literal` / `Concat` / `Filter` 变体,W9 修复 P1-11),对每个 literal 值标记 `llm_output` provenance
+   - **MCP tool 调用:** `handle_tools_call` 在成功结果返回前标记 `mcp_tool:<server_id>` provenance
+2. **查表驱动 Gateway(spec §2.3):** 用 `check_taint_policy(conn, value_hash, egress_dest)` 替换 `gateway.rs:79-80` 硬编码 web_page 规则。两条规则:
+   - `web_page` taint → `EgressDest::ToolArgument` 拦截(防 LLM 投毒)
+   - `llm_output` taint → `EgressDest::LocalFile` 拦截(防 LLM 注入恶意路径)
+3. **UNIQUE 约束 + ON CONFLICT 幂等(W9 修复 P1-12):** migration 006 加 `idx_taints_value_hash` UNIQUE 索引,`upsert` 用 `INSERT ... ON CONFLICT(value_hash) DO UPDATE SET taints_json=excluded.taints_json, collected_at=excluded.collected_at, source_ref=excluded.source_ref` 实现并发安全 upsert,合并 taints 列表(去重保序)
+4. **canonical JSON 哈希(W9 修复 P1-19):** `compute_value_hash` 接收 `&serde_json::Value`,内部用 `canonicalize_json`(递归用 `BTreeMap` 排序 JSON 字段)序列化后再 SHA256,避免 `{"a":1,"b":2}` 和 `{"b":2,"a":1}` 产生不同 hash
+5. **审计隐私约束(spec §6.2):**
+   - `taint_propagated` details = `{source_ref, input_hash, output_hash, taints}`(dispatcher)/ `{source_ref, input_hash, output_hash, taints, literal_len}`(LLM)/ `{source_ref, input_hash, output_hash, taints}`(MCP)— 全部不含原始 value
+   - `taint_blocked` details = `{taints, sink, resource_hash}` — 不含 resource 原始值
+6. **reentrancy deadlock 防护:** `check_taint_policy_and_audit` 持锁调 `check_taint_policy(&conn, ...)` → 释放 conn 锁 → 调 `kernel.audit_append_external(...)`(后者重新获取同一锁,见 project_memory.md "Mutex reentrancy deadlock")
+7. **McpServer server_id 设计(W9 修复 P0-13):** 默认 UUID v4(构造时生成,测试代码无需关心);`with_server_id` 链式方法供生产代码设置有意义标识(如 `voicepilot-stdio`)。`McpServer` 是非 `Clone`(持有 `Arc<TrustKernel>`),`server_id` 字段在构造时确定后不可变
+8. **LLM taint 标记独立性:** `tag_dag_plan_literals` 是独立函数而非 `decompose_to_dag` 内联,避免破坏 12+ 既有 `decompose_to_dag` / `decompose_to_dag_traced` callsite(与 W7 `record_llm_decompose_called` 同模式)
+9. **gateway.decide 不调 check_taint_policy(W9 修复 P0-11):** `decide` 方法签名无 `task_id`,无法直接审计;由调用方(`invoke_mcp_tool` / filesystem 工具函数 / dispatcher)在需要时调 `check_taint_policy_and_audit(&kernel, task_id, step_id, value_hash, dest)`
+
+**6 套 trust-kernel feature cargo check 矩阵(全部 Finished):**
+- `cargo check -p trust-kernel`(default = llm,3.79s)
+- `cargo check -p trust-kernel --features llm`(8.13s)
+- `cargo check -p trust-kernel --features voice,llm`(1.35s)
+- `cargo check -p trust-kernel --features stronghold`(1.73s)
+- `cargo check -p trust-kernel --no-default-features`(0.82s)
+- `cargo check -p trust-kernel --features voice,llm,stronghold,uia`(5.64s)
+
+**验收门禁(全部闭合):**
+
+| 门禁 | 命令 | 期望 | 实际 |
+|---|---|---|---|
+| 6 套 feature cargo check 矩阵 | `cargo check -p trust-kernel --features <each>` | 全部 Finished | ✅ 6/6 PASS |
+| clippy default | `cargo clippy -p trust-kernel -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| clippy 全 feature | `cargo clippy -p trust-kernel --features voice,llm,stronghold,uia -- -D warnings` | 0 警告 | ✅ 0 警告 |
+| 单元测试 | `cargo test -p trust-kernel --test w9_taint_tracking_unit` | 11 passed | ✅ 11 passed (0.02s) |
+| 集成测试 | `cargo test -p trust-kernel --test w9_gateway_taint_smoke` | 6 passed | ✅ 6 passed (0.02s) |
+| 非门控测试数 | `cargo test --workspace --no-default-features -- --list \| Measure-Object -L` | ≥ 286 | ✅ 482 |
+| 全量 default 测试套件 | `cargo test --workspace --jobs 1` | 不回归 | ✅ 全部 0 failed |
+| `INSERT INTO taints` grep | `Select-String -Path taint_repo.rs -Pattern "INSERT INTO taints"` | 1 处 | ✅ 1 处 |
+| `check_taint_policy` grep | `Select-String -Path gateway.rs -Pattern "check_taint_policy"` | ≥ 2 处 | ✅ 8 处(定义 + 调用 + 注释) |
+
+**已知偏离:**
+
+1. **`decompose_to_dag` 签名未扩展(W9 修复 P0-12 偏离):** spec 假设 `decompose_to_dag` 接收 `kernel: &TrustKernel` 参数,但实际 `LlmClient` 不持有 kernel 字段且 `decompose_to_dag` 有 12+ 既有 callsite。改为独立函数 `tag_dag_plan_literals(kernel, task_id, plan)` 由 `router_bridge` 在 LLM 调用后主动调,避免破坏既有签名。功能等价(spec §2.3 LLM literal 标 `llm_output` taint 覆盖完整)
+2. **`check_taint_policy_and_audit` helper 新增:** spec 假设 `gateway.decide` 内部调 `check_taint_policy`,但 `decide` 签名无 `task_id` 无法审计。新增 `check_taint_policy_and_audit(kernel, task_id, step_id, value_hash, dest)` 封装查表 + 审计 + reentrancy deadlock 防护,由调用方在需要时主动调
+
+**Fitness Functions:**
+- TaintRepo CRUD:11 个单元测试 PASS ✅
+- 查表驱动 Gateway:6 个集成测试 PASS ✅
+- value 级 taint 传播(dispatcher / LLM / MCP 三处注入):全覆盖 ✅
+- 审计事件隐私:details 不含原始 value / resource ✅
+- canonical JSON 哈希:`{"a":1,"b":2}` 与 `{"b":2,"a":1}` 同 hash ✅
+- UNIQUE 约束 + ON CONFLICT 幂等:并发 upsert 不产生重复行 ✅
+- 既有测试不回归:全量 default `cargo test --workspace --jobs 1` 全部 0 failed ✅
+- clippy -D warnings:2 套 feature 组合 0 警告 ✅
+- 6 套 feature cargo check 矩阵:全部 Finished ✅
+- 非门控测试数 482 ≥ 286 阈值 ✅
+
+**下游依赖:**
+- Plan 4(DAG Modify)的 `dag_executor` 调用 `dispatch_skill_executor` 时自动获得 taint 传播(无需额外代码)
+- Plan 5(Playwright E2E)的 MCP tool 调用自动获得 `mcp_tool:<server_id>` taint 标记(本 Plan 首次引入,W7 Plan 5 没有)
+- Plan 7(集成验收)的 taint 端到端测试可直接调 `check_taint_policy_and_audit` 验证拦截 + 审计
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建

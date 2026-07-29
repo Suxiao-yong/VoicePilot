@@ -54,6 +54,14 @@ pub enum KernelError {
     /// 防止高隐私模式下 reverse_payload 明文落盘(spec §2.1 privacy_mode 联动)。
     #[error("stronghold vault required: privacy_mode is true but vault not unlocked")]
     StrongholdRequired,
+    /// W9 Plan 3: taint 传播被 gateway 拦截(spec §6.2)。
+    /// `taints` 是该 value 关联的污点标签列表,`sink` 是被拦截的 EgressDest。
+    /// 调用方负责审计 `taint_blocked` 事件(details 不含原始 value)。
+    #[error("taint propagation blocked: taints={taints:?} sink={sink}")]
+    TaintPropagationBlocked {
+        taints: Vec<String>,
+        sink: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;
