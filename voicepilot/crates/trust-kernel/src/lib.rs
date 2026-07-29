@@ -20,6 +20,8 @@ pub mod allowed_paths;
 pub mod mcp;
 pub mod skills;
 pub mod llm;
+// W9 Plan 1: 加密原语模块(stronghold 子模块内部 #[cfg(feature = "stronghold")] 门控)
+pub mod crypto;
 
 #[cfg(feature = "voice")]
 pub mod voice;
