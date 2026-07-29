@@ -39,6 +39,9 @@ use crate::skills::common::{
 use crate::skills::manifest::task_compensate_manifest;
 use crate::tools::fs_paths::canonicalize;
 use crate::tools::fs_snapshot::snapshot_file;
+// W9 Plan 2 Task 4: 解密 snapshot_encrypted 需要 EncryptedPayload 类型。
+#[cfg(feature = "stronghold")]
+use crate::crypto::stronghold::EncryptedPayload;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
@@ -98,7 +101,7 @@ pub fn execute_compensate(
     // list_active_compensations returns all 'active' records; we filter
     // by step_id in Rust (compensation repo has no list_for_step method).
     // If multiple records exist for the same step, take the first.
-    let target_comp = kernel
+    let raw_comp = kernel
         .list_active_compensations()?
         .into_iter()
         .find(|c| c.step_id == input.target_step_id)
@@ -108,6 +111,20 @@ pub fn execute_compensate(
                 input.target_step_id
             ))
         })?;
+
+    // W9 Plan 2 Task 4: 若 snapshot_encrypted 非空,先解密还原 reverse_payload 明文,
+    // 供后续 build_reverse_effect_manifest / preconditions_hash / auto_reverse_move 使用。
+    // 解密失败(vault 锁定 / bincode 损坏 / AEAD 校验失败)→ 审计 + 返回 Err。
+    //
+    // stronghold feature 未启用时:raw_comp.snapshot_encrypted 恒为 None,
+    // 走明文 PoC 路径,W3a-W8 既有测试不回归。
+    //
+    // 审计 task_id 用 input.task_id(已在 line 90 create_task 创建,FK 保证),
+    // 不用 task_id_for_step(raw_comp.step_id) 避免原始 task 已删除的边界 case。
+    #[cfg(feature = "stronghold")]
+    let target_comp = decrypt_compensation_if_needed(kernel, raw_comp, &input.task_id, &input.step_id)?;
+    #[cfg(not(feature = "stronghold"))]
+    let target_comp = raw_comp;
 
     // Step 4: build EffectManifest for the approval prompt.
     let effect_manifest = build_reverse_effect_manifest(&target_comp)?;
@@ -174,6 +191,113 @@ pub fn execute_compensate(
         })?;
 
     Ok(input.task_id.clone())
+}
+
+/// W9 Plan 2 Task 4: 若 `raw_comp.snapshot_encrypted` 非空,用 Stronghold vault 解密
+/// 还原 `reverse_payload` 明文,返回新的 CompensationRecord(reverse_payload 已替换)。
+///
+/// 若 `snapshot_encrypted` 为 None,直接返回 raw_comp(降级模式 / feature 未启用 / W3a PoC)。
+///
+/// 解密失败(vault 未注入 / 未解锁 / bincode 损坏 / AEAD 校验失败)时:
+/// 1. 审计 `stronghold_snapshot_decrypt_failed` 事件,details.error 为错误变体名
+///    (不含密钥 / 密文 / 密码,spec §6.4 隐私处理)。
+/// 2. 返回 Err(KernelError::Compensation(...))。
+///
+/// 审计 task_id 用调用方传入的 `audit_task_id`(已在 tasks 表创建,FK 保证),
+/// step_id 用 `audit_step_id`(新 task 的 step,展示"哪个补偿操作触发了失败")。
+#[cfg(feature = "stronghold")]
+fn decrypt_compensation_if_needed(
+    kernel: &TrustKernel,
+    raw_comp: CompensationRecord,
+    audit_task_id: &str,
+    audit_step_id: &str,
+) -> Result<CompensationRecord> {
+    use serde_json::json;
+
+    // snapshot_encrypted 为 None:无需解密,直接返回原 record
+    if raw_comp.snapshot_encrypted.is_none() {
+        return Ok(raw_comp);
+    }
+
+    let comp_id = raw_comp.comp_id.clone();
+    let step_id_for_audit = raw_comp.step_id.clone();
+
+    // 取 vault:未注入或未解锁 → 审计 + Err
+    let vault_opt = kernel.stronghold_vault();
+    let vault = match vault_opt {
+        Some(v) if v.is_unlocked() => v,
+        _ => {
+            kernel.audit_append_external(
+                audit_task_id,
+                Some(audit_step_id),
+                "stronghold_snapshot_decrypt_failed",
+                json!({
+                    "compensation_id": comp_id,
+                    "target_step_id": step_id_for_audit,
+                    "error": "NotUnlocked",
+                }),
+            )?;
+            return Err(KernelError::Compensation(
+                "stronghold vault not unlocked, cannot decrypt reverse_payload".into(),
+            ));
+        }
+    };
+
+    // bincode 反序列化 snapshot_encrypted → EncryptedPayload
+    let payload_bytes = raw_comp.snapshot_encrypted.as_ref().unwrap();
+    let payload: EncryptedPayload = match bincode::deserialize(payload_bytes) {
+        Ok(p) => p,
+        Err(e) => {
+            kernel.audit_append_external(
+                audit_task_id,
+                Some(audit_step_id),
+                "stronghold_snapshot_decrypt_failed",
+                json!({
+                    "compensation_id": comp_id,
+                    "target_step_id": step_id_for_audit,
+                    "error": format!("BincodeDecodeFailed: {}", e),
+                }),
+            )?;
+            return Err(KernelError::Compensation(format!(
+                "stronghold bincode decode failed: {}",
+                e
+            )));
+        }
+    };
+
+    // AEAD 解密
+    let plaintext = match vault.decrypt(&payload) {
+        Ok(p) => p,
+        Err(e) => {
+            // error 字段仅记变体名(NotUnlocked / DecryptionFailed / VaultCorrupted),
+            // 不含密钥 / 密文 / 密码(spec §6.4)
+            let error_str = format!("{:?}", e);
+            kernel.audit_append_external(
+                audit_task_id,
+                Some(audit_step_id),
+                "stronghold_snapshot_decrypt_failed",
+                json!({
+                    "compensation_id": comp_id,
+                    "target_step_id": step_id_for_audit,
+                    "error": error_str,
+                }),
+            )?;
+            return Err(KernelError::Compensation(format!(
+                "stronghold decrypt failed: {}",
+                e
+            )));
+        }
+    };
+
+    // plaintext → UTF-8 字符串
+    let plaintext_str = String::from_utf8(plaintext).map_err(|e| {
+        KernelError::Compensation(format!("plaintext not UTF-8: {}", e))
+    })?;
+
+    // 替换 reverse_payload,返回新 record
+    let mut decrypted = raw_comp;
+    decrypted.reverse_payload = plaintext_str;
+    Ok(decrypted)
 }
 
 /// Build an EffectManifest describing the reverse move for the approval

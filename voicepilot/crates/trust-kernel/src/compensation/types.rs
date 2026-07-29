@@ -62,14 +62,19 @@ pub struct CompensationRecord {
     pub comp_id: String,
     pub step_id: String,
     pub level: CompensationLevel,
-    /// Encrypted snapshot blob. W3a stores plaintext for PoC; W8 wires tauri-plugin-stronghold.
+    /// 加密快照 blob。W9 Plan 2:stronghold feature 启用 + vault 解锁时存
+    /// `bincode::serialize(EncryptedPayload)`;降级模式 / feature 未启用时为 None。
+    /// spec §2.2 + §6.1。
     pub snapshot_encrypted: Option<Vec<u8>>,
     pub ttl_expires: String, // RFC3339
     pub status: String,      // 'active' | 'consumed' | 'expired' | 'failed'
+    /// W9 Plan 2:加密成功时为 UUID v4;降级模式为 "degraded";feature 未启用时为 None。
     pub snapshot_vault_ref: Option<String>,
     pub conflict_policy: ConflictPolicy,
     /// Function name to invoke for compensation (e.g. "filesystem.reverse_move").
     pub compensate_fn: String,
     /// JSON payload for the compensate_fn (e.g. reverse source/dest paths).
+    /// W9 Plan 2:stronghold 启用 + 解锁时此字段为空字符串(明文不落盘,密文在 snapshot_encrypted);
+    /// 降级 / feature 未启用时保留明文 JSON。
     pub reverse_payload: String,
 }

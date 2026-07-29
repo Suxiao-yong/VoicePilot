@@ -103,7 +103,7 @@ pub fn create_post_commit_compensation(
     ttl_seconds: i64,
 ) -> Result<String> {
     let comp_id = format!("comp-{}", uuid::Uuid::new_v4());
-    let reverse_payload = serde_json::json!({
+    let reverse_payload_json = serde_json::json!({
         "moves": moved_paths.iter().map(|(orig, curr)| {
             serde_json::json!({
                 "from": orig.to_string_lossy().replace('\\', "/"),
@@ -112,17 +112,83 @@ pub fn create_post_commit_compensation(
         }).collect::<Vec<_>>()
     })
     .to_string();
+
+    // W9 Plan 2: Stronghold 加密 reverse_payload(spec §2.2 三分支)。
+    //
+    // 分支 1:stronghold_enabled && vault.is_unlocked() → 加密成功,
+    //   snapshot_encrypted = Some(bincode(EncryptedPayload)),
+    //   snapshot_vault_ref = Some(UUID v4),
+    //   reverse_payload = ""(明文不落盘)。
+    //   审计 stronghold_snapshot_encrypted(details 不含 plaintext,spec §6.4)。
+    //
+    // 分支 2:stronghold_enabled && !vault.is_unlocked() → 降级模式,
+    //   snapshot_encrypted = None,
+    //   snapshot_vault_ref = Some("degraded"),
+    //   reverse_payload = 明文 JSON(可读,降级模式可逆)。
+    //   降级模式进入审计由 Plan 1 在启动时触发,此处不重复。
+    //
+    // 分支 3:!stronghold_enabled(运行时 config stronghold.enabled = "false")→ 明文 PoC,
+    //   snapshot_encrypted = None,
+    //   snapshot_vault_ref = None,
+    //   reverse_payload = 明文 JSON。
+    #[cfg(feature = "stronghold")]
+    let (snapshot_encrypted, snapshot_vault_ref, stored_reverse_payload) =
+        if kernel.stronghold_enabled() {
+            let vault_opt = kernel.stronghold_vault();
+            if let Some(vault) = vault_opt {
+                if vault.is_unlocked() {
+                    // 分支 1:加密成功
+                    let payload = vault
+                        .encrypt(reverse_payload_json.as_bytes())
+                        .map_err(|e| KernelError::Compensation(format!("stronghold encrypt failed: {}", e)))?;
+                    let payload_bytes = bincode::serialize(&payload)
+                        .map_err(|e| KernelError::Compensation(format!("bincode serialize failed: {e}")))?;
+                    let vault_ref = uuid::Uuid::new_v4().to_string();
+                    let plaintext_len = reverse_payload_json.len();
+                    // 审计 stronghold_snapshot_encrypted(不含 plaintext,spec §6.4)
+                    let task_id = kernel
+                        .task_id_for_step(step_id)?
+                        .ok_or_else(|| KernelError::Compensation(format!("task_id not found for step {}", step_id)))?;
+                    kernel.audit_append_external(
+                        &task_id,
+                        Some(step_id),
+                        "stronghold_snapshot_encrypted",
+                        serde_json::json!({
+                            "compensation_id": comp_id,
+                            "vault_ref": vault_ref,
+                            "plaintext_len": plaintext_len,
+                        }),
+                    )?;
+                    (Some(payload_bytes), Some(vault_ref), String::new())
+                } else {
+                    // 分支 2:降级模式(vault 注入但未解锁)
+                    (None, Some("degraded".to_string()), reverse_payload_json)
+                }
+            } else {
+                // 分支 2 变体:vault 未注入(等同降级模式)
+                (None, Some("degraded".to_string()), reverse_payload_json)
+            }
+        } else {
+            // 分支 3:运行时禁用 stronghold(config stronghold.enabled = "false")
+            (None, None, reverse_payload_json)
+        };
+
+    // stronghold feature 未启用时:编译期 fallback 到明文 PoC(W3a 行为)
+    #[cfg(not(feature = "stronghold"))]
+    let (snapshot_encrypted, snapshot_vault_ref, stored_reverse_payload) =
+        (None, None, reverse_payload_json);
+
     let record = CompensationRecord {
         comp_id: comp_id.clone(),
         step_id: step_id.to_string(),
         level,
-        snapshot_encrypted: None,
+        snapshot_encrypted,
         ttl_expires: (Utc::now() + chrono::Duration::seconds(ttl_seconds)).to_rfc3339(),
         status: "active".to_string(),
-        snapshot_vault_ref: None,
+        snapshot_vault_ref,
         conflict_policy,
         compensate_fn: compensate_fn.to_string(),
-        reverse_payload,
+        reverse_payload: stored_reverse_payload,
     };
     kernel.create_compensation(&record)?;
     Ok(comp_id)
