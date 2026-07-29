@@ -17,6 +17,35 @@ use crate::error::Result;
 use crate::policy::transaction::EffectManifest;
 use crate::skills::dag_types::DagPlan;
 
+/// W9 Plan 4:DAG 骨架审批的完整决策结果。
+///
+/// 与 `ApprovalDecision` 区别:`ApprovalDecision` 用于单步 prepare→commit
+/// 审批(`Approver::prompt`),Modify 是占位(W8 未实现 payload 回传);
+/// `DagApprovalOutcome` 用于 DAG 骨架审批(`Approver::approve_dag_skeleton`),
+/// Modify 携带完整 `modified_plan: Box<DagPlan>`(W9 Plan 4 实现)。
+///
+/// 用 `Box<DagPlan>` 避免枚举 size 爆炸(`DagPlan` 含 Vec + HashMap,栈上 size 大)。
+#[derive(Debug, Clone)]
+pub enum DagApprovalOutcome {
+    Allow,
+    Deny,
+    /// 用户调整 DAG 骨架后回传的 modified_plan。
+    /// 由 `DagExecutor::run` 处理:审计 `dag_skeleton_modified` →
+    /// `SlotTemplateEngine::validate_dag` 重新校验 → `run_modified` 第二次审批。
+    Modify { modified_plan: Box<DagPlan> },
+}
+
+impl DagApprovalOutcome {
+    /// 返回标准字符串(供审计 details 字段使用,替换 W8 的 `format!("{:?}", decision)`)。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+            Self::Modify { .. } => "modify",
+        }
+    }
+}
+
 /// Callback the Skill executor invokes between prepare and commit.
 ///
 /// W8 Plan 2: `approve_dag_skeleton` 是 DAG 骨架层审批;`prompt` 是
@@ -35,10 +64,11 @@ pub trait Approver: Send + Sync {
     ///   - AutoDenier → Ok(Deny)(负路径测试)
     ///   - TauriApprover(ui crate)→ 真实 IPC 弹窗(W6 既有 channel,5min timeout → Deny)
     ///
-    /// 返回 `Result<ApprovalDecision>` 而非 `ApprovalDecision` 是为了让
-    /// TauriApprover 能区分"通道失败"与"用户 Deny"(前者可作为 Err 向上
-    /// 传播,后者是用户意图)。AutoApprover / AutoDenier 始终返回 Ok。
-    fn approve_dag_skeleton(&self, plan: &DagPlan) -> Result<ApprovalDecision>;
+    /// 返回 `Result<DagApprovalOutcome>`(W9 Plan 4:含 Modify payload)而非
+    /// `ApprovalDecision`(单步审批用)是让 TauriApprover 能区分"通道失败"
+    /// 与"用户 Deny"(前者可作为 Err 向上传播,后者是用户意图)。
+    /// AutoApprover / AutoDenier 始终返回 Ok。
+    fn approve_dag_skeleton(&self, plan: &DagPlan) -> Result<DagApprovalOutcome>;
 }
 
 /// Auto-approver for tests and headless runs. Always returns Allow.
@@ -49,8 +79,8 @@ impl Approver for AutoApprover {
         ApprovalDecision::Allow
     }
 
-    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> Result<ApprovalDecision> {
-        Ok(ApprovalDecision::Allow)
+    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> Result<DagApprovalOutcome> {
+        Ok(DagApprovalOutcome::Allow)
     }
 }
 
@@ -62,7 +92,7 @@ impl Approver for AutoDenier {
         ApprovalDecision::Deny
     }
 
-    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> Result<ApprovalDecision> {
-        Ok(ApprovalDecision::Deny)
+    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> Result<DagApprovalOutcome> {
+        Ok(DagApprovalOutcome::Deny)
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::io::{self, Write};
-use trust_kernel::approval::approver::Approver;
+use trust_kernel::approval::approver::{Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::transaction::EffectManifest;
@@ -45,7 +45,10 @@ impl Approver for CliApprover {
     ///
     /// CLI 实现:打印 DAG 计划摘要(plan_id / user_goal / nodes / edges),
     /// 然后 y/N 提示。EOF 或解析失败 → Deny(安全默认)。
-    fn approve_dag_skeleton(&self, plan: &DagPlan) -> trust_kernel::error::Result<ApprovalDecision> {
+    ///
+    /// W9 Plan 4:返回类型从 `ApprovalDecision` 改为 `DagApprovalOutcome`。
+    /// CLI 无 Modify 入口(交互式 y/N 只产生 Allow/Deny),行为等价 W8。
+    fn approve_dag_skeleton(&self, plan: &DagPlan) -> trust_kernel::error::Result<DagApprovalOutcome> {
         println!("\n=== DAG Plan Skeleton ===");
         println!("  plan_id: {}", plan.plan_id);
         println!("  user_goal: {}", plan.user_goal);
@@ -70,13 +73,13 @@ impl Approver for CliApprover {
         let n = io::stdin().read_line(&mut buf).unwrap_or(0);
         if n == 0 {
             // EOF — treat as deny (safer default).
-            return Ok(ApprovalDecision::Deny);
+            return Ok(DagApprovalOutcome::Deny);
         }
         let trimmed = buf.trim().to_lowercase();
         if trimmed == "y" || trimmed == "yes" {
-            Ok(ApprovalDecision::Allow)
+            Ok(DagApprovalOutcome::Allow)
         } else {
-            Ok(ApprovalDecision::Deny)
+            Ok(DagApprovalOutcome::Deny)
         }
     }
 }

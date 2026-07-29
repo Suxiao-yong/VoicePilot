@@ -93,7 +93,9 @@ fn audit_emits_dag_skeleton_approved_on_allow() {
     assert!(!events.is_empty());
     let e = &events[0];
     assert_eq!(e["plan_id"], plan.plan_id);
-    assert_eq!(e["decision"], "Allow");
+    // W9 Plan 4:`decision` 字段从 `format!("{:?}", decision)`(W8 "Allow")
+    // 改为 `outcome.as_str()`(W9 "allow"),闭合 W8 spec §11 format→字符串。
+    assert_eq!(e["decision"], "allow");
 }
 
 #[test]
@@ -108,7 +110,9 @@ fn audit_emits_dag_skeleton_approved_on_deny() {
     let events = find_audit_events(&kernel_arc, "dag_skeleton_approved");
     assert!(!events.is_empty());
     let e = &events[0];
-    assert_eq!(e["decision"], "Deny");
+    // W9 Plan 4:`decision` 字段从 `format!("{:?}", decision)`(W8 "Deny")
+    // 改为 `outcome.as_str()`(W9 "deny")。
+    assert_eq!(e["decision"], "deny");
 }
 
 #[test]

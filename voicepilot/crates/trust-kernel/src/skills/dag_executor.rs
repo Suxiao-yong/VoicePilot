@@ -25,6 +25,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use crate::approval::approver::Approver;
+use crate::approval::approver::DagApprovalOutcome;
+#[allow(unused_imports)] // Task 2 完整实现 Modify 分支后删除此行 use
 use crate::approval::types::ApprovalDecision;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
@@ -117,19 +119,19 @@ impl DagExecutor {
         // Step 1: 拓扑排序(Kahn 算法)— 检测 edges 中的隐式环
         let order = topological_sort(&plan.nodes, &plan.edges)?;
 
-        // Step 2: 全局审批 — DAG 骨架 Allow/Deny(决策 #2)
-        let decision = self.approver.approve_dag_skeleton(plan)?;
-        // 审计 — dag_skeleton_approved(无论 Allow/Deny 都记录)
+        // Step 2: 全局审批 — DAG 骨架 Allow/Deny/Modify(决策 #2,W9 Plan 4)
+        let outcome = self.approver.approve_dag_skeleton(plan)?;
+        // 审计 — dag_skeleton_approved(无论 Allow/Deny/Modify 都记录)
         self.kernel.audit_append_external(
             &root_task_id,
             None,
             "dag_skeleton_approved",
             serde_json::json!({
                 "plan_id": plan.plan_id,
-                "decision": format!("{:?}", decision),
+                "decision": outcome.as_str(),
             }),
         )?;
-        if matches!(decision, ApprovalDecision::Deny) {
+        if matches!(outcome, DagApprovalOutcome::Deny) {
             // Deny → 0 节点执行 + DagStatus=Cancelled
             self.persist_dag_status(plan, &DagStatus::Cancelled)?;
             // 审计 — dag_completed(Cancelled)

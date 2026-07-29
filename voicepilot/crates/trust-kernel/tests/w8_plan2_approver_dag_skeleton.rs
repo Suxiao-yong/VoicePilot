@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver};
+use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagPlan};
@@ -57,20 +57,22 @@ fn dummy_plan(plan_id: &str) -> DagPlan {
 fn auto_approver_approve_dag_skeleton_returns_allow() {
     let approver = AutoApprover;
     let plan = dummy_plan("plan-auto-allow");
-    let decision = approver
+    let outcome = approver
         .approve_dag_skeleton(&plan)
         .expect("AutoApprover should not error");
-    assert_eq!(decision, ApprovalDecision::Allow);
+    // `DagApprovalOutcome` 未 derive `PartialEq`(`Modify` 含 `Box<DagPlan>`,
+    // `DagPlan` 未实现 `PartialEq`),用 `matches!` 断言 variant。
+    assert!(matches!(outcome, DagApprovalOutcome::Allow));
 }
 
 #[test]
 fn auto_denier_approve_dag_skeleton_returns_deny() {
     let approver = AutoDenier;
     let plan = dummy_plan("plan-auto-deny");
-    let decision = approver
+    let outcome = approver
         .approve_dag_skeleton(&plan)
         .expect("AutoDenier should not error");
-    assert_eq!(decision, ApprovalDecision::Deny);
+    assert!(matches!(outcome, DagApprovalOutcome::Deny));
 }
 
 #[test]
@@ -79,10 +81,10 @@ fn approver_trait_object_can_call_approve_dag_skeleton() {
     // DagExecutor 在生产代码中持有 `Arc<dyn Approver>`,需要 trait object 兼容。
     let approver: Arc<dyn Approver> = Arc::new(AutoApprover);
     let plan = dummy_plan("plan-trait-object");
-    let decision = approver
+    let outcome = approver
         .approve_dag_skeleton(&plan)
         .expect("trait object should not error");
-    assert_eq!(decision, ApprovalDecision::Allow);
+    assert!(matches!(outcome, DagApprovalOutcome::Allow));
 }
 
 #[test]

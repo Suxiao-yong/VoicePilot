@@ -416,12 +416,14 @@ async fn scenario_3_dag_skeleton_deny_cancels_execution_zero_nodes_run() {
     );
 
     // ===== Assert: audit_log 含 dag_skeleton_approved Deny + dag_completed(cancelled) =====
+    // W9 Plan 4:`decision` 字段从 `format!("{:?}", decision)`(W8 "Deny")
+    // 改为 `outcome.as_str()`(W9 "deny"),闭合 W8 spec §11 format→字符串。
     let skeleton_details = list_audit_details(&kernel, "dag_skeleton_approved");
     assert!(
         skeleton_details
             .iter()
-            .any(|d| d.contains("\"decision\":\"Deny\"")),
-        "dag_skeleton_approved Deny must be logged, got: {:?}",
+            .any(|d| d.contains("\"decision\":\"deny\"")),
+        "dag_skeleton_approved deny must be logged, got: {:?}",
         skeleton_details
     );
     let completed_details = list_audit_details(&kernel, "dag_completed");

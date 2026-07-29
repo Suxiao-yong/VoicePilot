@@ -38,6 +38,7 @@
 //! gate is mandatory, never skipped.
 
 use crate::approval::approver::Approver;
+use crate::approval::approver::DagApprovalOutcome;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
@@ -448,8 +449,8 @@ mod tests {
         fn approve_dag_skeleton(
             &self,
             _plan: &crate::skills::dag_types::DagPlan,
-        ) -> Result<ApprovalDecision> {
-            Ok(ApprovalDecision::Deny)
+        ) -> Result<DagApprovalOutcome> {
+            Ok(DagApprovalOutcome::Deny)
         }
     }
 

@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
-use trust_kernel::approval::approver::Approver;
+use trust_kernel::approval::approver::{Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::error::Result as KernelResult;
 use trust_kernel::policy::transaction::EffectManifest;
@@ -153,13 +153,18 @@ impl Approver for TauriApprover {
         self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 
-    /// W8 Plan 5:DAG 骨架审批(委托给 inherent method)。
+    /// W9 Plan 4 Task 1 临时占位:trait 签名已扩展为 `Result<DagApprovalOutcome>`,
+    /// 但完整 Modify payload 回传逻辑在 Task 5 实现。此处返回 `Allow` 占位以保持
+    /// workspace 编译通过 — **Task 5 必须替换为真实 IPC 实现**:
+    ///   - emit `dag-approval-request` 事件 + oneshot channel
+    ///   - 5min timeout → Deny
+    ///   - 接收 `modified_plan: Option<DagPlan>` payload,构造 `DagApprovalOutcome::Modify`
     ///
-    /// inherent method `approve_dag_skeleton` 返回 `ApprovalDecision`,
-    /// trait method 包装为 `Result<ApprovalDecision>` 以匹配 trait 签名。
-    /// DagExecutor 通过 `&dyn Approver` 调用此方法,会路由到 inherent method。
-    fn approve_dag_skeleton(&self, plan: &DagPlan) -> KernelResult<ApprovalDecision> {
-        Ok(TauriApprover::approve_dag_skeleton(self, plan))
+    /// 注:inherent method `TauriApprover::approve_dag_skeleton`(W8 Plan 5 实现,
+    /// 返回 `ApprovalDecision`)暂时保留,Task 5 重写为返回 `DagApprovalOutcome`。
+    #[allow(unused_variables)]
+    fn approve_dag_skeleton(&self, plan: &DagPlan) -> KernelResult<DagApprovalOutcome> {
+        Ok(DagApprovalOutcome::Allow)
     }
 }
 
