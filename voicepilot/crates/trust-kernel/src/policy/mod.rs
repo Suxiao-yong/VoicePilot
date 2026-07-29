@@ -7,3 +7,5 @@ pub mod egress;
 pub mod cedar_engine;
 pub mod constraint_engine;
 pub mod transaction;
+// W9 Plan 3: taints 表 CRUD + 值级污点追踪(spec §2.3 + §6.2)。
+pub mod taint_repo;

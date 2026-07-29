@@ -201,6 +201,20 @@ pub async fn route_text_with_dag(
                         // 此处二次校验作为 defense-in-depth(防止 Plan 2 实现遗漏)。
                         match crate::skills::template::SlotTemplateEngine::validate_dag(&dag) {
                             Ok(()) => {
+                                // W9 Plan 3: 为 DagPlan 中所有 Literal 值标 llm_output taint。
+                                // 在 validate_dag 通过后标 taint(校验失败的 plan 会被丢弃,
+                                // 无需标 taint,避免孤儿记录)。taint 标记失败不阻断流程
+                                // (taint 是安全增强,非硬约束;warn 记录即可)。
+                                if let Err(e) = crate::llm::client::tag_dag_plan_literals(
+                                    kernel,
+                                    &llm_task_id,
+                                    &dag,
+                                ) {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "tag_dag_plan_literals failed; continuing without llm_output taints"
+                                    );
+                                }
                                 return Ok(RouteOutcome::DagPlan(dag));
                             }
                             Err(e) => {

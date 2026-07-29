@@ -747,6 +747,84 @@ pub fn record_llm_decompose_called(
     )
 }
 
+/// W9 Plan 3: 为 DagPlan 中所有 `TemplateExpr::Literal(s)` 值标记 `llm_output` taint。
+///
+/// spec §2.3 传播规则:LLM 拆解产生的 literal 值视为 `llm_output` provenance,
+/// 防止 LLM 注入的字符串未经审批流入文件系统写入(`LocalFile` sink)。
+///
+/// 实现要点:
+///   - 递归遍历 `SlotTemplate.template`(AST),对每个 `Literal(s)` 计算 SHA256
+///   - `source_ref = "{plan_id}:{node_id}"`(便于按 plan + node 回溯)
+///   - `provenance = "llm_output"` / `taints = ["llm_output"]`
+///   - upsert 通过 `TaintRepo`(自动合并同 hash 的 taints)
+///   - 审计:`taint_propagated` 事件(details 仅含 hash + 标签,不含原始 value,spec §6.2)
+///
+/// 调用方(`router_bridge.rs`)在 `decompose_to_dag_traced` 成功后调本方法。
+/// 设计权衡:不修改 `decompose_to_dag` / `decompose_to_dag_traced` 签名(避免
+/// 破坏 12+ 测试 callsite),与既有 `record_llm_decompose_called` 同模式——
+/// 独立函数接 `&TrustKernel`,由 router_bridge 在 LLM 调用后主动调。
+#[cfg(feature = "llm")]
+pub fn tag_dag_plan_literals(
+    kernel: &crate::kernel::TrustKernel,
+    task_id: &str,
+    plan: &crate::skills::dag_types::DagPlan,
+) -> crate::error::Result<()> {
+    use crate::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
+    use crate::skills::template::TemplateExpr;
+
+    /// 递归遍历 TemplateExpr,对每个 Literal(s) 调用 f(&s)。
+    fn collect_literals<F: FnMut(&str)>(expr: &TemplateExpr, f: &mut F) {
+        match expr {
+            TemplateExpr::Literal(s) => f(s),
+            TemplateExpr::Var(_) => {}
+            TemplateExpr::Concat(parts) => {
+                for p in parts {
+                    collect_literals(p, f);
+                }
+            }
+            TemplateExpr::Filter { source, .. } => {
+                collect_literals(source, f);
+            }
+        }
+    }
+
+    let repo = TaintRepo::new();
+    for node in &plan.nodes {
+        let mut hashes: Vec<(String, String)> = Vec::new(); // (literal_str, hash)
+        collect_literals(&node.input_template.template, &mut |s| {
+            let value_json = serde_json::Value::String(s.to_string());
+            let hash = compute_value_hash(&value_json);
+            hashes.push((s.to_string(), hash));
+        });
+
+        for (literal_str, hash) in hashes {
+            let record = make_taint_record(
+                hash.clone(),
+                "llm_output".to_string(),
+                vec!["llm_output".to_string()],
+                Some(format!("{}:{}", plan.plan_id, node.node_id)),
+            );
+            {
+                let conn = kernel.conn();
+                repo.upsert(&conn, &record)?;
+            }
+            kernel.audit_append_external(
+                task_id,
+                None,
+                "taint_propagated",
+                serde_json::json!({
+                    "source_ref": format!("{}:{}", plan.plan_id, node.node_id),
+                    "input_hash": null,
+                    "output_hash": hash,
+                    "taints": ["llm_output"],
+                    "literal_len": literal_str.len(),
+                }),
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

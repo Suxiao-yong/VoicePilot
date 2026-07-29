@@ -79,12 +79,13 @@ fn end_to_end_mcp_server_smoke() {
 
     // ===== Assert: audit trail has the MCP_TOOLS_CALL event =====
     let audit_count = kernel.audit_count_for_task("e2e-task").unwrap();
-    // search_files carried task_id=e2e-task → 1 audit event (MCP_TOOLS_CALL).
+    // W9 Plan 3: search_files carried task_id=e2e-task → 2 audit events
+    //   (MCP_TOOLS_CALL + taint_propagated for mcp_tool:<server_id> taint).
     // move_files rejection: Task 8 deviation catches the error BEFORE
     // audit_append_external, so no audit event for the rejection.
     // Also: create_task emits TASK_CREATED, create_step emits STEP_CREATED.
-    // So total audit events = 3 (TASK_CREATED + STEP_CREATED + MCP_TOOLS_CALL).
-    assert_eq!(audit_count, 3, "expected 3 audit events (TASK_CREATED + STEP_CREATED + MCP_TOOLS_CALL), got {}", audit_count);
+    // So total audit events = 4 (TASK_CREATED + STEP_CREATED + MCP_TOOLS_CALL + taint_propagated).
+    assert_eq!(audit_count, 4, "expected 4 audit events (TASK_CREATED + STEP_CREATED + MCP_TOOLS_CALL + taint_propagated), got {}", audit_count);
 
     fs::remove_dir_all(&dir).ok();
 }

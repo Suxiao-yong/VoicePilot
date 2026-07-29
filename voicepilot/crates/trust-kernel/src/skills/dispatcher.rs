@@ -15,6 +15,7 @@
 use crate::approval::approver::Approver;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
+use crate::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
 use crate::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill, SkillExecution};
 use crate::skills::form_prepare::{execute_form_prepare, FormPrepareInput};
 use crate::skills::form_submit::{execute_form_submit, FormSubmitInput};
@@ -127,7 +128,18 @@ pub fn dispatch_skill_executor(
     };
     let resolved_input = &normalized;
 
-    match skill_id {
+    // W9 Plan 3: 记录输入 taint(查表驱动传播)。
+    // compute_value_hash 接收 &serde_json::Value,resolved_input 已是 Value。
+    let input_hash = compute_value_hash(resolved_input);
+    let input_taints: Vec<String> = {
+        let conn = kernel.conn();
+        TaintRepo::new()
+            .find_by_hash(&conn, &input_hash)?
+            .map(|r| r.taints)
+            .unwrap_or_default()
+    };
+
+    let outcome = match skill_id {
         "files.organize" => {
             dispatch_files_organize(kernel, resolved_input, approver, task_id, step_id)
         }
@@ -154,7 +166,42 @@ pub fn dispatch_skill_executor(
         }
         "form.submit" => dispatch_form_submit(kernel, resolved_input, approver, task_id, step_id),
         _ => Err(KernelError::Skill(format!("unknown skill_id: {}", skill_id))),
+    }?;
+
+    // W9 Plan 3: 记录输出 taint(继承输入 taints + 加 executor_output:<skill_id>)。
+    // 仅当 outcome.succeeded 且 output 非 Null 时 upsert(spec §6.2:不存储原始 value)。
+    if outcome.succeeded && !outcome.output.is_null() {
+        let output_hash = compute_value_hash(&outcome.output);
+        let mut output_taints = input_taints.clone();
+        let executor_taint = format!("executor_output:{}", skill_id);
+        if !output_taints.contains(&executor_taint) {
+            output_taints.push(executor_taint.clone());
+        }
+        let record = make_taint_record(
+            output_hash.clone(),
+            executor_taint,
+            output_taints.clone(),
+            Some(format!("{}:{}", task_id, step_id)),
+        );
+        {
+            let conn = kernel.conn();
+            TaintRepo::new().upsert(&conn, &record)?;
+        }
+        // 审计:taint_propagated(details 仅含 hash + 标签,不含原始 value,spec §6.2)。
+        kernel.audit_append_external(
+            task_id,
+            Some(step_id),
+            "taint_propagated",
+            serde_json::json!({
+                "source_ref": format!("{}:{}", task_id, step_id),
+                "input_hash": input_hash,
+                "output_hash": output_hash,
+                "taints": output_taints,
+            }),
+        )?;
     }
+
+    Ok(outcome)
 }
 
 fn dispatch_files_organize(

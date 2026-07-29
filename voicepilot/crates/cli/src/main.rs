@@ -413,7 +413,8 @@ fn handle_mcp_serve_command(kernel: TrustKernel) {
     }
     // Construct McpServer and run stdio loop.
     // mcp-serve is terminal — consumes kernel and exits when stdin closes.
-    let server = McpServer::new(McpHandler::new(), kernel);
+    // W9 Plan 3: server_id="voicepilot-stdio" 用于 mcp_tool:<server_id> taint provenance。
+    let server = McpServer::new(McpHandler::new(), kernel).with_server_id("voicepilot-stdio");
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();

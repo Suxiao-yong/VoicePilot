@@ -10,6 +10,7 @@ use crate::mcp::handler::{McpCallResult, McpHandler};
 use crate::mcp::transport::{
     JsonRpcError, JsonRpcErrorCode, JsonRpcId, JsonRpcRequest, JsonRpcResponse,
 };
+use crate::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -35,6 +36,9 @@ impl Serialize for OutgoingMessage {
 pub struct McpServer {
     handler: McpHandler,
     kernel: Arc<TrustKernel>,
+    /// W9 Plan 3: MCP server 标识(用于 `mcp_tool:<server_id>` taint provenance)。
+    /// 默认 UUID v4(构造时生成),生产代码可用 `with_server_id` 链式方法覆盖。
+    server_id: String,
 }
 
 impl McpServer {
@@ -42,11 +46,29 @@ impl McpServer {
         Self {
             handler,
             kernel: Arc::new(kernel),
+            server_id: uuid::Uuid::new_v4().to_string(),
         }
     }
 
     pub fn with_arc(handler: McpHandler, kernel: Arc<TrustKernel>) -> Self {
-        Self { handler, kernel }
+        Self {
+            handler,
+            kernel,
+            server_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    /// W9 Plan 3: 链式设置 `server_id`(用于 `mcp_tool:<server_id>` taint provenance)。
+    /// 生产代码(`mcp-serve` CLI)用此方法设置有意义的标识(如 "voicepilot-stdio"),
+    /// 测试代码用默认 UUID 即可。
+    pub fn with_server_id(mut self, server_id: impl Into<String>) -> Self {
+        self.server_id = server_id.into();
+        self
+    }
+
+    /// W9 Plan 3: 获取 `server_id`(供 taint 标记 + 审计使用)。
+    pub fn server_id(&self) -> &str {
+        &self.server_id
     }
 
     /// Dispatch a single JSON-RPC request. Returns an OutgoingMessage
@@ -175,6 +197,44 @@ impl McpServer {
             McpCallResult::Ok(value) => (value, false),
             McpCallResult::Err(msg) => (serde_json::json!({ "error": msg }), true),
         };
+
+        // W9 Plan 3: MCP tool 返回值标 `mcp_tool:<server_id>` taint(spec §2.3)。
+        // 仅对成功结果标 taint(错误结果不流入下游节点,无需追踪)。
+        // taint upsert 失败不阻断 MCP 响应(taint 是安全增强,非硬约束)。
+        if !is_error {
+            let result_hash = compute_value_hash(&content);
+            let server_taint = format!("mcp_tool:{}", self.server_id);
+            let source_ref = match (&task_id, &step_id) {
+                (Some(t), Some(s)) => Some(format!("{}:{}", t, s)),
+                (Some(t), None) => Some(t.clone()),
+                _ => None,
+            };
+            let record = make_taint_record(
+                result_hash.clone(),
+                server_taint.clone(),
+                vec![server_taint.clone()],
+                source_ref.clone(),
+            );
+            {
+                let conn = self.kernel.conn();
+                let _ = TaintRepo::new().upsert(&conn, &record);
+            }
+            // 审计 taint_propagated(仅当 task_id 存在,FK 约束 audit_logs.task_id)。
+            if let Some(tid) = &task_id {
+                let _ = self.kernel.audit_append_external(
+                    tid,
+                    step_id.as_deref(),
+                    "taint_propagated",
+                    serde_json::json!({
+                        "source_ref": source_ref,
+                        "input_hash": null,
+                        "output_hash": result_hash,
+                        "taints": [server_taint],
+                    }),
+                );
+            }
+        }
+
         let result_json = serde_json::json!({
             "content": [{
                 "type": "text",
