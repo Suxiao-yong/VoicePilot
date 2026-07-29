@@ -45,6 +45,7 @@ zeroize = { version = "1", optional = true, features = ["derive"] }
 tauri-plugin-stronghold = { workspace = true, optional = true }
 iota_stronghold = { workspace = true, optional = true }
 argon2 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 
 [dev-dependencies]
 uuid = { workspace = true }
@@ -63,7 +64,8 @@ uia = ["dep:uiautomation"]
 # 启用方式:cargo check --features stronghold / cargo test --features stronghold
 # W9 审查修复 P1-1:加 dep:zeroize,使 derived_key 的 Zeroizing 包装可用。
 # W9 实现修复:加 dep:iota_stronghold,procedures API(AeadEncrypt/AeadDecrypt/WriteVault)需要直接依赖。
-stronghold = ["dep:tauri-plugin-stronghold", "dep:iota_stronghold", "dep:argon2", "dep:zeroize"]
+# W9 实现修复:加 dep:rand,生成 salt / nonce / encryption key。
+stronghold = ["dep:tauri-plugin-stronghold", "dep:iota_stronghold", "dep:argon2", "dep:rand", "dep:zeroize"]
 
 [target.'cfg(windows)'.dependencies]
 # W7 Plan 4: Windows UIA 自动化(opt-in via `uia` feature, Windows-only)。
