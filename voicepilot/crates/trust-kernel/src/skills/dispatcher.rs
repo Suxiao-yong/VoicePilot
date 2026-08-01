@@ -284,31 +284,35 @@ fn dispatch_app_control(
     task_id: &str,
     step_id: &str,
 ) -> Result<DispatchOutcome> {
-    // W8 Plan 4 修复:`execute_app_control` 需要 `adapter: &dyn UiaAdapter`
-    // 参数(W7 Plan 4 加入),但 `dispatch_skill_executor` 签名不携带 adapter。
-    // Plan 2 原始代码漏传 adapter,在 `voice,tauri,llm,uia` feature 组合下
-    // 编译失败(此前 W8 验收门禁只跑 `--no-default-features` 未暴露)。
-    //
-    // 本 Plan 4 修复策略:保留字段校验(extract_string),不调 execute_*,
-    // 返回 Err 表明 UIA-in-DAG 待 Plan 6 集成时通过 DagExecutor::new 加
-    // `Option<Arc<dyn UiaAdapter>>` 字段并透传到 dispatch_*。UiaAdapter 是
-    // `!Send + !Sync`(COM apartment 模型),Plan 6 需评估 DagExecutor 是否
-    // 改为 `!Send` 或用 thread-local adapter。
-    let _ = (kernel, approver, task_id, step_id);
-    let _action = extract_string(resolved_input, "action")
+    // W9 Plan 6 Task 6:从 thread-local 取 UiaAdapter(由 DagExecutor 调用方
+    // 在 run() 前通过 set_thread_local_uia_adapter 注入)。
+    // UiaAdapter 是 `!Send + !Sync`(COM apartment 模型),不能用字段持有,
+    // 改用 thread-local 透传(见 dag_executor.rs THREAD_LOCAL_UIA_ADAPTER)。
+    let action = extract_string(resolved_input, "action")
         .ok()
         .unwrap_or_else(|| "launch".into());
-    let _app_name = extract_string(resolved_input, "app_name")?;
-    // 校验通过 → 构造 input 仅为了失败信息更清晰(不实际执行)。
-    let _input = AppControlInput {
+    let app_name = extract_string(resolved_input, "app_name")?;
+    let input = AppControlInput {
         task_id: task_id.to_string(),
         step_id: step_id.to_string(),
-        app_name: _app_name,
-        action: _action,
+        app_name,
+        action,
     };
-    Err(KernelError::Skill(
-        "quick.app_control in DagExecutor requires UiaAdapter plumbing — Plan 6 work".into(),
-    ))
+
+    let adapter = crate::skills::dag_executor::thread_local_uia_adapter().ok_or_else(|| {
+        KernelError::Skill(
+            "quick.app_control in DagExecutor requires thread-local UiaAdapter — call set_thread_local_uia_adapter before run()".into(),
+        )
+    })?;
+
+    let returned_task_id = crate::skills::app_control::execute_app_control(
+        kernel,
+        &input,
+        approver,
+        adapter.as_ref(),
+    )?;
+
+    Ok(DispatchOutcome::from_task_id(returned_task_id, step_id.into()))
 }
 
 #[cfg(all(windows, feature = "uia"))]
@@ -319,21 +323,46 @@ fn dispatch_note_capture(
     task_id: &str,
     step_id: &str,
 ) -> Result<DispatchOutcome> {
-    // W8 Plan 4 修复:同 dispatch_app_control,execute_note_capture 需要
-    // `adapter: &dyn UiaAdapter`,Plan 2 漏传。保留字段校验,返回 Err。
-    // Plan 6 集成时通过 DagExecutor 透传 adapter。
-    let _ = (kernel, approver, task_id, step_id);
-    let _content = extract_string(resolved_input, "content")?;
-    let _save_path = extract_string(resolved_input, "save_path")?;
-    let _input = NoteCaptureInput {
+    // W9 Plan 6 Task 6:从 thread-local 取 UiaAdapter(由 DagExecutor 调用方
+    // 在 run() 前通过 set_thread_local_uia_adapter 注入)。
+    let content = extract_string(resolved_input, "content")?;
+    let save_path = extract_string(resolved_input, "save_path")?;
+    let input = NoteCaptureInput {
         task_id: task_id.to_string(),
         step_id: step_id.to_string(),
-        content: _content,
-        save_path: _save_path,
+        content: content.clone(),
+        save_path: save_path.clone(),
     };
-    Err(KernelError::Skill(
-        "note.capture in DagExecutor requires UiaAdapter plumbing — Plan 6 work".into(),
-    ))
+
+    let adapter = crate::skills::dag_executor::thread_local_uia_adapter().ok_or_else(|| {
+        KernelError::Skill(
+            "note.capture in DagExecutor requires thread-local UiaAdapter — call set_thread_local_uia_adapter before run()".into(),
+        )
+    })?;
+
+    let returned_task_id = crate::skills::note_capture::execute_note_capture(
+        kernel,
+        &input,
+        approver,
+        adapter.as_ref(),
+    )?;
+
+    // W9 Plan 6 Task 6:output 含 save_path(供下游 ${prev.output.save_path}
+    // Slot 流水解析)。既有 from_task_id 只返回 {task_id, step_id},这里
+    // 自定义 output 追加 save_path + content。
+    let output = serde_json::json!({
+        "task_id": returned_task_id,
+        "step_id": step_id,
+        "save_path": save_path,
+        "content": content,
+    });
+    Ok(DispatchOutcome {
+        task_id: returned_task_id,
+        step_id: step_id.to_string(),
+        output,
+        succeeded: true,
+        error_cause: None,
+    })
 }
 
 fn dispatch_research_save(
