@@ -55,3 +55,8 @@ pub mod form_prepare;
 // W8 Plan 3 Task 5: form.submit executor (navigate + click submit).
 // Cross-platform — only depends on the MCP client.
 pub mod form_submit;
+
+// W10 Plan 2: reverse function implementations for non-move Skills.
+// Cross-platform — reverse_note_capture / reverse_research_save only use
+// std::fs; reverse_form_prepare uses invoke_mcp_tool (Playwright MCP).
+pub mod reverse_fns;
