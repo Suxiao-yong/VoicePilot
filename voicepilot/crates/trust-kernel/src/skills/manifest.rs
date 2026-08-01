@@ -285,7 +285,9 @@ pub fn task_repeat_verified_manifest() -> SkillManifest {
             conflict_policy: ConflictPolicy::RequireConfirmation,
         },
         verifier: VerifierConfig {
-            strategy: "medium".to_string(),
+            // W10 Plan 1: 升级为 strong — verify_task_repeat 重读目标文件 sha256+size,
+            // 与 files.organize.verify_move 同源(spec §3.2 表格)。
+            strategy: "strong".to_string(),
             recheck_after_seconds: 0,
         },
         failure_policy: FailurePolicy {
@@ -346,7 +348,11 @@ pub fn task_explain_manifest() -> SkillManifest {
             conflict_policy: ConflictPolicy::AutoReverse,
         },
         verifier: VerifierConfig {
-            strategy: "weak".to_string(),
+            // W10 Plan 1 v2 修订 #5: task.explain 是只读 Skill,无副作用,
+            // spec §6.3 "Verifier 读取真实状态" 不适用。强行 strong verifier
+            // 会语义错位。改为 "none"(显式声明),不计入 Strong Verifier 分母
+            // (分母 = 7 个有副作用 Skill)。
+            strategy: "none".to_string(),
             recheck_after_seconds: 0,
         },
         failure_policy: FailurePolicy {
@@ -583,7 +589,9 @@ pub fn note_capture_manifest() -> SkillManifest {
             conflict_policy: ConflictPolicy::RequireConfirmation,
         },
         verifier: VerifierConfig {
-            strategy: "medium".to_string(),
+            // W10 Plan 1: 升级为 strong — verify_note_capture 重读 note 文件
+            // 存在 + sha256 + size 匹配 expected_content(spec §3.2 表格)。
+            strategy: "strong".to_string(),
             recheck_after_seconds: 0,
         },
         failure_policy: FailurePolicy {
@@ -756,7 +764,7 @@ pub fn form_prepare_manifest() -> SkillManifest {
 /// - risk_ceiling = E3(提交不可逆,form.prepare 是 E2)
 /// - compensation = None(不可逆,form.prepare 是 Strong)
 /// - approval.mode = PerStep(强制每步审批,与 form.prepare 一致)
-/// - verifier.strategy = "weak"(浏览器无文件 evidence)
+/// - verifier.strategy = "strong"(W10 Plan 1 升级:Playwright eval 查 URL 变更/success 元素)
 ///
 /// Spec §2.4 + §6 安全约束:form.submit 风险 = E3 不可逆 + PerStep 强制审批 + 无补偿。
 pub fn form_submit_manifest() -> SkillManifest {
@@ -817,7 +825,9 @@ pub fn form_submit_manifest() -> SkillManifest {
             conflict_policy: ConflictPolicy::RequireConfirmation,
         },
         verifier: VerifierConfig {
-            strategy: "weak".to_string(),
+            // W10 Plan 1: 升级为 strong — verify_form_submit 通过 Playwright eval
+            // 查 document.URL 变更 或 success 元素存在,验证提交确实发生(spec §3.2 表格)。
+            strategy: "strong".to_string(),
             recheck_after_seconds: 0,
         },
         failure_policy: FailurePolicy {

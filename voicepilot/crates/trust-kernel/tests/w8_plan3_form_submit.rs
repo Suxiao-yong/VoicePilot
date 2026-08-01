@@ -51,10 +51,11 @@ fn form_submit_manifest_compensation_is_none() {
 }
 
 #[test]
-fn form_submit_manifest_verifier_is_weak() {
-    // spec §2.4:浏览器无文件 evidence → Weak
+fn form_submit_manifest_verifier_is_strong() {
+    // W10 Plan 1: 升级为 strong — verify_form_submit 通过 Playwright eval
+    // 查 URL 变更 或 success 元素存在(spec §3.2 表格)。
     let m = form_submit_manifest();
-    assert_eq!(m.verifier.strategy, "weak");
+    assert_eq!(m.verifier.strategy, "strong");
     assert_eq!(m.verifier.recheck_after_seconds, 0);
 }
 
