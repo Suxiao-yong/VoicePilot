@@ -200,12 +200,54 @@ pub fn verify_form_prepare(
     })
 }
 
-/// verify_form_submit — Playwright 查页面 URL 变更 或 success 元素存在。
+/// verify_form_submit — Playwright eval 查 document.URL 变更 或 success 元素存在。
+///
+/// 提交不可逆,verifier 必须验证提交确实发生。两种证据(任一满足即 Strong):
+/// 1. document.URL != submitted_url(已跳转到 success/thank-you 页)
+/// 2. document.querySelector('.success, [data-success="true"]') 存在
+/// 都不满足 → Failed。
 pub fn verify_form_submit(
-    _ctx: &VerificationContext<'_>,
-    _submitted_url: &str,
+    ctx: &VerificationContext<'_>,
+    submitted_url: &str,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 5 implements verify_form_submit")
+    use crate::skills::common::invoke_mcp_tool;
+
+    let script = "(function() { return {url: document.URL, success: !!(document.querySelector('.success, [data-success=\"true\"]'))}; })()";
+    let result = invoke_mcp_tool(
+        ctx.kernel,
+        "playwright",
+        "eval",
+        serde_json::json!({"script": script}),
+    )?;
+
+    let current_url = result.data.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let has_success = result.data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if current_url != submitted_url {
+        return Ok(VerificationOutcome::Strong {
+            evidence: serde_json::json!({
+                "reason": "url_changed",
+                "submitted_url": submitted_url,
+                "current_url": current_url,
+            }),
+        });
+    }
+
+    if has_success {
+        return Ok(VerificationOutcome::Strong {
+            evidence: serde_json::json!({
+                "reason": "success_element",
+                "submitted_url": submitted_url,
+            }),
+        });
+    }
+
+    Ok(VerificationOutcome::Failed {
+        reason: format!(
+            "no evidence of submit success: url unchanged at {} and no success element",
+            submitted_url
+        ),
+    })
 }
 
 /// verify_task_repeat — 同 files.organize.verify_move,重读目标文件 sha256+size。
@@ -513,5 +555,152 @@ for line in sys.stdin:
         }
 
         clear_values_env();
+    }
+}
+
+#[cfg(test)]
+mod form_submit_tests {
+    use super::*;
+    use crate::kernel::TrustKernel;
+    use crate::mcp::repo::McpServerRepo;
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    static CWD_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn python_available() -> bool {
+        Command::new("python")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Mock:eval 返回 {url: MOCK_CURRENT_URL, success: MOCK_HAS_SUCCESS=="true"}。
+    const MOCK_SCRIPT: &str = r#"
+import sys, json, os
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "result": {"protocolVersion": "2025-11-25", "capabilities": {},
+                         "serverInfo": {"name": "mock", "version": "0.1"}}})
+    elif msg.get("method") == "notifications/initialized":
+        pass
+    elif msg.get("method") == "tools/call":
+        name = msg.get("params", {}).get("name")
+        if name == "eval":
+            current_url = os.environ.get("MOCK_CURRENT_URL", "https://example.com/submit")
+            has_success = os.environ.get("MOCK_HAS_SUCCESS", "false") == "true"
+            payload = json.dumps({"url": current_url, "success": has_success})
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "result": {"content": [{"type": "text", "text": payload}],
+                             "isError": False}})
+        else:
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "error": {"code": -32601, "message": f"unknown {name}"}})
+    else:
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "error": {"code": -32601, "message": "method not found"}})
+"#;
+
+    fn install_mock(kernel: &TrustKernel) {
+        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
+            .unwrap();
+        let mut rec = McpServerRepo::new()
+            .get(&kernel.conn(), "playwright")
+            .unwrap()
+            .unwrap();
+        rec.command = Some("python".to_string());
+        rec.args = Some(args_json);
+        rec.env = Some("{}".to_string());
+        McpServerRepo::new().update(&kernel.conn(), &rec).unwrap();
+    }
+
+    #[test]
+    fn verify_form_submit_strong_when_url_changed() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/success");
+        std::env::set_var("MOCK_HAS_SUCCESS", "false");
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert_eq!(evidence.get("reason").and_then(|v| v.as_str()), Some("url_changed"));
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        std::env::remove_var("MOCK_CURRENT_URL");
+        std::env::remove_var("MOCK_HAS_SUCCESS");
+    }
+
+    #[test]
+    fn verify_form_submit_strong_when_success_element_present() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
+        std::env::set_var("MOCK_HAS_SUCCESS", "true");
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert_eq!(evidence.get("reason").and_then(|v| v.as_str()), Some("success_element"));
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        std::env::remove_var("MOCK_CURRENT_URL");
+        std::env::remove_var("MOCK_HAS_SUCCESS");
+    }
+
+    #[test]
+    fn verify_form_submit_fails_when_url_unchanged_and_no_success() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
+        std::env::set_var("MOCK_HAS_SUCCESS", "false");
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("no evidence"), "got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+
+        std::env::remove_var("MOCK_CURRENT_URL");
+        std::env::remove_var("MOCK_HAS_SUCCESS");
     }
 }
