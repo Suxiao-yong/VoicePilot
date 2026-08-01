@@ -38,7 +38,6 @@
 //! gate is mandatory, never skipped.
 
 use crate::approval::approver::Approver;
-use crate::approval::approver::DagApprovalOutcome;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
@@ -259,7 +258,7 @@ fn build_note_capture_effect_manifest(content: &str, save_path: &str) -> EffectM
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approval::approver::{AutoApprover, AutoDenier};
+    use crate::approval::approver::{AutoApprover, AutoDenier, DagApprovalOutcome};
     use crate::kernel::TrustKernel;
     use crate::uiautomation::{UiaElementHandle, UiaSelector};
     use std::cell::RefCell;
