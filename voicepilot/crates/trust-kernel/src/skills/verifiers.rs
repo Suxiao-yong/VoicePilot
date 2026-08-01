@@ -15,7 +15,7 @@
 //! 重新读取真实世界状态(filesystem / DB / Playwright page),而非依赖
 //! executor 内部状态。Strong = 真实 artifact 验证(sha256 / DB 记录 / 页面元素)。
 
-use crate::error::Result;
+use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use serde_json::Value;
 
@@ -250,20 +250,154 @@ pub fn verify_form_submit(
     })
 }
 
-/// verify_task_repeat — 同 files.organize.verify_move,重读目标文件 sha256+size。
+/// verify_task_repeat — 查 target_task 的 effect_manifest,调 verify_move 重读目标文件。
+///
+/// 与 files.organize 的 verify_move 同源(spec §3.2 表格),重读目标文件
+/// sha256+size,与 effect_manifest.sources 比较。通过 → Strong;失败 → Failed。
 pub fn verify_task_repeat(
-    _ctx: &VerificationContext<'_>,
-    _target_task_id: &str,
+    ctx: &VerificationContext<'_>,
+    target_task_id: &str,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 6 implements verify_task_repeat")
+    use crate::policy::transaction::EffectManifest;
+
+    let conn = ctx.kernel.conn();
+    let manifest_str: Option<String> = conn
+        .query_row(
+            "SELECT effect_manifest FROM steps
+             WHERE task_id = ?1 AND effect_manifest IS NOT NULL
+             ORDER BY step_order DESC LIMIT 1",
+            rusqlite::params![target_task_id],
+            |r| r.get(0),
+        )
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(KernelError::Db(other)),
+        })?;
+
+    let manifest_str = match manifest_str {
+        Some(s) => s,
+        None => {
+            return Ok(VerificationOutcome::Failed {
+                reason: format!("no effect_manifest found for task {}", target_task_id),
+            });
+        }
+    };
+
+    let manifest: EffectManifest = serde_json::from_str(&manifest_str).map_err(|e| {
+        KernelError::Skill(format!("failed to parse effect_manifest: {}", e))
+    })?;
+
+    match ctx.kernel.filesystem().verify_move(&manifest) {
+        Ok(_) => Ok(VerificationOutcome::Strong {
+            evidence: serde_json::json!({
+                "target_task_id": target_task_id,
+                "verified_sources": manifest.sources.len(),
+                "destination": manifest.destination,
+            }),
+        }),
+        Err(e) => Ok(VerificationOutcome::Failed {
+            reason: format!("verify_move failed: {}", e),
+        }),
+    }
 }
 
 /// verify_task_compensate — 查 compensations 表 status=reversed + reverse_payload 非空。
+///
+/// spec §6.3 Strong Verifier:commit(auto_reverse + mark_status "reversed")后,
+/// 重新读取 compensations 表,确认:
+/// 1. 存在 step_id = target_step_id 的记录
+/// 2. status = "reversed"
+/// 3. reverse_payload 非空(JSON 含 moves 数组,证明 reverse 操作已记录)
+///
+/// 三项全满足 → Strong;任一不满足 → Failed。
+/// 注意:list_active_compensations 只返回 status='active' 的记录,不能用于验证 reversed,
+/// 必须直接 SQL 查询 compensations 表(任何 status)。
 pub fn verify_task_compensate(
-    _ctx: &VerificationContext<'_>,
-    _target_step_id: &str,
+    ctx: &VerificationContext<'_>,
+    target_step_id: &str,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 7 implements verify_task_compensate")
+    let conn = ctx.kernel.conn();
+    let row_result: rusqlite::Result<(String, String)> = conn.query_row(
+        "SELECT status, reverse_payload FROM compensations
+         WHERE step_id = ?1
+         ORDER BY ttl_expires DESC LIMIT 1",
+        rusqlite::params![target_step_id],
+        |r| {
+            let status: String = r.get(0)?;
+            // reverse_payload 列在 migration 005 之前可能为 NULL,
+            // 用 Option<String> 兜底再 unwrap_or_default。
+            let reverse_payload: String = r.get::<_, Option<String>>(1)?.unwrap_or_default();
+            Ok((status, reverse_payload))
+        },
+    );
+
+    let (status, reverse_payload) = match row_result {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return Ok(VerificationOutcome::Failed {
+                reason: format!(
+                    "no compensation record found for step {}",
+                    target_step_id
+                ),
+            });
+        }
+        Err(e) => return Err(KernelError::Db(e)),
+    };
+
+    if status != "reversed" {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!(
+                "compensation status for step {} is {:?}, expected \"reversed\"",
+                target_step_id, status
+            ),
+        });
+    }
+
+    if reverse_payload.trim().is_empty() {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!(
+                "compensation reverse_payload for step {} is empty",
+                target_step_id
+            ),
+        });
+    }
+
+    // 进一步验证 reverse_payload 是合法 JSON 且含 moves 数组(与 build_reverse_effect_manifest
+    // 的解析逻辑一致),确保 payload 真实可执行(不只是非空字符串)。
+    let payload: serde_json::Value = match serde_json::from_str(&reverse_payload) {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(VerificationOutcome::Failed {
+                reason: format!(
+                    "compensation reverse_payload for step {} is not valid JSON: {}",
+                    target_step_id, e
+                ),
+            });
+        }
+    };
+
+    let moves_count = payload
+        .get("moves")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    if moves_count == 0 {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!(
+                "compensation reverse_payload for step {} has empty or missing moves array",
+                target_step_id
+            ),
+        });
+    }
+
+    Ok(VerificationOutcome::Strong {
+        evidence: serde_json::json!({
+            "target_step_id": target_step_id,
+            "status": status,
+            "moves_count": moves_count,
+        }),
+    })
 }
 
 #[cfg(test)]
@@ -702,5 +836,255 @@ for line in sys.stdin:
 
         std::env::remove_var("MOCK_CURRENT_URL");
         std::env::remove_var("MOCK_HAS_SUCCESS");
+    }
+}
+
+#[cfg(test)]
+mod task_repeat_tests {
+    use super::*;
+    use crate::kernel::TrustKernel;
+    use crate::policy::transaction::EffectManifest;
+    use crate::repo::step_repo::StepRecord;
+    use crate::tools::fs_paths::canonicalize;
+    use crate::tools::fs_snapshot::snapshot_file;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn tmp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "voicepilot-w10p1-verify-repeat-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn build_manifest(src_dir: &std::path::Path, dest_dir: &std::path::Path, names: &[&str]) -> EffectManifest {
+        let mut snapshots = Vec::new();
+        let mut total = 0;
+        for n in names {
+            let snap = snapshot_file(&src_dir.join(n)).unwrap();
+            total += snap.size;
+            snapshots.push(snap);
+        }
+        EffectManifest {
+            sources: snapshots,
+            destination: canonicalize(&dest_dir.to_string_lossy()),
+            conflicts: vec![],
+            total_bytes: total,
+        }
+    }
+
+    fn persist_previous_step(kernel: &TrustKernel, manifest: &EffectManifest) {
+        kernel.create_task("prev-task", "previous organize").unwrap();
+        let mut s = StepRecord::new("prev-step", "prev-task", 1);
+        s.effect_manifest = Some(serde_json::to_value(manifest).unwrap());
+        kernel.create_step(&s).unwrap();
+    }
+
+    #[test]
+    fn verify_task_repeat_strong_when_verify_move_passes() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let dir = tmp_dir();
+        let src = dir.join("src"); fs::create_dir_all(&src).unwrap();
+        let dest = dir.join("out"); fs::create_dir_all(&dest).unwrap();
+        fs::write(src.join("a.pdf"), b"pdf1").unwrap();
+        fs::write(dest.join("a.pdf"), b"pdf1").unwrap();
+
+        let manifest = build_manifest(&src, &dest, &["a.pdf"]);
+        persist_previous_step(&kernel, &manifest);
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_repeat(&ctx, "prev-task").unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert!(evidence.get("verified_sources").is_some());
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn verify_task_repeat_fails_when_destination_missing() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let dir = tmp_dir();
+        let src = dir.join("src"); fs::create_dir_all(&src).unwrap();
+        let dest = dir.join("out"); fs::create_dir_all(&dest).unwrap();
+        fs::write(src.join("a.pdf"), b"pdf1").unwrap();
+        // 不在 dest 写文件 → verify_move 失败
+        let manifest = build_manifest(&src, &dest, &["a.pdf"]);
+        persist_previous_step(&kernel, &manifest);
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_repeat(&ctx, "prev-task").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("verify_move") || reason.contains("missing") || reason.contains("not found"),
+                    "got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn verify_task_repeat_fails_when_no_previous_manifest() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_repeat(&ctx, "nonexistent-task").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("no effect_manifest") || reason.contains("not found"),
+                    "got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod task_compensate_tests {
+    use super::*;
+    use crate::compensation::types::{CompensationLevel, ConflictPolicy};
+    use crate::kernel::TrustKernel;
+    use crate::repo::step_repo::StepRecord;
+    use crate::skills::common::create_post_commit_compensation;
+    use std::path::PathBuf;
+
+    /// Set up a previous task + step, then create a compensation record
+    /// for `target_step_id` with the given moved paths. Returns the comp_id.
+    /// The compensation record is initially "active".
+    fn setup_compensation(
+        kernel: &TrustKernel,
+        target_step_id: &str,
+        moved: &[(PathBuf, PathBuf)],
+    ) -> String {
+        kernel
+            .create_task("prev-task", "previous organize")
+            .unwrap();
+        kernel
+            .create_step(&StepRecord::new(target_step_id, "prev-task", 1))
+            .unwrap();
+        create_post_commit_compensation(
+            kernel,
+            target_step_id,
+            moved,
+            "filesystem.reverse_move",
+            CompensationLevel::Strong,
+            ConflictPolicy::AutoReverse,
+            3600,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn verify_task_compensate_strong_when_status_reversed_and_payload_nonempty() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let moved: Vec<(PathBuf, PathBuf)> = vec![
+            (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
+        ];
+        let comp_id = setup_compensation(&kernel, "prev-step", &moved);
+
+        // Mark the compensation as "reversed"(模拟 auto_reverse 已执行)。
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert_eq!(
+                    evidence.get("status").and_then(|v| v.as_str()),
+                    Some("reversed")
+                );
+                assert_eq!(
+                    evidence.get("moves_count").and_then(|v| v.as_u64()),
+                    Some(1)
+                );
+                assert_eq!(
+                    evidence.get("target_step_id").and_then(|v| v.as_str()),
+                    Some("prev-step")
+                );
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn verify_task_compensate_fails_when_status_active() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let moved: Vec<(PathBuf, PathBuf)> = vec![
+            (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
+        ];
+        // 创建后不调用 mark_compensation_status,status 仍为 "active"。
+        let _comp_id = setup_compensation(&kernel, "prev-step", &moved);
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(
+                    reason.contains("reversed") || reason.contains("status"),
+                    "expected 'reversed' or 'status' in reason, got: {}",
+                    reason
+                );
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn verify_task_compensate_fails_when_no_record_exists() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_compensate(&ctx, "nonexistent-step").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(
+                    reason.contains("no compensation") || reason.contains("not found"),
+                    "expected 'no compensation' or 'not found' in reason, got: {}",
+                    reason
+                );
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn verify_task_compensate_fails_when_payload_empty() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        // 创建带空 moves 的 compensation record(create_post_commit_compensation 允许空 moves)。
+        let moved: Vec<(PathBuf, PathBuf)> = vec![];
+        let comp_id = setup_compensation(&kernel, "prev-step", &moved);
+
+        // 标记为 reversed,但 reverse_payload 的 moves 数组为空。
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(
+                    reason.contains("moves") || reason.contains("empty"),
+                    "expected 'moves' or 'empty' in reason, got: {}",
+                    reason
+                );
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
     }
 }
