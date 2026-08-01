@@ -12,6 +12,11 @@ pub mod task_explain;
 pub mod task_repeat;
 pub mod user_loader;
 
+// W10 Plan 1: Strong Verifier 函数集合(6 个有副作用 Skill 的 verify 函数)。
+// files.organize 已在 W3a 实现 verify_move,task.explain 是只读 Skill(strategy="none"),
+// 均不在此模块。
+pub mod verifiers;
+
 // W8 Plan 1 Task 2: DAG orchestration core data structures (no business logic).
 pub mod dag_types;
 // W8 Plan 1 Task 3: SlotTemplateEngine — parse ${prev}/${user}/${item}/${step} placeholders.
