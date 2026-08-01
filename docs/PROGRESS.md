@@ -55,8 +55,16 @@
 | W8 Plan 5 | Tauri UI DAG 审批弹窗 + 历史查看 + task.explain 面板 + WCAG A 可访问性 | ✅ 已完成 | +14 tauri-gated 集成测试(w8_dag_commands_unit)+ 前端 Vitest 组件测试;default 总计 465 ≥ 286 阈值(Plan 5 测试全部 #[cfg(feature = "tauri")] 门控,不计入 default 统计) | 2026-07-28 | (工作区未提交) |
 | W8 Plan 6 | 端到端 DAG 集成验收:8 个 E2E 场景(LLM 拆解 + E3 审批 + 骨架 Deny + PartiallySucceeded + LLM 归因 + 循环 + 非法 skill_id + max_iter 截断) | ✅ 已完成 | +8 voice,llm-gated 端到端测试(w8_e2e_dag_smoke,scenarios 1-8);6 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告(default + voice,llm);npm build PASS;default 总计 465 ≥ 286 阈值(Plan 6 测试全部 `#[cfg(feature = "llm")]` / `#[cfg(feature = "voice")]` 门控,不计入 default 统计) | 2026-07-28 | (工作区未提交) |
 | W8 | Skill 编排 + DAG 调度器 | ✅ 已完成 | 6 个 Plan 全部完成(Plan 1 DAG 基础设施 + Plan 2 LLM Decompose + Plan 3 form.submit/task.explain LLM 增强 + Plan 4 Router Bridge + Plan 5 Tauri UI + Plan 6 端到端集成验收) | 2026-07-28 | (工作区未提交) |
+| W9 Plan 1 | Stronghold 加密快照 + 降级模式(spec §2.7) | ✅ 已完成 | StrongholdVault + EncryptedPayload + 降级模式 + 4 审计事件;stronghold feature gate | 2026-07-29 | (工作区未提交) |
+| W9 Plan 2 | Taint Tracking + Policy Gateway(spec §2.8) | ✅ 已完成 | TaintRepo + TaintRecord + check_taint_policy + 2 审计事件(taint_propagated / taint_blocked) | 2026-07-29 | (工作区未提交) |
+| W9 Plan 3 | DAG Modify + AutoApprover + 限制(spec §2.9) | ✅ 已完成 | DagApprovalOutcome::Modify + 2 审计事件(dag_skeleton_modified / dag_modify_limit_exceeded)+ 单次 Modify 限制 | 2026-07-29 | (工作区未提交) |
+| W9 Plan 4 | IterableSource::UserSlot + SlotExtractor(spec §2.10) | ✅ 已完成 | IterableSource::UserSlot 变体 + SlotExtractor 提取 + UserSlotNotFound 错误 | 2026-07-29 | (工作区未提交) |
+| W9 Plan 5 | 审计事件扩展 + 隐私脱敏(spec §6.4) | ✅ 已完成 | W9 7 种新审计事件 + details 字段隐私脱敏黑名单(password= / passwd= / secret= / api_key= / sk- / plaintext=) | 2026-07-29 | (工作区未提交) |
+| W9 Plan 6 | PostCommitCompensation + reverse 函数(spec §2.11) | ✅ 已完成 | create_post_commit_compensation + reverse_compensation + compensations 表 snapshot_encrypted / reverse_payload 列 + CWD_MUTEX 串行化 | 2026-07-29 | (工作区未提交) |
+| W9 Plan 7 | 集成验收 + Fitness Functions 闭合(spec §5) | ✅ 已完成 | +19 default 测试(w9_default_boundary_smoke 16 + w9_audit_chain_smoke 3 default-gated 2 + stronghold-gated 1);7 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告(default + 全特性);npm build PASS;非门控测试 506 ≥ 286;default cargo test 505 passed 0 failed | 2026-08-01 | (工作区未提交) |
+| W9 | Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收 | ✅ 已完成 | 7 个 Plan 全部完成(Plan 1 Stronghold + Plan 2 Taint + Plan 3 DAG Modify + Plan 4 UserSlot + Plan 5 审计扩展 + Plan 6 PostCommitCompensation + Plan 7 集成验收) | 2026-08-01 | (工作区未提交) |
 
-**累计测试数:** 465 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
+**累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
 ---
 
@@ -2538,6 +2546,111 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 
 ---
 
+### W9: Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收 ✅
+
+**W9 里程碑: ✅ 已完成(2026-08-01)** — 7 个 Plan 全部完成,spec §2.7-§2.11 + §5 Fitness Functions + §6.4 审计扩展全链路闭合。
+
+#### W9 Plan 1: Stronghold 加密快照 + 降级模式(spec §2.7)✅
+
+- `StrongholdVault` + `EncryptedPayload`(snapshot_encrypted / snapshot_vault_ref 列)
+- 降级模式(`StrongholdVault::degraded()` + `is_unlocked()` + `decrypt()` 返回 `NotUnlocked`)
+- 4 审计事件:`stronghold_snapshot_encrypted` / `stronghold_degraded_mode_entered` / `stronghold_snapshot_decrypt_failed` / `stronghold_vault_unlocked`
+- `stronghold` feature gate(`tauri-plugin-stronghold` + `iota_stronghold` + `argon2` + `rand` + `zeroize`)
+- default 组合:`snapshot_encrypted` 为 None + `stronghold_enabled()` 为 false + `reverse_payload` 保留明文
+
+#### W9 Plan 2: Taint Tracking + Policy Gateway(spec §2.8)✅
+
+- `TaintRepo` + `TaintRecord`(taint_id / value_hash / provenance / taints / collected_at / source_ref)
+- `check_taint_policy(conn, value_hash, egress_dest)` + `EgressDest::ToolArgument` 变体
+- 2 审计事件:`taint_propagated` / `taint_blocked`
+- 空 taints 表 gateway 放行 + `find_by_value` 查不存在返回 None
+
+#### W9 Plan 3: DAG Modify + AutoApprover + 限制(spec §2.9)✅
+
+- `DagApprovalOutcome::Modify { modified_plan }` 变体
+- `AutoApprover` 不触发 Modify(只 Allow / Deny)
+- 单次 Modify 限制(第二次返回 `DagModifyLimitExceeded`)
+- 2 审计事件:`dag_skeleton_modified` / `dag_modify_limit_exceeded`
+- 完整 Modify→Allow→Execute 闭环
+
+#### W9 Plan 4: IterableSource::UserSlot + SlotExtractor(spec §2.10)✅
+
+- `IterableSource::UserSlot { slot_kind }` 变体
+- `SlotExtractor` 提取 + `UserSlotNotFound` 错误
+- 空 user_slots 不 panic + 引用但空 slots 返回 UserSlotNotFound
+
+#### W9 Plan 5: 审计事件扩展 + 隐私脱敏(spec §6.4)✅
+
+- W9 7 种新审计事件命名合规(lower_snake_case):
+  - `stronghold_snapshot_encrypted` / `stronghold_snapshot_decrypt_failed` / `stronghold_degraded_mode_entered`
+  - `taint_propagated` / `taint_blocked`
+  - `dag_skeleton_modified` / `dag_modify_limit_exceeded`
+- details 字段隐私脱敏黑名单(`password=` / `passwd=` / `secret=` / `api_key=` / `sk-` / `plaintext=`)
+
+#### W9 Plan 6: PostCommitCompensation + reverse 函数(spec §2.11)✅
+
+- `create_post_commit_compensation(kernel, step_id, moved_paths, compensate_fn, level, conflict_policy, ttl) -> Result<String>`
+- `reverse_compensation` 函数 + `compensations` 表(`snapshot_encrypted` BLOB / `snapshot_vault_ref` TEXT / `reverse_payload` TEXT DEFAULT '')
+- CWD_MUTEX 串行化避免并行测试 race
+- 2 个 `#[ignore]` 真实 E2E 测试已注册
+- 短路 passing 模式无 GUI 机器跑测试不 FAIL
+
+#### W9 Plan 7: 集成验收 + Fitness Functions 闭合(spec §5)✅
+
+**新增测试文件:**
+- `voicepilot/crates/trust-kernel/tests/w9_default_boundary_smoke.rs`(16 个 default 组合边界用例)
+- `voicepilot/crates/trust-kernel/tests/w9_audit_chain_smoke.rs`(3 个哈希链 + 隐私脱敏测试,2 default-gated + 1 stronghold-gated)
+
+**源码补丁(Plan Step 0 / Step 13 明确要求):**
+- `voicepilot/crates/trust-kernel/src/skills/dag_types.rs` 新增:
+  - `DagStatus::transition(from, to) -> bool`(合法状态转换:Pending→Running / Running→{Succeeded, Failed, Cancelled, PartiallySucceeded})
+  - `DagPlan::validate(&self) -> Result<(), String>`(聚合校验:空 nodes 检查 + 4 个分项校验)
+
+**Fitness Functions 验收结果(spec §5):**
+- ✅ 7 套 feature 组合 cargo check 全 PASS:
+  1. `--no-default-features`
+  2. `--features llm`
+  3. `--features tauri`(workspace 级,ui crate)
+  4. `--features voice,tauri`
+  5. `--features voice,tauri,llm`
+  6. `--features voice,tauri,llm,uia`
+  7. `--features voice,tauri,llm,uia,stronghold`
+  - 补充:`--features stronghold`(trust-kernel 独立 feature 验证)
+- ✅ clippy `-D warnings` 0 警告(2 套组合:default + 全特性 voice,tauri,llm,uia,stronghold)
+  - 修复 1 处 `match_like_matches_macro` lint(`DagStatus::transition` 改用 `matches!` 宏)
+- ✅ npm build PASS(`tsc && vite build`,crates/ui/web)
+- ✅ 非门控测试数 506 ≥ 286 阈值(`cargo test --list --format terse` 统计)
+- ✅ default `cargo test --workspace --no-default-features`:505 passed, 0 failed, 1 ignored
+- ✅ trust-kernel lib 单 crate 测试:
+  - default:141 passed
+  - `--features llm`:157 passed
+  - `--features stronghold`:157 passed
+- ⚠️ 全特性组合 `--features voice,llm,uia,stronghold`:212 passed, 1 failed
+  - 失败项:`test_research_save_success_writes_markdown_file`(W6 遗留环境依赖测试,需 Python + 网络访问 `Example Domain`,与 W9 无关,记录为已知偏离)
+- ✅ 前端 vitest:17 passed(NodeEditor 4 + DagApprovalDialog.modify 4 + DagApprovalDialog 9)
+
+**测试矩阵覆盖(W9 Plan 7 Task 1 八组边界):**
+- A 组(3):Stronghold feature off 行为
+- B 组(2):空 taints 表 gateway 放行
+- C 组(3):DAG Modify 限制 + 闭环
+- D 组(2):IterableSource::UserSlot 边界
+- E 组(2):审计事件命名一致性(W9 新增 + W1-W8 遗留白名单)
+- F 组(2):DagStatus 状态转换合法性
+- G 组(1):DagPlan::validate 空 nodes
+- H 组(1):topological_sort 空图
+
+**已知偏离(W9 Plan 7 发现):**
+1. **W1-W8 遗留 SCREAMING_SNAKE_CASE 审计事件**(7 种):`TASK_CREATED` / `STEP_CREATED` / `COMPENSATION_CREATED` / `COMPENSATION_STATUS_CHANGED` / `APPROVAL_RECORDED` / `MCP_TOOLS_CALL` / `MCP_CALL_FAILED`。spec §10 Conventions 要求 lower_snake_case,但按 Plan §Conventions "不修改 spec / 已有 plan,记录到 PROGRESS.md 已知偏离"原则,不强制改名(会破坏 W1-W8 测试)。W9 新增 7 种事件全部 lower_snake_case 合规。`w9_default_boundary_smoke.rs::audit_event_types_all_lower_snake_case` 测试已加 legacy 白名单。
+2. **`test_research_save_success_writes_markdown_file` 环境依赖失败**(全特性组合):W6 遗留测试,依赖 Python + 网络访问 `Example Domain`,在无 Python / 无网络环境失败。与 W9 无关,非 W9 回归。
+3. **PowerShell ExecutionPolicy 环境修复**:W9 Plan 7 执行期间发现系统 PowerShell 执行策略为 `Restricted`(禁止 .ps1 脚本),导致 trae-agent-toolhost 命令包装失败。用户手动修复为 `RemoteSigned -Scope CurrentUser` 后继续。记录为环境配置问题,非代码问题。
+4. **Windows 页面文件不足**(os error 1455):全量 `cargo test --workspace --features voice,tauri,llm,uia,stronghold` 时 link.exe 内存爆炸。改用 `cargo test -p trust-kernel --lib --features ...` 单 crate 验证规避。建议用户增加 Windows 页面文件大小或关闭其他内存占用程序。
+
+**下游依赖:**
+- W9 完成,spec §2.7-§2.11 + §5 + §6.4 全部闭合
+- W10+ 可基于 W9 的 Stronghold / Taint / DAG Modify / UserSlot / PostCommitCompensation 基础设施继续
+
+---
+
 ## 三、当前 master 状态确认
 
 ### 测试与构建
@@ -2685,7 +2798,7 @@ W8 里程碑: ✅ 已完成(2026-07-28)— 6 个 Plan 全部完成,累计新增 
 
 ## 四、未完成工作(明天起点)
 
-### 4.1 立即任务:W8 已完成,W9+ 待启动
+### 4.1 立即任务:W9 已完成,W10+ 待启动
 
 **W7 系列已完成(2026-07-26):** W7 Plan 1 LLM Planner 基础 → Plan 2 3 个新 fs Skill → Plan 3 用户自定义 Skill → Plan 4 Windows UIA 自动化 → Plan 5 Playwright MCP 浏览器自动化 → **Plan 6 集成测试 + 验收门禁**。6 个 Plan 累计 ~60+ commit,W7 全部 acceptance gates 闭合(编译 / 测试 / clippy / npm build)。
 
@@ -2702,6 +2815,12 @@ W8 里程碑: ✅ 已完成(2026-07-28)— 6 个 Plan 全部完成,累计新增 
 **W8 Plan 6 已完成(2026-07-28):** 端到端 DAG 集成验收 8 个 E2E 场景(LLM 拆解 + E3 审批 + 骨架 Deny + PartiallySucceeded + LLM 归因 + 循环 + 非法 skill_id + max_iter 截断),6 套 feature 组合 cargo check 全 PASS,clippy `-D warnings` 0 警告(default + voice,llm),npm build PASS,工作区未提交。详见 §二 W8 Plan 6 段落。
 
 **W8 里程碑: ✅ 已完成(2026-07-28)** — 6 个 Plan 全部完成,累计新增 218 测试,DAG 编排 + LLM 拆解 + UI 审批 + 端到端验收全链路闭合。
+
+**W9 Plan 1-6 已完成(2026-07-29):** Stronghold 加密快照 + Taint Tracking + DAG Modify + IterableSource::UserSlot + 审计事件扩展 + PostCommitCompensation,7 个 Plan 累计完成,spec §2.7-§2.11 + §6.4 审计扩展全链路闭合。详见 §二 W9 段落。
+
+**W9 Plan 7 已完成(2026-08-01):** 集成验收 + Fitness Functions 闭合(spec §5),新增 19 个测试(w9_default_boundary_smoke 16 + w9_audit_chain_smoke 3),7 套 feature 组合 cargo check 全 PASS,clippy `-D warnings` 0 警告(default + 全特性),npm build PASS,非门控测试 506 ≥ 286,default cargo test 505 passed 0 failed。详见 §二 W9 Plan 7 段落。
+
+**W9 里程碑: ✅ 已完成(2026-08-01)** — 7 个 Plan 全部完成,累计新增 19 测试(Plan 1-6 测试在各自 feature gate 下,Plan 7 新增 19 default-gated),Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收全链路闭合。spec §2.7-§2.11 + §5 Fitness Functions + §6.4 审计扩展全部闭合。
 
 **用户决策(2026-07-26)项目永久约束:**
 - **Windows-only:** 永久不支持 macOS / Linux(已删除 `fs_snapshot.rs` unix fallback,非 Windows 平台无法编译)

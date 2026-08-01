@@ -3,25 +3,13 @@ import { approveDagSkeleton } from "../api";
 import type {
   DagApprovalDecision,
   DagApprovalRequestPayload,
-  DagEdge,
   DagNode,
 } from "../types";
+import { NodeEditor } from "./NodeEditor";
 
 interface Props {
   payload: DagApprovalRequestPayload;
   onDismiss: () => void;
-}
-
-/** 从 plan_json 解析 nodes + edges(后端 emit 的 plan_json 是序列化的 DagPlan)。 */
-function parsePlanJson(planJson: unknown): { nodes: DagNode[]; edges: DagEdge[] } {
-  if (typeof planJson !== "object" || planJson === null) {
-    return { nodes: [], edges: [] };
-  }
-  const plan = planJson as { nodes?: DagNode[]; edges?: DagEdge[] };
-  return {
-    nodes: plan.nodes ?? [],
-    edges: plan.edges ?? [],
-  };
 }
 
 /** 风险徽章颜色:E0=灰 / E1=蓝 / E2=琥珀 / E3=红(参考 UI 设计要求)。 */
@@ -55,6 +43,9 @@ function renderTemplatePreview(inputTemplateJson: string): string {
 export function DagApprovalDialog({ payload, onDismiss }: Props): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingMode, setEditingMode] = useState(false);
+  const [editedNodes, setEditedNodes] = useState<DagNode[]>(() => payload.plan_json.nodes);
+  const [invalidNodeIds, setInvalidNodeIds] = useState<Set<string>>(new Set());
   const submittedRef = useRef(false);
   const allowBtnRef = useRef<HTMLButtonElement>(null);
   const {
@@ -65,13 +56,37 @@ export function DagApprovalDialog({ payload, onDismiss }: Props): JSX.Element {
     node_count,
     plan_json,
   } = payload;
-  const { nodes, edges } = parsePlanJson(plan_json);
+  const { nodes, edges } = plan_json;
 
   async function decide(decision: DagApprovalDecision): Promise<void> {
     setSubmitting(true);
     setError(null);
     try {
       await approveDagSkeleton(approval_request_id, decision);
+      submittedRef.current = true;
+      onDismiss();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** W9 Plan 4:提交 Modify 决策 + 编辑后的节点列表。 */
+  async function handleModifySubmit(): Promise<void> {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const modifiedPlan = {
+        plan_id,
+        user_goal,
+        nodes: editedNodes,
+        edges,
+        loop_specs: {},
+        max_total_steps,
+      };
+      await approveDagSkeleton(approval_request_id, "modify", modifiedPlan);
       submittedRef.current = true;
       onDismiss();
     } catch (e) {
@@ -151,30 +166,87 @@ export function DagApprovalDialog({ payload, onDismiss }: Props): JSX.Element {
             role="group"
             aria-label="DAG 节点列表"
           >
-            <h3 className="dag-section-title">节点({nodes.length})</h3>
+            <h3 className="dag-section-title">
+              节点({editingMode ? editedNodes.length : nodes.length})
+            </h3>
             <div className="dag-nodes-list">
-              {nodes.map((node) => (
-                <div key={node.node_id} className="dag-node-card">
-                  <div className="dag-node-header">
-                    <span className="dag-node-id mono">{node.node_id}</span>
-                    <span className="dag-node-skill mono">{node.skill_id}</span>
-                    <span
-                      className={riskBadgeClass(node.risk_ceiling)}
-                      aria-label={`风险等级 ${node.risk_ceiling}`}
-                    >
-                      {node.risk_ceiling}
-                    </span>
-                  </div>
-                  <div className="dag-node-body">
-                    <details className="dag-template-preview">
-                      <summary className="dag-summary">输入模板</summary>
-                      <pre className="dag-template-code mono">
-                        {renderTemplatePreview(node.input_template_json)}
-                      </pre>
-                    </details>
-                  </div>
-                </div>
-              ))}
+              {!editingMode
+                ? nodes.map((node) => (
+                    <div key={node.node_id} className="dag-node-card">
+                      <div className="dag-node-header">
+                        <span className="dag-node-id mono">{node.node_id}</span>
+                        <span className="dag-node-skill mono">{node.skill_id}</span>
+                        <span
+                          className={riskBadgeClass(node.risk_ceiling)}
+                          aria-label={`风险等级 ${node.risk_ceiling}`}
+                        >
+                          {node.risk_ceiling}
+                        </span>
+                      </div>
+                      <div className="dag-node-body">
+                        <details className="dag-template-preview">
+                          <summary className="dag-summary">输入模板</summary>
+                          <pre className="dag-template-code mono">
+                            {renderTemplatePreview(node.input_template_json)}
+                          </pre>
+                        </details>
+                      </div>
+                    </div>
+                  ))
+                : editedNodes.map((node) => (
+                    <NodeEditor
+                      key={node.node_id}
+                      node={node}
+                      onChange={(updated) =>
+                        setEditedNodes((prev) =>
+                          prev.map((n) => (n.node_id === updated.node_id ? updated : n))
+                        )
+                      }
+                      onDelete={() =>
+                        setEditedNodes((prev) =>
+                          prev.filter((n) => n.node_id !== node.node_id)
+                        )
+                      }
+                      onValidityChange={(valid) =>
+                        setInvalidNodeIds((prev) => {
+                          const next = new Set(prev);
+                          if (valid) next.delete(node.node_id);
+                          else next.add(node.node_id);
+                          return next;
+                        })
+                      }
+                    />
+                  ))}
+              {editingMode && (
+                <button
+                  type="button"
+                  className="btn btn-secondary dag-add-node-btn"
+                  onClick={() =>
+                    setEditedNodes((prev) => [
+                      ...prev,
+                      {
+                        node_id: `n${prev.length + 1}_${Date.now()}`,
+                        skill_id: "note.capture",
+                        risk_ceiling: "E1",
+                        status: "pending" as const,
+                        input_template_json: JSON.stringify({
+                          kind: "text",
+                          template: { Literal: "" },
+                        }),
+                        output_json: null,
+                        error_message: null,
+                        task_id: null,
+                        step_id: null,
+                        started_at: null,
+                        completed_at: null,
+                      },
+                    ])
+                  }
+                  aria-label="添加新节点"
+                >
+                  + 添加节点
+                </button>
+              )}
             </div>
           </div>
 
@@ -209,34 +281,59 @@ export function DagApprovalDialog({ payload, onDismiss }: Props): JSX.Element {
         </div>
 
         <div className="modal-footer">
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={() => decide("deny")}
-            disabled={submitting}
-            aria-label="拒绝 DAG 执行"
-          >
-            拒绝(Deny)
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled
-            aria-disabled="true"
-            title="W9+ 实现"
-          >
-            调整(Modify)· W9+
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            ref={allowBtnRef}
-            onClick={() => decide("allow")}
-            disabled={submitting}
-            aria-label="允许 DAG 执行"
-          >
-            允许(Allow)
-          </button>
+          {!editingMode ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => decide("deny")}
+                disabled={submitting}
+                aria-label="拒绝 DAG 执行"
+              >
+                拒绝(Deny)
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setEditingMode(true)}
+                disabled={submitting}
+                aria-label="调整 DAG 节点"
+              >
+                调整(Modify)
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                ref={allowBtnRef}
+                onClick={() => decide("allow")}
+                disabled={submitting}
+                aria-label="允许 DAG 执行"
+              >
+                允许(Allow)
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setEditingMode(false)}
+                disabled={submitting}
+                aria-label="取消编辑"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleModifySubmit}
+                disabled={submitting || invalidNodeIds.size > 0}
+                aria-label="提交修改后的 DAG"
+              >
+                提交修改
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

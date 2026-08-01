@@ -24,26 +24,47 @@ const mockPayload: DagApprovalRequestPayload = {
   max_total_steps: 5,
   node_count: 2,
   plan_json: {
+    plan_id: "plan_test_001",
+    user_goal: "打开记事本写 TODO 然后保存到桌面",
     nodes: [
       {
         node_id: "n1",
         skill_id: "note.capture",
         risk_ceiling: "E1",
-        input_template: { kind: "text", template: { kind: "literal", Literal: "notepad" } },
+        status: "pending",
+        input_template_json: JSON.stringify({
+          kind: "text",
+          template: { kind: "literal", Literal: "notepad" },
+        }),
+        output_json: null,
+        error_message: null,
+        task_id: null,
+        step_id: null,
+        started_at: null,
+        completed_at: null,
       },
       {
         node_id: "n2",
         skill_id: "files.move",
         risk_ceiling: "E2",
-        input_template: {
+        status: "pending",
+        input_template_json: JSON.stringify({
           kind: "path",
           template: { kind: "var", Var: { scope: "prev", path: "output.path" } },
-        },
+        }),
+        output_json: null,
+        error_message: null,
+        task_id: null,
+        step_id: null,
+        started_at: null,
+        completed_at: null,
       },
     ],
     edges: [
       { from: "n1", to: "n2", port_binding: "output.path -> input.source" },
     ],
+    loop_specs: {},
+    max_total_steps: 5,
   },
 };
 
@@ -119,12 +140,18 @@ describe("DagApprovalDialog", () => {
     });
   });
 
-  it("Modify button is disabled", () => {
+  it("Modify button is enabled and enters editing mode on click", async () => {
+    const user = userEvent.setup();
     render(<DagApprovalDialog payload={mockPayload} onDismiss={() => {}} />);
 
-    const modifyBtn = screen.getByRole("button", { name: /调整.*Modify/i });
-    expect(modifyBtn).toBeDisabled();
-    expect(modifyBtn).toHaveAttribute("aria-disabled", "true");
+    const modifyBtn = screen.getByRole("button", { name: /调整 DAG 节点/i });
+    expect(modifyBtn).not.toBeDisabled();
+
+    await user.click(modifyBtn);
+
+    // 进入编辑模式后,footer 切换为 "提交修改" / "取消"
+    expect(screen.getByRole("button", { name: /提交修改后的 DAG/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /取消编辑/i })).toBeInTheDocument();
   });
 
   it("Esc key triggers onDismiss (which sends deny via cleanup effect)", async () => {

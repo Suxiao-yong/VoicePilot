@@ -7,6 +7,7 @@ import type {
   DagApprovalDecision,
   DagApprovalRequestPayload,
   DagPlanDetail,
+  DagPlanFull,
   DagPlanSummary,
   DagStatusFilter,
   DiffResult,
@@ -201,11 +202,13 @@ export async function invokeListUserSkills(): Promise<UserSkill[]> {
 /** 提交 DAG 骨架审批决策。 */
 export async function approveDagSkeleton(
   approvalRequestId: string,
-  decision: DagApprovalDecision
+  decision: DagApprovalDecision,
+  modifiedPlan?: DagPlanFull
 ): Promise<boolean> {
   return invoke<boolean>("approve_dag_skeleton_command", {
     approvalRequestId,
     decision,
+    modifiedPlan,
   });
 }
 

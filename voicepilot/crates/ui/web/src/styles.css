@@ -1074,6 +1074,74 @@ html, body, #root {
   justify-content: flex-end;
 }
 
+/* ===== W9 Plan 4: NodeEditor 样式 ===== */
+
+.dag-node-editor {
+  border: 1px solid var(--border);
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--bg-deep);
+}
+
+.dag-node-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dag-node-editor-header input {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.dag-node-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.dag-node-editor-field select,
+.dag-node-editor-field input {
+  padding: 4px 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.dag-template-textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  resize: vertical;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+.dag-add-node-btn {
+  margin-top: 8px;
+}
+
+.dag-delete-node-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.dag-template-invalid {
+  border-color: var(--danger);
+}
+
+.dag-template-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
 /* ===== W8 Plan 5: DAG 历史视图 ===== */
 
 .dag-history {

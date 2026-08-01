@@ -261,7 +261,17 @@ export interface DagApprovalRequestPayload {
   user_goal: string;
   max_total_steps: number;
   node_count: number;
-  plan_json: unknown; // 序列化的 DagPlan
+  plan_json: DagPlanFull;
+}
+
+/** W9 Plan 4:完整 DagPlan(供 Modify 时构造 modified_plan 用)。 */
+export interface DagPlanFull {
+  plan_id: string;
+  user_goal: string;
+  nodes: DagNode[];
+  edges: DagEdge[];
+  loop_specs: Record<string, unknown>;
+  max_total_steps: number;
 }
 
 /** W8 §2.7:DAG 审批决策。 */

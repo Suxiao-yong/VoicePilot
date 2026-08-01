@@ -86,7 +86,7 @@ fn modify_then_approve_allow_runs_modified_plan() {
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
-    let result = executor.run(&original_plan).unwrap();
+    let result = executor.run(&original_plan, &[]).unwrap();
 
     // 验证:DagStatus::Succeeded(modified_plan 被执行)
     assert!(matches!(result.status, trust_kernel::skills::dag_types::DagStatus::Succeeded),
@@ -122,7 +122,7 @@ fn modify_with_invalid_modified_plan_fails_validation() {
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
-    let result = executor.run(&original_plan);
+    let result = executor.run(&original_plan, &[]);
 
     // 验证:返回 Err(KernelError::Skill("modified_plan validate_dag failed: ..."))
     assert!(result.is_err(), "expected Err for invalid modified_plan");
@@ -157,7 +157,7 @@ fn modify_with_escalated_risk_ceiling_rejected() {
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
-    let result = executor.run(&original_plan);
+    let result = executor.run(&original_plan, &[]);
 
     // 验证:返回 Err(KernelError::Skill("risk ceiling escalated ..."))
     assert!(result.is_err(), "expected Err for escalated risk_ceiling");
@@ -185,7 +185,7 @@ fn second_modify_returns_dag_modify_limit_exceeded() {
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
-    let result = executor.run(&original_plan);
+    let result = executor.run(&original_plan, &[]);
 
     assert!(result.is_err(), "expected Err for second Modify");
     match result.unwrap_err() {
@@ -228,7 +228,7 @@ fn modify_emits_complete_audit_events() {
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
-    let _ = executor.run(&original_plan).unwrap();
+    let _ = executor.run(&original_plan, &[]).unwrap();
 
     // 验证审计链(顺序)— audit_logs 表用 timestamp 列(非 created_at)
     let conn = kernel.conn();
@@ -264,4 +264,40 @@ fn modify_emits_complete_audit_events() {
     assert!(details.get("input_template").is_none(), "details must not contain input_template field, got: {}", details_str);
     assert!(details.get("nodes").is_none(), "details must not contain nodes field (may contain input_template in nodes), got: {}", details_str);
     assert!(details.get("modified_node_count").is_some(), "details must contain modified_node_count, got: {}", details_str);
+}
+
+#[test]
+fn modify_then_deny_cancels_dag() {
+    let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
+    let dag_repo = Arc::new(DagRepo::new());
+
+    let original_node = literal_text_node("n1", "task.explain", "5");
+    let original_plan = one_node_plan("w9p4-modify-deny", original_node);
+
+    let modified_plan = original_plan.clone();
+
+    // 第一次 Modify → 第二次 Deny
+    let approver = Arc::new(ScriptedApprover::new(vec![
+        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
+        DagApprovalOutcome::Deny,
+    ]));
+
+    let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
+    let result = executor.run(&original_plan, &[]).unwrap();
+
+    // 验证:DagStatus::Cancelled
+    assert!(matches!(result.status, trust_kernel::skills::dag_types::DagStatus::Cancelled),
+        "expected Cancelled, got {:?}", result.status);
+
+    // 验证审计:dag_completed(final_status=cancelled) 存在
+    // W9 修复(P2-20):用 json_extract 替代 details LIKE,避免 JSON 字段顺序/转义导致 LIKE 失败
+    let conn = kernel.conn();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM audit_logs WHERE event_type = 'dag_completed' AND json_extract(details, '$.final_status') = 'cancelled'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "dag_completed(cancelled) audit event must be emitted");
 }

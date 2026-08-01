@@ -116,6 +116,28 @@ impl DagStatus {
             _ => None,
         }
     }
+
+    /// W9 Plan 7: 检查从 from 到 to 的状态转换是否合法(spec §2.7 状态机)。
+    ///
+    /// 合法转换:
+    /// - Pending → Running
+    /// - Running → Succeeded
+    /// - Running → Failed
+    /// - Running → Cancelled
+    ///
+    /// 终态(Succeeded / Failed / PartiallySucceeded / Cancelled)不可逆。
+    /// 返回 true=合法,false=非法。
+    pub fn transition(from: &DagStatus, to: &DagStatus) -> bool {
+        use DagStatus::*;
+        matches!(
+            (from, to),
+            (Pending, Running)
+                | (Running, Succeeded)
+                | (Running, Failed { .. })
+                | (Running, Cancelled)
+                | (Running, PartiallySucceeded { .. })
+        )
+    }
 }
 
 /// DAG 节点执行状态。
@@ -229,6 +251,22 @@ impl DagPlan {
                 return Err(format!("loop_spec key {} not in nodes", node_id));
             }
         }
+        Ok(())
+    }
+
+    /// W9 Plan 7: 聚合校验 — 空 DAG 不合法 + 所有分项校验通过。
+    ///
+    /// spec §2.7 边界:空 nodes 的 DagPlan 不合法(至少需要一个节点)。
+    /// 分项校验:validate_total_steps + validate_loop_iterations +
+    /// validate_edges + validate_loop_specs。
+    pub fn validate(&self) -> Result<(), String> {
+        if self.nodes.is_empty() {
+            return Err("DagPlan nodes is empty: empty DAG is not allowed".to_string());
+        }
+        self.validate_total_steps()?;
+        self.validate_loop_iterations()?;
+        self.validate_edges()?;
+        self.validate_loop_specs()?;
         Ok(())
     }
 }
