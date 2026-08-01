@@ -53,6 +53,40 @@ pub fn reverse_note_capture(_kernel: &TrustKernel, rec: &CompensationRecord) -> 
     Ok(())
 }
 
+/// reverse_research_save — 删除 research.save_markdown 写入的文件。
+///
+/// reverse_payload JSON 结构: `{"save_path": "<path>"}`
+///
+/// 与 reverse_note_capture 结构相同,独立实现以便单独注册与测试。
+/// 文件不存在 → Ok(())(idempotent)。
+pub fn reverse_research_save(_kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
+    let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
+        KernelError::Compensation(format!("reverse_research_save: invalid reverse_payload: {}", e))
+    })?;
+    let save_path = payload
+        .get("save_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            KernelError::Compensation(
+                "reverse_research_save: reverse_payload missing 'save_path'".to_string(),
+            )
+        })?;
+
+    let path = Path::new(save_path);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    std::fs::remove_file(path).map_err(|e| {
+        KernelError::Compensation(format!(
+            "reverse_research_save: failed to delete {}: {}",
+            save_path, e
+        ))
+    })?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod note_capture_reverse_tests {
     use super::*;
@@ -132,5 +166,67 @@ mod note_capture_reverse_tests {
             "expected 'invalid reverse_payload' in error, got: {}",
             err
         );
+    }
+}
+
+#[cfg(test)]
+mod research_save_reverse_tests {
+    use super::*;
+    use crate::compensation::types::{CompensationLevel, ConflictPolicy};
+    use crate::kernel::TrustKernel;
+
+    fn make_rec(payload: &str) -> CompensationRecord {
+        CompensationRecord {
+            comp_id: format!("comp-{}", uuid::Uuid::new_v4()),
+            step_id: "s1".to_string(),
+            level: CompensationLevel::Strong,
+            snapshot_encrypted: None,
+            ttl_expires: "2030-01-01T00:00:00Z".to_string(),
+            status: "active".to_string(),
+            snapshot_vault_ref: None,
+            conflict_policy: ConflictPolicy::AutoReverse,
+            compensate_fn: "research.reverse_save".to_string(),
+            reverse_payload: payload.to_string(),
+        }
+    }
+
+    fn tmp_md_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "voicepilot-w10p2-reverse-research-{}.md",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[test]
+    fn reverse_research_save_deletes_existing_file() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_md_path();
+        std::fs::write(&path, b"# Example\n\ncontent").unwrap();
+
+        let payload = serde_json::json!({"save_path": path.to_string_lossy()}).to_string();
+        let rec = make_rec(&payload);
+        reverse_research_save(&kernel, &rec).unwrap();
+
+        assert!(!path.exists(), "markdown file must be deleted after reverse");
+    }
+
+    #[test]
+    fn reverse_research_save_idempotent_when_file_missing() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_md_path();
+
+        let payload = serde_json::json!({"save_path": path.to_string_lossy()}).to_string();
+        let rec = make_rec(&payload);
+        let result = reverse_research_save(&kernel, &rec);
+        assert!(result.is_ok(), "reverse must succeed when file already deleted");
+    }
+
+    #[test]
+    fn reverse_research_save_fails_when_payload_missing_save_path() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = make_rec(r#"{"other": "value"}"#);
+        let result = reverse_research_save(&kernel, &rec);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing 'save_path'"));
     }
 }
