@@ -96,10 +96,12 @@ fn e2e_files_organize_then_repeat_verified_then_compensate() {
         .expect("task.repeat_verified must succeed");
     assert_eq!(result2, task2);
 
-    // Step 2 record: Succeeded with weak evidence (read-only).
+    // Step 2 record: Succeeded with strong evidence.
+    // W10 Plan 1: task.repeat_verified verifier strategy 升级为 "strong"
+    // (verify_task_repeat 重读 sha256+size),evidence_strength 跟随升级。
     let step2_rec = kernel.get_step(&step2).unwrap().unwrap();
     assert_eq!(step2_rec.status, StepStatus::Succeeded);
-    assert_eq!(step2_rec.evidence_strength.as_deref(), Some("weak"));
+    assert_eq!(step2_rec.evidence_strength.as_deref(), Some("strong"));
 
     // ===== Step 3: task.compensate reverses step 1's move =====
     let task3 = "e2e-task-3".to_string();
