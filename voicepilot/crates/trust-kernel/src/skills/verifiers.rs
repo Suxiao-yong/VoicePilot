@@ -50,13 +50,50 @@ impl VerificationOutcome {
     }
 }
 
-/// verify_note_capture — 重读 save_path 文件存在 + sha256 匹配 content。
+/// verify_note_capture — 重读 save_path 文件存在 + sha256 匹配 expected_content。
+///
+/// spec §6.3 Strong Verifier:commit 后重读真实文件,计算 sha256 + size,
+/// 与 expected_content 的 sha256 比较。匹配 → Strong;不匹配 / 文件不存在 → Failed。
 pub fn verify_note_capture(
     _ctx: &VerificationContext<'_>,
-    _save_path: &str,
-    _expected_content: &str,
+    save_path: &str,
+    expected_content: &str,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 2 implements verify_note_capture")
+    use sha2::{Digest, Sha256};
+    use std::path::Path;
+
+    let path = Path::new(save_path);
+    if !path.exists() {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!("note file not found at {}", save_path),
+        });
+    }
+
+    let on_disk = std::fs::read(path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&on_disk);
+    let actual_sha = format!("{:x}", hasher.finalize());
+
+    let mut expected_hasher = Sha256::new();
+    expected_hasher.update(expected_content.as_bytes());
+    let expected_sha = format!("{:x}", expected_hasher.finalize());
+
+    if actual_sha != expected_sha {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!(
+                "sha256 mismatch: expected {} got {}",
+                expected_sha, actual_sha
+            ),
+        });
+    }
+
+    Ok(VerificationOutcome::Strong {
+        evidence: serde_json::json!({
+            "save_path": save_path,
+            "sha256": actual_sha,
+            "size": on_disk.len(),
+        }),
+    })
 }
 
 /// verify_research_save — 重读 save_path 文件存在 + size > 0。
@@ -102,4 +139,74 @@ pub fn verify_task_compensate(
 #[cfg(test)]
 mod tests {
     // 单元测试在 Task 2-7 各自添加。
+}
+
+#[cfg(test)]
+mod note_capture_tests {
+    use super::*;
+
+    fn tmp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "voicepilot-w10p1-verify-note-{}.txt",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[test]
+    fn verify_note_capture_strong_when_sha256_matches() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path();
+        let content = "hello notepad";
+        std::fs::write(&path, content.as_bytes()).unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), content).unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert!(evidence.get("sha256").is_some(), "evidence must contain sha256");
+                assert!(evidence.get("size").is_some(), "evidence must contain size");
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn verify_note_capture_fails_when_file_missing() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path(); // 不创建文件
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), "any").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("not found") || reason.contains("missing"),
+                    "expected 'not found' or 'missing' in reason, got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn verify_note_capture_fails_when_sha256_mismatches() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path();
+        std::fs::write(&path, b"different content").unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), "expected content").unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("sha256") || reason.contains("mismatch"),
+                    "expected 'sha256' or 'mismatch' in reason, got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+
+        std::fs::remove_file(&path).ok();
+    }
 }
