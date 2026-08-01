@@ -102,7 +102,7 @@ async fn e2e_single_node_dag_succeeds() {
         .expect("LLM decompose should succeed");
 
     // Step 2: DagExecutor 执行
-    let result = executor.run(&dag).unwrap();
+    let result = executor.run(&dag, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
     let n1 = result.node_results.get("n1").expect("n1 must be in node_results");
     assert!(n1.is_succeeded(), "n1 should be Succeeded, got: {:?}", n1);
@@ -137,7 +137,7 @@ async fn e2e_two_node_dag_succeeds_in_topo_order() {
         .decompose_to_dag("explain 5 then 10", &candidate_skills(), &[])
         .await
         .expect("LLM decompose should succeed");
-    let result = executor.run(&dag).unwrap();
+    let result = executor.run(&dag, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
     assert_eq!(result.node_results.len(), 2, "both nodes must be in results");
     assert!(
@@ -175,7 +175,7 @@ async fn e2e_deny_short_circuits_zero_node_execution() {
         .decompose_to_dag("explain", &candidate_skills(), &[])
         .await
         .expect("LLM decompose should succeed (Deny happens at executor, not LLM)");
-    let result = executor.run(&dag).unwrap();
+    let result = executor.run(&dag, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Cancelled);
     assert!(
         result.node_results.is_empty(),

@@ -70,7 +70,7 @@ fn audit_emits_dag_plan_created_on_run_start() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_plan_created");
     assert!(!events.is_empty(), "dag_plan_created must be emitted");
@@ -87,7 +87,7 @@ fn audit_emits_dag_skeleton_approved_on_allow() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_skeleton_approved");
     assert!(!events.is_empty());
@@ -105,7 +105,7 @@ fn audit_emits_dag_skeleton_approved_on_deny() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_skeleton_approved");
     assert!(!events.is_empty());
@@ -125,7 +125,7 @@ fn audit_emits_dag_node_started_on_each_node() {
         literal_node("n1", "task.explain", "5"),
         literal_node("n2", "task.explain", "10"),
     ]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_node_started");
     assert_eq!(
@@ -145,7 +145,7 @@ fn audit_emits_dag_node_succeeded_on_success() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_node_succeeded");
     assert_eq!(events.len(), 1);
@@ -161,7 +161,7 @@ fn audit_emits_dag_node_failed_on_failure() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "nonexistent.skill", "test")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_node_failed");
     assert_eq!(events.len(), 1);
@@ -180,17 +180,17 @@ fn audit_emits_dag_completed_on_terminal_status() {
 
     // 1. Succeeded
     let plan_ok = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan_ok).unwrap();
+    executor.run(&plan_ok, &[]).unwrap();
     // 2. Failed
     let plan_fail = plan_with(vec![literal_node("n1", "nonexistent.skill", "x")]);
-    executor.run(&plan_fail).unwrap();
+    executor.run(&plan_fail, &[]).unwrap();
 
     // 3. Cancelled(用 AutoDenier,需要新 kernel 避免事件混在一起)
     let kernel2 = TrustKernel::open_in_memory().unwrap();
     let approver_deny: Arc<dyn Approver> = Arc::new(AutoDenier);
     let (kernel2_arc, executor2) = make_executor(kernel2, approver_deny);
     let plan_cancel = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor2.run(&plan_cancel).unwrap();
+    executor2.run(&plan_cancel, &[]).unwrap();
 
     // 验证 kernel1(Succeeded + Failed)
     let events1 = find_audit_events(&kernel_arc, "dag_completed");
@@ -231,7 +231,7 @@ fn audit_emits_dag_completed_on_partially_succeeded() {
         literal_node("n1", "task.explain", "5"),
         literal_node("n2", "nonexistent.skill", "test"),
     ]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_completed");
     assert_eq!(events.len(), 1, "expected 1 dag_completed, got: {:?}", events);
@@ -250,7 +250,7 @@ fn audit_hash_chain_remains_intact_after_dag_events() {
     let (kernel_arc, executor) = make_executor(kernel, approver);
 
     let plan = plan_with(vec![literal_node("n1", "task.explain", "5")]);
-    executor.run(&plan).unwrap();
+    executor.run(&plan, &[]).unwrap();
 
     let recent = kernel_arc.list_audit_recent(50).unwrap();
     // 至少应有:dag_plan_created + dag_skeleton_approved + dag_node_started

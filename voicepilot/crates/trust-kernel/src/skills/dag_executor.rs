@@ -28,10 +28,48 @@ use crate::approval::approver::Approver;
 use crate::approval::approver::DagApprovalOutcome;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
+use crate::llm::types::ExtractedSlot;
 use crate::skills::dag_repo::DagRepo;
 use crate::skills::dag_types::{DagEdge, DagNode, DagNodeStatus, DagPlan, DagResult, DagStatus};
 use crate::skills::dispatcher::dispatch_skill_executor;
 use crate::skills::template::SlotTemplateEngine;
+
+// W9 Plan 6 Task 6:thread-local UiaAdapter 注入点。
+// UiaAdapter 是 !Send + !Sync(COM apartment 模型),不能用 Arc<dyn UiaAdapter>
+// 作为 DagExecutor 字段(DagExecutor 需跨 await 点)。改用 thread-local:
+// 测试在 run() 前调 set_thread_local_uia_adapter(Some(adapter)),
+// dispatch_note_capture / dispatch_app_control 从 thread-local 取 adapter
+// 调真实 executor。
+//
+// W9 修复:仅 `uia` feature 启用时编译(uiautomation 模块只在
+// `cfg(all(windows, feature = "uia"))` 下存在,见 lib.rs:34)。
+#[cfg(all(windows, feature = "uia"))]
+thread_local! {
+    static THREAD_LOCAL_UIA_ADAPTER: std::cell::RefCell<Option<Arc<dyn crate::uiautomation::UiaAdapter>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// W9 Plan 6 Task 6:在当前线程设置 thread-local UiaAdapter。
+///
+/// 测试在 `executor.run(...)` 前调 `set_thread_local_uia_adapter(Some(adapter))`,
+/// `run(...)` 后调 `set_thread_local_uia_adapter(None)` 清理。
+///
+/// W9 修复:可见性为 `pub`(非 `pub(crate)`),供集成测试
+/// (tests/w9_plan6_uia_dag_e2e.rs)从 crate 外部调用注入 adapter。
+#[cfg(all(windows, feature = "uia"))]
+pub fn set_thread_local_uia_adapter(
+    adapter: Option<Arc<dyn crate::uiautomation::UiaAdapter>>,
+) {
+    THREAD_LOCAL_UIA_ADAPTER.with(|cell| {
+        *cell.borrow_mut() = adapter;
+    });
+}
+
+/// W9 Plan 6 Task 6:从当前线程获取 thread-local UiaAdapter 克隆(若已设置)。
+#[cfg(all(windows, feature = "uia"))]
+pub fn thread_local_uia_adapter() -> Option<Arc<dyn crate::uiautomation::UiaAdapter>> {
+    THREAD_LOCAL_UIA_ADAPTER.with(|cell| cell.borrow().clone())
+}
 
 /// DAG 调度器。
 ///
@@ -79,7 +117,7 @@ impl DagExecutor {
     ///
     /// 注意:节点级 executor 失败不返回 Err,而是构造 `DagResult` with
     /// `DagStatus::Failed` / `PartiallySucceeded`,让调用方从 result 判断状态。
-    pub fn run(&self, plan: &DagPlan) -> Result<DagResult> {
+    pub fn run(&self, plan: &DagPlan, user_slots: &[ExtractedSlot]) -> Result<DagResult> {
         // Step 0a: 创建 root task(供 audit_logs.task_id FK + dag_plans.root_task_id 关联)
         // spec §6.1 Task 7 Step 1 — 必须先创建 task 才能写 audit_logs(FK 约束)。
         let root_task_id = format!("task-dag-{}", uuid::Uuid::new_v4());
@@ -189,12 +227,12 @@ impl DagExecutor {
                 topological_sort(&modified_plan.nodes, &modified_plan.edges)?;
 
                 // 第二次审批(只允许 Allow / Deny)
-                return self.run_modified(&modified_plan, &root_task_id);
+                return self.run_modified(&modified_plan, user_slots, &root_task_id);
             }
         };
 
         // Step 3-4:节点执行(抽为 execute_nodes,W9 Plan 4 重构)
-        self.execute_nodes(&effective_plan, &root_task_id)
+        self.execute_nodes(&effective_plan, user_slots, &root_task_id)
     }
 
     /// W9 Plan 4:第二次审批 — 只允许 Allow / Deny,Modify 返回 `DagModifyLimitExceeded`。
@@ -202,7 +240,12 @@ impl DagExecutor {
     /// spec §6.3 第二条:Modify 只允许一次,防止无限递归。
     /// W9 修复(P0-3):modified_plan 用新 plan_id,单独走完整审计链
     /// (dag_plan_created + persist_dag_status(Pending) + dag_skeleton_approved + ...)。
-    fn run_modified(&self, modified_plan: &DagPlan, root_task_id: &str) -> Result<DagResult> {
+    fn run_modified(
+        &self,
+        modified_plan: &DagPlan,
+        user_slots: &[ExtractedSlot],
+        root_task_id: &str,
+    ) -> Result<DagResult> {
         // W9 修复(P0-3):modified_plan 用新 plan_id,单独走完整审计链
         let modified_plan_with_id = DagPlan {
             plan_id: format!("{}_modified", modified_plan.plan_id),
@@ -244,7 +287,7 @@ impl DagExecutor {
         match outcome {
             DagApprovalOutcome::Allow => {
                 // 第二次 Allow → 用 modified_plan_with_id 走完整执行路径
-                self.execute_nodes(&modified_plan_with_id, root_task_id)
+                self.execute_nodes(&modified_plan_with_id, user_slots, root_task_id)
             }
             DagApprovalOutcome::Deny => {
                 self.persist_dag_status(&modified_plan_with_id, &DagStatus::Cancelled)?;
@@ -281,7 +324,12 @@ impl DagExecutor {
     ///
     /// 输入:`plan`(effective_plan,可能是原 plan 或 modified_plan)+ `root_task_id`
     /// 输出:DagResult(Succeeded / Failed / PartiallySucceeded)
-    fn execute_nodes(&self, plan: &DagPlan, root_task_id: &str) -> Result<DagResult> {
+    fn execute_nodes(
+        &self,
+        plan: &DagPlan,
+        user_slots: &[ExtractedSlot],
+        root_task_id: &str,
+    ) -> Result<DagResult> {
         let order = topological_sort(&plan.nodes, &plan.edges)?;
         let mut node_outputs: HashMap<String, serde_json::Value> = HashMap::new();
         let mut node_results: HashMap<String, DagNodeStatus> = HashMap::new();
@@ -313,12 +361,20 @@ impl DagExecutor {
             //   - 简单节点 → run_simple_node(Plan 2)
             // 两者都返回 Ok(DagNodeStatus);失败语义由 execute_nodes 统一处理。
             let status = if let Some(loop_spec) = plan.loop_specs.get(node_id) {
-                self.run_loop_node(node_id, plan, loop_spec, &node_outputs, prev_node_id.as_deref())?
+                self.run_loop_node(
+                    node_id,
+                    plan,
+                    loop_spec,
+                    &node_outputs,
+                    user_slots,
+                    prev_node_id.as_deref(),
+                )?
             } else {
                 self.run_simple_node(
                     node,
                     plan,
                     &node_outputs,
+                    user_slots,
                     prev_node_id.as_deref(),
                     root_task_id,
                 )?
@@ -495,6 +551,7 @@ impl DagExecutor {
         node: &DagNode,
         plan: &DagPlan,
         node_outputs: &HashMap<String, serde_json::Value>,
+        user_slots: &[ExtractedSlot],
         prev_node_id: Option<&str>,
         _root_task_id: &str,
     ) -> Result<DagNodeStatus> {
@@ -521,13 +578,12 @@ impl DagExecutor {
         }
 
         // Step 1: 解析模板 → serde_json::Value
-        // user_slots 暂传 &[] — Plan 5 实现 UI 时 DagExecutor::run 签名扩展传入。
-        // 模板中 ${user.xxx} 会解析失败 → 节点 Failed(本 plan 可接受)。
+        // W9 Plan 6:闭合 Slot 流水欠债 — 透传实际 user_slots(支持 ${user.xxx} 解析)。
         // iter_var 暂传 None — 简单节点无循环变量。
         let resolved_input = match SlotTemplateEngine::resolve(
             &node.input_template.template,
             node_outputs,
-            &[],
+            user_slots,
             None,
             prev_node_id,
         ) {
@@ -604,10 +660,16 @@ impl DagExecutor {
         plan: &DagPlan,
         loop_spec: &crate::skills::dag_types::LoopSpec,
         node_outputs: &HashMap<String, serde_json::Value>,
+        user_slots: &[ExtractedSlot],
         prev_node_id: Option<&str>,
     ) -> Result<DagNodeStatus> {
         // Step 1: 解析 iterable → Vec<Value>
-        let items = self.resolve_iterable(&loop_spec.iterable_source, node_outputs)?;
+        let items = self.resolve_iterable(
+            &loop_spec.iterable_source,
+            node_outputs,
+            user_slots,
+            prev_node_id,
+        )?;
         let items_len = items.len();
 
         // Step 2: 强制截断到 max_iterations.min(50)
@@ -675,10 +737,11 @@ impl DagExecutor {
             let step_id = format!("step-loop-{}-iter-{}", uuid::Uuid::new_v4(), idx);
 
             // 5b: SlotTemplateEngine::resolve 绑定 ${item}
+            // W9 Plan 6:循环节点 body 也接收 user_slots(供 ${user.xxx} 解析)。
             let resolved_input = match SlotTemplateEngine::resolve(
                 &node.input_template.template,
                 node_outputs,
-                &[],
+                user_slots,
                 Some(item),
                 prev_node_id,
             ) {
@@ -831,16 +894,19 @@ impl DagExecutor {
     /// resolve_iterable — 把 IterableSource 解析为 Vec<Value>(spec §2.3 Step 1)。
     ///
     /// - PrevNodeOutput { node_id, port } → node_outputs[node_id] 按 port dotted path 提取数组
-    /// - UserSlot { slot_kind } → Plan 3 未 wire(Plan 5 集成),返回 Err
+    /// - UserSlot { slot_kind } → W9 Plan 6:从 user_slots 查表匹配 kind,解析为 Vec<Value>
+    ///   (先尝试 JSON 数组,失败则按 CSV 逗号分隔 fallback)
     /// - Literal(vec) → 直接转 Vec<Value>
     ///
     /// 失败:
     /// - PrevNodeOutput:node_id 不在 node_outputs / port 路径不存在 / 值非 Array → Err
-    /// - UserSlot:Plan 3 暂不支持(Plan 5 UI 集成时扩展)
+    /// - UserSlot:user_slots 中找不到匹配 kind → Err
     fn resolve_iterable(
         &self,
         source: &crate::skills::dag_types::IterableSource,
         node_outputs: &HashMap<String, serde_json::Value>,
+        user_slots: &[ExtractedSlot],
+        _prev_node_id: Option<&str>,
     ) -> Result<Vec<serde_json::Value>> {
         use crate::skills::dag_types::IterableSource;
         match source {
@@ -874,12 +940,34 @@ impl DagExecutor {
                 }
             }
             IterableSource::UserSlot { slot_kind } => {
-                // W8 简化:user_slots 在 Plan 2 run_simple_node 中传 &[];
-                // Plan 5 UI 集成时会传入实际 slot,本 plan 暂不支持。
-                Err(KernelError::Skill(format!(
-                    "resolve_iterable: UserSlot kind '{}' not supported in Plan 3 (user_slots not wired; see Plan 5)",
-                    slot_kind
-                )))
+                // W9 Plan 6:闭合 Slot 流水欠债 — 从 user_slots 查表找匹配 kind 的 slot。
+                // ExtractedSlot.kind 是 String(见 src/llm/types.rs:23-30),
+                // slot_kind 来自 LoopSpec.iterable_source 也是 String,直接比较。
+                let slot = user_slots
+                    .iter()
+                    .find(|s| s.kind == *slot_kind)
+                    .ok_or_else(|| {
+                        KernelError::Skill(format!(
+                            "resolve_iterable: UserSlot kind '{}' not found in user_slots",
+                            slot_kind
+                        ))
+                    })?;
+                // slot.raw 是 String(W7 LLM ExtractedSlot 定义,见 src/llm/types.rs:23-30)。
+                // W8 既有 VarScope::User 分支用 slot.raw,Plan 6 保持一致。
+                // 尝试解析为 JSON 数组;失败则当作 CSV 逗号分隔(简单 fallback,
+                // 适配 "a,b,c" 逗号分隔 或 单值)。
+                match serde_json::from_str::<Vec<serde_json::Value>>(&slot.raw) {
+                    Ok(arr) => Ok(arr),
+                    Err(_) => {
+                        // CSV fallback:按逗号分隔,trim 每项
+                        let items: Vec<serde_json::Value> = slot
+                            .raw
+                            .split(',')
+                            .map(|s| serde_json::Value::String(s.trim().to_string()))
+                            .collect();
+                        Ok(items)
+                    }
+                }
             }
         }
     }

@@ -67,7 +67,7 @@ fn resolve_iterable_literal_returns_vec_of_strings() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_ok(), "run should not error, got {:?}", result.err());
     let dag_result = result.unwrap();
     assert_eq!(dag_result.status, DagStatus::Succeeded);
@@ -105,7 +105,7 @@ fn resolve_iterable_prev_node_output_extracts_array() {
         loop_specs,
         max_total_steps: 10,
     };
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(
         result.is_err(),
         "expected Err for non-existent port, got {:?}",
@@ -150,7 +150,7 @@ fn resolve_iterable_prev_node_output_non_array_errors() {
         loop_specs,
         max_total_steps: 10,
     };
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "expected Err, got {:?}", result.ok());
     let err = format!("{}", result.unwrap_err());
     assert!(
@@ -176,7 +176,7 @@ fn resolve_iterable_prev_node_output_unknown_node_errors() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "expected Err for unknown node_id");
     let err = format!("{}", result.unwrap_err());
     assert!(err.contains("not in node_outputs"), "got: {}", err);
@@ -196,7 +196,7 @@ fn resolve_iterable_user_slot_returns_err_in_plan3() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "expected Err for UserSlot in Plan 3");
     let err = format!("{}", result.unwrap_err());
     assert!(
@@ -220,7 +220,7 @@ fn loop_node_literal_all_iterations_succeed() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan).expect("run should succeed");
+    let result = executor.run(&plan, &[]).expect("run should succeed");
     assert_eq!(result.status, DagStatus::Succeeded);
     let n1_status = result.node_results.get("n1").expect("n1 status must exist");
     match n1_status {
@@ -248,7 +248,7 @@ fn loop_node_max_iterations_truncates_to_50() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan).expect("run should succeed");
+    let result = executor.run(&plan, &[]).expect("run should succeed");
     let n1_status = result.node_results.get("n1").expect("n1 status");
     match n1_status {
         DagNodeStatus::Succeeded(arr) => {
@@ -273,7 +273,7 @@ fn loop_node_max_iterations_below_hard_limit_respected() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan).expect("run should succeed");
+    let result = executor.run(&plan, &[]).expect("run should succeed");
     let n1_status = result.node_results.get("n1").expect("n1 status");
     match n1_status {
         DagNodeStatus::Succeeded(arr) => {
@@ -299,7 +299,7 @@ fn loop_node_break_condition_with_string_items_no_break() {
         break_condition: Some("item.size > 1000".into()),
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan).expect("run should succeed");
+    let result = executor.run(&plan, &[]).expect("run should succeed");
     let n1_status = result.node_results.get("n1").expect("n1 status");
     match n1_status {
         DagNodeStatus::Succeeded(arr) => {
@@ -344,7 +344,7 @@ fn loop_node_dispatch_failure_terminates_loop() {
         loop_specs,
         max_total_steps: 10,
     };
-    let result = executor.run(&plan).expect("run should not error");
+    let result = executor.run(&plan, &[]).expect("run should not error");
     match result.status {
         DagStatus::Failed { failed_node, .. } => {
             assert_eq!(failed_node, "n1");
@@ -376,7 +376,7 @@ fn parse_break_condition_valid_format_does_not_error() {
         break_condition: Some("item.size > 1048576".into()),
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(
         result.is_ok(),
         "valid break_condition should not error, got {:?}",
@@ -395,7 +395,7 @@ fn parse_break_condition_invalid_op_errors() {
         break_condition: Some("item.size >> 1000".into()),
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "invalid op should error");
     let msg = format!("{}", result.unwrap_err());
     assert!(msg.contains("unsupported op"), "got: {}", msg);
@@ -412,7 +412,7 @@ fn parse_break_condition_invalid_format_errors() {
         break_condition: Some("item.size >".into()),
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "invalid format should error");
     let msg = format!("{}", result.unwrap_err());
     assert!(msg.contains("expected 3 tokens"), "got: {}", msg);
@@ -429,7 +429,7 @@ fn parse_break_condition_missing_item_prefix_errors() {
         break_condition: Some("size > 1000".into()),
     };
     let plan = plan_with_loop(loop_spec);
-    let result = executor.run(&plan);
+    let result = executor.run(&plan, &[]);
     assert!(result.is_err(), "missing item. prefix should error");
     let msg = format!("{}", result.unwrap_err());
     assert!(msg.contains("must start with 'item.'"), "got: {}", msg);
@@ -448,7 +448,7 @@ fn loop_node_succeeded_persists_to_dag_nodes() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    executor.run(&plan).expect("run should succeed");
+    executor.run(&plan, &[]).expect("run should succeed");
 
     let conn = kernel.conn();
     let repo = DagRepo::new();
@@ -509,7 +509,7 @@ fn loop_node_failed_persists_to_dag_nodes() {
         max_total_steps: 10,
     };
     executor
-        .run(&plan)
+        .run(&plan, &[])
         .expect("run should not error (Failed status)");
 
     let conn = kernel.conn();
@@ -550,7 +550,7 @@ fn loop_node_running_status_overwritten_by_terminal() {
         break_condition: None,
     };
     let plan = plan_with_loop(loop_spec);
-    executor.run(&plan).expect("run should succeed");
+    executor.run(&plan, &[]).expect("run should succeed");
 
     let conn = kernel.conn();
     let repo = DagRepo::new();

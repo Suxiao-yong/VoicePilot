@@ -199,7 +199,7 @@ async fn scenario_1_llm_decomposes_two_node_dag_succeeds() {
     let dag_repo = Arc::new(DagRepo::new());
     let kernel_arc = Arc::new(kernel);
     let executor = DagExecutor::new(kernel_arc.clone(), approver, dag_repo);
-    let result = executor.run(&dag_plan).expect("DagExecutor::run must succeed");
+    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded + 2 节点都 Succeeded =====
     assert!(
@@ -282,7 +282,7 @@ async fn scenario_2_form_submit_e3_perstep_approval_recorded() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act: DagExecutor::run — form.submit 会在 MCP 调用处失败,但 E3 审批已记录
-    let result = executor.run(&dag_plan).expect("run must not infra-error");
+    let result = executor.run(&dag_plan, &[]).expect("run must not infra-error");
 
     // ===== Assert: form.submit 节点 Failed(MCP 不可用)→ DAG Failed =====
     // 注:单节点失败 + 无已成功节点 → DagStatus::Failed
@@ -381,7 +381,7 @@ async fn scenario_3_dag_skeleton_deny_cancels_execution_zero_nodes_run() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act: DagExecutor::run — Deny 应让 0 节点执行
-    let result = executor.run(&dag_plan).expect("DagExecutor::run must succeed even on Deny");
+    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed even on Deny");
 
     // ===== Assert: DagStatus::Cancelled =====
     assert!(
@@ -483,7 +483,7 @@ async fn scenario_4_node_failed_yields_partially_succeeded_no_rollback_of_commit
 
     // Act
     let result = executor
-        .run(&dag_plan)
+        .run(&dag_plan, &[])
         .expect("DagExecutor::run must succeed even with node failure");
 
     // ===== Assert: DagStatus::PartiallySucceeded =====
@@ -727,7 +727,7 @@ async fn scenario_6_loop_break_condition_not_triggered_for_string_items_complete
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act
-    let result = executor.run(&dag_plan).expect("DagExecutor::run must succeed");
+    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded =====
     assert!(
@@ -907,7 +907,7 @@ async fn scenario_8_loop_max_iterations_above_50_clamped_to_50() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act
-    let result = executor.run(&dag_plan).expect("DagExecutor::run must succeed");
+    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded =====
     assert!(

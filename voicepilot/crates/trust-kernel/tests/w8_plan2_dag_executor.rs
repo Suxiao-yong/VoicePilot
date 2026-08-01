@@ -82,7 +82,7 @@ fn run_simple_node_succeeds_with_task_explain() {
         risk_ceiling: ELevel::E0,
     };
     let plan = plan_with(vec![node], vec![]);
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
     let n1_status = result.node_results.get("n1").unwrap();
     assert!(n1_status.is_succeeded(), "got: {:?}", n1_status);
@@ -99,7 +99,7 @@ fn run_simple_node_fails_on_template_resolution_error() {
 
     let node = var_node("n1", "task.explain", VarScope::Prev, "output.path");
     let plan = plan_with(vec![node], vec![]);
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
     // 模板解析失败 → 节点 Failed → DAG Failed(无成功节点)
     match result.status {
         DagStatus::Failed { ref failed_node, .. } => {
@@ -121,7 +121,7 @@ fn run_simple_node_fails_on_unknown_skill_id() {
 
     let node = literal_node("n1", "nonexistent.skill", "test");
     let plan = plan_with(vec![node], vec![]);
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
     match result.status {
         DagStatus::Failed { ref failed_node, ref cause } => {
             assert_eq!(failed_node, "n1");
@@ -153,7 +153,7 @@ fn dag_skeleton_deny_short_circuits_to_cancelled() {
         }],
     );
     let plan_id = plan.plan_id.clone();
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
 
     // 验证返回值:Cancelled + 空 node_results
     assert_eq!(result.status, DagStatus::Cancelled);
@@ -202,7 +202,7 @@ fn dag_skeleton_allow_proceeds_to_node_execution() {
 
     let node = literal_node("n1", "task.explain", "5");
     let plan = plan_with(vec![node], vec![]);
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
     assert_eq!(result.node_results.len(), 1);
     assert!(result.node_results.get("n1").unwrap().is_succeeded());
@@ -230,7 +230,7 @@ fn run_with_second_node_fails_returns_partially_succeeded() {
         }],
     );
     let plan_id = plan.plan_id.clone();
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
 
     match result.status {
         DagStatus::PartiallySucceeded {
@@ -332,7 +332,7 @@ fn run_with_first_node_fails_returns_failed_not_partial() {
         }],
     );
     let plan_id = plan.plan_id.clone();
-    let result = executor.run(&plan).unwrap();
+    let result = executor.run(&plan, &[]).unwrap();
 
     match result.status {
         DagStatus::Failed {
