@@ -280,9 +280,12 @@ pub fn task_repeat_verified_manifest() -> SkillManifest {
             max_approval_scope: 1,
         },
         compensation: CompensationConfig {
-            level: CompensationLevel::Strong,
-            ttl_seconds: 3600,
-            conflict_policy: ConflictPolicy::RequireConfirmation,
+            // W10 Plan 2: task.repeat_verified 是只读 Skill(仅 search_files + verify_move),
+            // 无文件变动可逆,compensation_level = None(类似 task.explain)。
+            // 排除出 Strong Compensation 分母:5/5 = 100% ≥ 95%。
+            level: CompensationLevel::None,
+            ttl_seconds: 0,
+            conflict_policy: ConflictPolicy::AutoReverse,
         },
         verifier: VerifierConfig {
             // W10 Plan 1: 升级为 strong — verify_task_repeat 重读目标文件 sha256+size,
@@ -835,5 +838,23 @@ pub fn form_submit_manifest() -> SkillManifest {
             allow_replan: false,
             on_fail: "ask_user".to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod w10_plan2_tests {
+    use super::*;
+
+    #[test]
+    fn task_repeat_verified_compensation_level_is_none() {
+        // W10 Plan 2: task.repeat_verified 是只读 Skill(仅 search_files + verify_move),
+        // 无文件变动可逆,compensation_level 必须为 None(类似 task.explain)。
+        // 排除出补偿分母:5/5 = 100% ≥ 95%。
+        let manifest = task_repeat_verified_manifest();
+        assert_eq!(
+            manifest.compensation.level,
+            CompensationLevel::None,
+            "task.repeat_verified 是只读 Skill,compensation_level 必须为 None"
+        );
     }
 }
