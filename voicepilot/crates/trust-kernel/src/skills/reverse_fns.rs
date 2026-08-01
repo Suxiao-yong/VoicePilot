@@ -87,6 +87,60 @@ pub fn reverse_research_save(_kernel: &TrustKernel, rec: &CompensationRecord) ->
     Ok(())
 }
 
+/// reverse_form_prepare — 通过 Playwright eval 清空表单字段。
+///
+/// reverse_payload JSON 结构: `{"fields": {"<selector>": "<original_value>"}}`
+///
+/// 对每个 selector 调用 `invoke_mcp_tool(playwright, eval, {script})`,
+/// script 将 `document.querySelector(selector).value = ''` 清空字段。
+///
+/// 空 fields map → no-op Ok(无 eval 调用)。
+/// MCP 调用失败 → Err(KernelError::Mcp(...))(由调用方处理)。
+/// payload 缺少 fields / JSON 解析失败 → Err。
+pub fn reverse_form_prepare(kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
+    use crate::skills::common::invoke_mcp_tool;
+    use std::collections::BTreeMap;
+
+    let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
+        KernelError::Compensation(format!("reverse_form_prepare: invalid reverse_payload: {}", e))
+    })?;
+
+    let fields_obj = payload
+        .get("fields")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            KernelError::Compensation(
+                "reverse_form_prepare: reverse_payload missing 'fields'".to_string(),
+            )
+        })?;
+
+    if fields_obj.is_empty() {
+        // No fields to clear — no-op success.
+        return Ok(());
+    }
+
+    // BTreeMap for deterministic iteration order (stable eval call sequence).
+    let sorted: BTreeMap<&String, &serde_json::Value> = fields_obj.iter().collect();
+
+    for selector in sorted.keys() {
+        // Escape selector for safe embedding in JS string literal.
+        let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+        let script = format!(
+            "(function() {{ var el = document.querySelector('{}'); if (el) {{ el.value = ''; }} return el != null; }})()",
+            escaped
+        );
+        // 调用 Playwright eval 清空字段。失败 → 直接返回 Err(不继续清空后续字段)。
+        invoke_mcp_tool(
+            kernel,
+            "playwright",
+            "eval",
+            serde_json::json!({"script": script}),
+        )?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod note_capture_reverse_tests {
     use super::*;
@@ -228,5 +282,175 @@ mod research_save_reverse_tests {
         let result = reverse_research_save(&kernel, &rec);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing 'save_path'"));
+    }
+}
+
+#[cfg(test)]
+mod form_prepare_reverse_tests {
+    use super::*;
+    use crate::compensation::types::{CompensationLevel, ConflictPolicy};
+    use crate::kernel::TrustKernel;
+    use crate::mcp::repo::McpServerRepo;
+    use std::collections::HashMap;
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    static CWD_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn python_available() -> bool {
+        Command::new("python")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn make_rec(payload: &str) -> CompensationRecord {
+        CompensationRecord {
+            comp_id: format!("comp-{}", uuid::Uuid::new_v4()),
+            step_id: "s1".to_string(),
+            level: CompensationLevel::Strong,
+            snapshot_encrypted: None,
+            ttl_expires: "2030-01-01T00:00:00Z".to_string(),
+            status: "active".to_string(),
+            snapshot_vault_ref: None,
+            conflict_policy: ConflictPolicy::AutoReverse,
+            compensate_fn: "form.reverse_prepare".to_string(),
+            reverse_payload: payload.to_string(),
+        }
+    }
+
+    /// Mock Playwright 脚本:记录 eval 调用的 script 到 FORM_REVERSE_CALLS_PATH,
+    /// 返回空对象 `{}`(eval 结果不重要,reverse 只关心调用是否成功)。
+    const MOCK_SCRIPT: &str = r#"
+import sys, json, os
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "result": {"protocolVersion": "2025-11-25", "capabilities": {},
+                         "serverInfo": {"name": "mock", "version": "0.1"}}})
+    elif msg.get("method") == "notifications/initialized":
+        pass
+    elif msg.get("method") == "tools/call":
+        name = msg.get("params", {}).get("name")
+        if name == "eval":
+            script = msg.get("params", {}).get("arguments", {}).get("script", "")
+            calls_path = os.environ.get("FORM_REVERSE_CALLS_PATH")
+            if calls_path:
+                try:
+                    with open(calls_path, "a", encoding="utf-8") as f:
+                        f.write(script + "\n")
+                except Exception:
+                    pass
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "result": {"content": [{"type": "text", "text": "{}"}],
+                             "isError": False}})
+        else:
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "error": {"code": -32601, "message": f"unknown {name}"}})
+    else:
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "error": {"code": -32601, "message": "method not found"}})
+"#;
+
+    fn install_mock(kernel: &TrustKernel) {
+        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
+            .unwrap();
+        let mut rec = McpServerRepo::new()
+            .get(&kernel.conn(), "playwright")
+            .unwrap()
+            .unwrap();
+        rec.command = Some("python".to_string());
+        rec.args = Some(args_json);
+        rec.env = Some("{}".to_string());
+        McpServerRepo::new().update(&kernel.conn(), &rec).unwrap();
+    }
+
+    #[test]
+    fn reverse_form_prepare_clears_all_fields_via_eval() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let calls_path = temp.path().join("calls.log");
+        std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+
+        let mut fields = HashMap::new();
+        fields.insert("#username".to_string(), "alice".to_string());
+        fields.insert("#email".to_string(), "alice@example.com".to_string());
+        let payload = serde_json::json!({"fields": fields}).to_string();
+        let rec = make_rec(&payload);
+
+        let result = reverse_form_prepare(&kernel, &rec);
+        std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+
+        // eval 调用次数 = 字段数(每个 selector 一次 eval 清空)。
+        let calls = std::fs::read_to_string(&calls_path).unwrap_or_default();
+        let eval_count = calls.lines().filter(|l| !l.is_empty()).count();
+        assert_eq!(
+            eval_count, 2,
+            "expected 2 eval calls (one per field), got {}",
+            eval_count
+        );
+        // 每个 eval script 应包含 selector + 空字符串赋值。
+        assert!(calls.contains("#username"), "calls must contain #username: {}", calls);
+        assert!(calls.contains("#email"), "calls must contain #email: {}", calls);
+    }
+
+    #[test]
+    fn reverse_form_prepare_fails_when_payload_missing_fields() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = make_rec(r#"{"other": "value"}"#);
+        let result = reverse_form_prepare(&kernel, &rec);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing 'fields'"));
+    }
+
+    #[test]
+    fn reverse_form_prepare_no_fields_is_noop() {
+        // 空 fields map → no-op Ok(无 eval 调用)。
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let calls_path = temp.path().join("calls.log");
+        std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+
+        let fields: HashMap<String, String> = HashMap::new();
+        let payload = serde_json::json!({"fields": fields}).to_string();
+        let rec = make_rec(&payload);
+
+        let result = reverse_form_prepare(&kernel, &rec);
+        std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+
+        assert!(result.is_ok(), "expected Ok for empty fields, got {:?}", result.err());
+        let calls = std::fs::read_to_string(&calls_path).unwrap_or_default();
+        assert!(
+            calls.trim().is_empty(),
+            "expected no eval calls for empty fields, got: {}",
+            calls
+        );
     }
 }
