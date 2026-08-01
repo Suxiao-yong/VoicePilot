@@ -46,6 +46,7 @@ use crate::skills::common::{
     validate_input_against_manifest, ApprovalContext,
 };
 use crate::skills::manifest::form_submit_manifest;
+use crate::skills::verifiers::{verify_form_submit, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
@@ -174,11 +175,35 @@ pub fn execute_form_submit(
         let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
     })?;
 
-    // Step 9: finalize step as Succeeded with Weak evidence (no file
-    // artifact — only web state change) and no compensation_ref(不可逆)。
-    finalize_step_success(kernel, &input.step_id, "weak", None).inspect_err(|_e| {
-        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-    })?;
+    // Step 9: W10 Plan 1 — 调用真实 verify_form_submit 通过 Playwright eval
+    // 查 document.URL 变更 或 success 元素存在,验证提交确实发生(spec §6.3 Strong Verifier)。
+    // 提交不可逆,verifier 必须验证副作用真实发生。通过 → Strong;失败 → step Failed + 返回错误。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_form_submit(&verify_ctx, &input.url)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
+        }
+        VerificationOutcome::Failed { reason } => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_form_submit failed: {}",
+                reason
+            )));
+        }
+        _ => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_form_submit returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
     Ok(input.task_id.clone())
 }
@@ -281,6 +306,13 @@ for line in sys.stdin:
             text_payload = json.dumps({"ok": True})
         elif name == "click":
             text_payload = json.dumps({"clicked": True})
+        elif name == "eval":
+            # W10 Plan 1: verify_form_submit 通过 eval 查 URL 变更 / success 元素。
+            # 默认 current_url = .../success(与测试 input.url .../com 不同)→ url_changed → Strong。
+            # 测试可通过 MOCK_CURRENT_URL / MOCK_HAS_SUCCESS 环境变量覆盖。
+            current_url = os.environ.get("MOCK_CURRENT_URL", "https://example.com/success")
+            has_success = os.environ.get("MOCK_HAS_SUCCESS", "false") == "true"
+            text_payload = json.dumps({"url": current_url, "success": has_success})
         else:
             emit({
                 "jsonrpc": "2.0",
@@ -345,10 +377,10 @@ for line in sys.stdin:
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
         assert_eq!(result.unwrap(), "t1");
 
-        // Step is Succeeded with weak evidence, no compensation.
+        // Step is Succeeded with strong evidence (W10 Plan 1: verify_form_submit 通过), no compensation.
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Succeeded);
-        assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
+        assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
         assert!(
             step.compensation_ref.is_none(),
             "form.submit must have no compensation"
@@ -359,15 +391,20 @@ for line in sys.stdin:
         assert_eq!(approvals.len(), 1);
         assert_eq!(approvals[0].e_level, ELevel::E3);
 
-        // CRITICAL: navigate + click were called (in order).
+        // CRITICAL: navigate + click + eval were called (in order).
+        // W10 Plan 1: verify_form_submit 追加 eval 调用查 URL 变更。
         let recorded: Vec<String> = std::fs::read_to_string(&calls_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         assert_eq!(
             recorded,
-            vec!["navigate".to_string(), "click".to_string()],
-            "expected navigate then click, got {:?}",
+            vec![
+                "navigate".to_string(),
+                "click".to_string(),
+                "eval".to_string(),
+            ],
+            "expected navigate then click then eval, got {:?}",
             recorded
         );
 

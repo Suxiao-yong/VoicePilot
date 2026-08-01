@@ -44,6 +44,7 @@ use crate::skills::common::{
     validate_input_against_manifest, ApprovalContext,
 };
 use crate::skills::manifest::research_save_manifest;
+use crate::skills::verifiers::{verify_research_save, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
@@ -209,12 +210,36 @@ pub fn execute_research_save(
         ))
     })?;
 
-    // Step 11: finalize step as Succeeded with Strong evidence (file
-    // artifact on disk — like note_capture).
-    finalize_step_success(kernel, &input.step_id, "strong", None)
-        .inspect_err(|_e| {
+    // Step 11: W10 Plan 1 — 调用真实 verify_research_save 重读磁盘文件,
+    // 验证存在 + 非空(spec §6.3 Strong Verifier)。markdown 内容由
+    // Playwright eval 动态生成,sha256 难匹配,只验证文件存在 + 非空已
+    // 足以证明 commit 成功。通过 → Strong;失败 → step Failed + 返回错误。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_research_save(&verify_ctx, &input.save_path)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
+        }
+        VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+            return Err(KernelError::Skill(format!(
+                "verify_research_save failed: {}",
+                reason
+            )));
+        }
+        _ => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_research_save returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
     Ok(input.task_id.clone())
 }

@@ -49,6 +49,7 @@ use crate::skills::common::{
     ApprovalContext,
 };
 use crate::skills::manifest::note_capture_manifest;
+use crate::skills::verifiers::{verify_note_capture, VerificationContext, VerificationOutcome};
 use crate::uiautomation::UiaAdapter;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -230,13 +231,37 @@ pub fn execute_note_capture(
         KernelError::Io(e)
     })?;
 
-    // Step 8: finalize step as Succeeded with Strong evidence (real file
-    // artifact on disk — different from `app_control` which uses Weak
-    // because UIA ops produce no file artifacts).
-    finalize_step_success(kernel, &input.step_id, "strong", None)
-        .inspect_err(|_e| {
+    // Step 8: W10 Plan 1 — 调用真实 verify_note_capture 重读磁盘文件,
+    // 计算 sha256+size 与 input.content 比对(spec §6.3 Strong Verifier)。
+    // 通过 → Strong evidence;失败 → step Failed + 返回错误(文件未写入或
+    // 内容不一致,说明 commit 阶段出错)。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_note_capture(&verify_ctx, &input.save_path, &input.content)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
+        }
+        VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+            return Err(KernelError::Skill(format!(
+                "verify_note_capture failed: {}",
+                reason
+            )));
+        }
+        // Plan 1 不使用 Medium / Weak,保留匹配为未来扩展占位。
+        _ => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_note_capture returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
     Ok(input.task_id.clone())
 }

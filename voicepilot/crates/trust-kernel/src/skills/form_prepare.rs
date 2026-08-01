@@ -52,6 +52,7 @@ use crate::skills::common::{
     validate_input_against_manifest, ApprovalContext,
 };
 use crate::skills::manifest::form_prepare_manifest;
+use crate::skills::verifiers::{verify_form_prepare, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
@@ -204,12 +205,36 @@ pub fn execute_form_prepare(
         })?;
     }
 
-    // Step 10: finalize step as Succeeded with Weak evidence (no file
-    // artifact — only web state change) and no compensation_ref.
-    // Mirrors research_save.rs finalize pattern.
-    finalize_step_success(kernel, &input.step_id, "weak", None).inspect_err(|_e| {
-        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-    })?;
+    // Step 10: W10 Plan 1 — 调用真实 verify_form_prepare 通过 Playwright eval
+    // 重查每个 selector 的当前值,与 input.fields 比对(spec §6.3 Strong Verifier)。
+    // 全部匹配 → Strong evidence;任一不匹配 → step Failed + 返回错误(说明 fill
+    // 阶段未真正写入,commit 阶段出错)。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_form_prepare(&verify_ctx, &input.fields)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
+        }
+        VerificationOutcome::Failed { reason } => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_form_prepare failed: {}",
+                reason
+            )));
+        }
+        _ => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_form_prepare returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
     Ok(input.task_id.clone())
 }
@@ -321,6 +346,20 @@ for line in sys.stdin:
             text_payload = json.dumps({"tree": "form"})
         elif name == "fill":
             text_payload = json.dumps({"filled": True})
+        elif name == "eval":
+            # W10 Plan 1: verify_form_prepare 通过 eval 重查字段值。
+            # 从 FORM_PREPARE_VALUES_PATH 读取预存 JSON {selector: value} 返回。
+            # 用独立 env var 名(不与 verifiers::form_prepare_tests 的
+            # FORM_VALUES_PATH 冲突),避免并行测试相互覆盖 env var。
+            values_path = os.environ.get("FORM_PREPARE_VALUES_PATH")
+            values = {}
+            if values_path and os.path.exists(values_path):
+                try:
+                    with open(values_path, "r", encoding="utf-8") as f:
+                        values = json.load(f)
+                except Exception:
+                    values = {}
+            text_payload = json.dumps(values)
         else:
             emit({
                 "jsonrpc": "2.0",
@@ -395,15 +434,23 @@ for line in sys.stdin:
         let approver = AutoApprover;
         let input = make_input(sample_fields());
         let fields_count = input.fields.len();
+
+        // W10 Plan 1: verify_form_prepare 通过 eval 重查字段值,mock 从
+        // FORM_PREPARE_VALUES_PATH 读取预存 JSON。写入与 input.fields 一致的值 → Strong。
+        let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&values_path, serde_json::to_string(&input.fields).unwrap()).unwrap();
+        // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
+        std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+
         let result = execute_form_prepare(&kernel, &input, &approver);
 
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
         assert_eq!(result.unwrap(), "t1");
 
-        // Step is Succeeded with weak evidence.
+        // Step is Succeeded with strong evidence (W10 Plan 1: verify_form_prepare 通过)。
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Succeeded);
-        assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
+        assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
 
         // Approval was recorded (PerStep).
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
@@ -444,6 +491,8 @@ for line in sys.stdin:
         );
 
         clear_calls_env();
+        // SAFETY: see set_calls_env.
+        std::env::remove_var("FORM_PREPARE_VALUES_PATH");
     }
 
     #[test]

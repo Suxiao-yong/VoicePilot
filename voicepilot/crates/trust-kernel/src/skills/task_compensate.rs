@@ -37,6 +37,7 @@ use crate::skills::common::{
     ApprovalContext,
 };
 use crate::skills::manifest::task_compensate_manifest;
+use crate::skills::verifiers::{verify_task_compensate, VerificationContext, VerificationOutcome};
 use crate::tools::fs_paths::canonicalize;
 use crate::tools::fs_snapshot::snapshot_file;
 // W9 Plan 2 Task 4: 解密 snapshot_encrypted 需要 EncryptedPayload 类型。
@@ -182,13 +183,39 @@ pub fn execute_compensate(
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
         })?;
 
-    // Step 9: finalize step as Succeeded with Strong evidence (write
-    // operation, verified by auto_reverse success — files now exist at
-    // their original locations).
-    finalize_step_success(kernel, &input.step_id, "strong", Some(&target_comp.comp_id))
-        .inspect_err(|_e| {
+    // Step 9: W10 Plan 1 — 调用真实 verify_task_compensate 重读 compensations 表,
+    // 验证 status="reversed" + reverse_payload 非空(spec §6.3 Strong Verifier)。
+    // 通过 → finalize with strong evidence + comp_id 作为 compensation_ref(向后兼容);
+    // 失败 → step Failed + 返回错误(auto_reverse 虽执行但 DB 记录不一致,说明 commit 阶段出错)。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_task_compensate(&verify_ctx, &input.target_step_id)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            // finalize_step_success 第 4 参数是 compensation_ref(&str)而非 evidence JSON,
+            // 保持原行为:用 comp_id 作为 compensation_ref,evidence_strength="strong"。
+            finalize_step_success(kernel, &input.step_id, "strong", Some(&target_comp.comp_id))
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })?;
+        }
+        VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+            return Err(KernelError::Skill(format!(
+                "verify_task_compensate failed: {}",
+                reason
+            )));
+        }
+        _ => {
+            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            return Err(KernelError::Skill(format!(
+                "verify_task_compensate returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
     Ok(input.task_id.clone())
 }

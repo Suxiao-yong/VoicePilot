@@ -22,6 +22,7 @@ use crate::policy::transaction::EffectManifest;
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{finalize_step_success, validate_input_against_manifest};
 use crate::skills::manifest::task_repeat_verified_manifest;
+use crate::skills::verifiers::{verify_task_repeat, VerificationContext, VerificationOutcome};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -109,21 +110,39 @@ pub fn execute_repeat_verified(
         )));
     }
 
-    // Step 6: verify the previous move's destination still has the files.
-    let _verify_result = kernel
-        .filesystem()
-        .verify_move(&prev_manifest)
-        .inspect_err(|_e| {
+    // Step 6: W10 Plan 1 — 调用真实 verify_task_repeat 重读目标文件 sha256+size,
+    // 与 effect_manifest.sources 比较(spec §6.3 Strong Verifier,与 files.organize
+    // 的 verify_move 同源)。通过 → Strong evidence;失败 → step Failed + 返回错误。
+    // 替换原 W7 Plan 2 的直接 verify_move 调用,统一走 verifiers 模块。
+    let verify_ctx = VerificationContext {
+        kernel,
+        step_id: &input.step_id,
+    };
+    let outcome = verify_task_repeat(&verify_ctx, &input.target_task_id)?;
+    match outcome {
+        VerificationOutcome::Strong { .. } => {
+            finalize_step_success(kernel, &input.step_id, "strong", None)
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })?;
+        }
+        VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
-
-    // Step 7: finalize step as Succeeded.
-    finalize_step_success(kernel, &input.step_id, "weak", None)
-        .inspect_err(|_e| {
+            return Err(KernelError::Skill(format!(
+                "verify_task_repeat failed: {}",
+                reason
+            )));
+        }
+        _ => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+            return Err(KernelError::Skill(format!(
+                "verify_task_repeat returned unexpected outcome: {:?}",
+                outcome
+            )));
+        }
+    }
 
-    // Step 8: return the new task_id.
+    // Step 7: return the new task_id.
     Ok(input.task_id.clone())
 }
 
@@ -239,9 +258,10 @@ mod tests {
         assert_eq!(result.unwrap(), "new-task");
 
         // Verify the new task + step were created and step is Succeeded.
+        // W10 Plan 1: evidence_strength 升级为 strong(verify_task_repeat 通过)。
         let new_step = kernel.get_step("new-step").unwrap().unwrap();
         assert_eq!(new_step.status, StepStatus::Succeeded);
-        assert_eq!(new_step.evidence_strength.as_deref(), Some("weak"));
+        assert_eq!(new_step.evidence_strength.as_deref(), Some("strong"));
         assert!(new_step.compensation_ref.is_none());
 
         fs::remove_dir_all(&dir).ok();
