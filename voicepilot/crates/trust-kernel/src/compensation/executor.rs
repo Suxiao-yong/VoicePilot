@@ -47,7 +47,19 @@ impl ReverseFnRegistry {
     pub fn new() -> Self {
         let mut fns: HashMap<String, ReverseFn> = HashMap::new();
         fns.insert("filesystem.reverse_move".to_string(), auto_reverse_move);
-        // W10 Plan 2 Task 7: 注册 note.reverse_capture / research.reverse_save / form.reverse_prepare
+        // W10 Plan 2: 注册 3 个新 reverse 函数。
+        fns.insert(
+            "note.reverse_capture".to_string(),
+            crate::skills::reverse_fns::reverse_note_capture,
+        );
+        fns.insert(
+            "research.reverse_save".to_string(),
+            crate::skills::reverse_fns::reverse_research_save,
+        );
+        fns.insert(
+            "form.reverse_prepare".to_string(),
+            crate::skills::reverse_fns::reverse_form_prepare,
+        );
         Self { fns }
     }
 
@@ -198,6 +210,44 @@ mod w10_plan2_tests {
     fn auto_reverse_dispatches_via_compensate_fn_field() {
         let kernel = TrustKernel::open_in_memory().unwrap();
         let rec = make_rec("filesystem.reverse_move", r#"{"moves":[]}"#);
+        let result = auto_reverse(&kernel, &rec);
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+    }
+
+    #[test]
+    fn reverse_fn_registry_registers_all_4_reverse_fns() {
+        // W10 Plan 2: registry 必须注册 4 个 reverse 函数:
+        // filesystem.reverse_move + note.reverse_capture + research.reverse_save + form.reverse_prepare
+        let registry = ReverseFnRegistry::new();
+        let kernel = TrustKernel::open_in_memory().unwrap();
+
+        // filesystem.reverse_move(空 moves → no-op Ok)
+        let rec_move = make_rec("filesystem.reverse_move", r#"{"moves":[]}"#);
+        assert!(registry.call(&kernel, "filesystem.reverse_move", &rec_move).is_ok());
+
+        // note.reverse_capture(payload 缺 save_path → Err,证明函数已注册且被调用)
+        let rec_note = make_rec("note.reverse_capture", r#"{"save_path": "/nonexistent/pathxyz.txt"}"#);
+        // 文件不存在 → idempotent Ok
+        assert!(registry.call(&kernel, "note.reverse_capture", &rec_note).is_ok());
+
+        // research.reverse_save(同上,idempotent Ok)
+        let rec_research = make_rec("research.reverse_save", r#"{"save_path": "/nonexistent/pathxyz.md"}"#);
+        assert!(registry.call(&kernel, "research.reverse_save", &rec_research).is_ok());
+
+        // form.reverse_prepare(空 fields → no-op Ok,无需 Playwright)
+        let rec_form = make_rec("form.reverse_prepare", r#"{"fields": {}}"#);
+        assert!(registry.call(&kernel, "form.reverse_prepare", &rec_form).is_ok());
+    }
+
+    #[test]
+    fn auto_reverse_routes_note_reverse_capture() {
+        // auto_reverse(kernel, rec) 通过 rec.compensate_fn = "note.reverse_capture"
+        // 路由到 reverse_note_capture。文件不存在 → idempotent Ok。
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = make_rec(
+            "note.reverse_capture",
+            r#"{"save_path": "/nonexistent/reverse-route-test.txt"}"#,
+        );
         let result = auto_reverse(&kernel, &rec);
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
     }
