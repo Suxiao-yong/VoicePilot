@@ -45,9 +45,10 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    finalize_step_success, record_approval_decision, validate_input_against_manifest,
-    ApprovalContext,
+    create_post_commit_compensation_with_payload, finalize_step_success,
+    record_approval_decision, validate_input_against_manifest, ApprovalContext,
 };
+use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::skills::manifest::note_capture_manifest;
 use crate::skills::verifiers::{verify_note_capture, VerificationContext, VerificationOutcome};
 use crate::uiautomation::UiaAdapter;
@@ -241,11 +242,7 @@ pub fn execute_note_capture(
     };
     let outcome = verify_note_capture(&verify_ctx, &input.save_path, &input.content)?;
     match outcome {
-        VerificationOutcome::Strong { .. } => {
-            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
-                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-            })?;
-        }
+        VerificationOutcome::Strong { .. } => { /* proceed to register compensation */ }
         VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
             return Err(KernelError::Skill(format!(
@@ -262,6 +259,26 @@ pub fn execute_note_capture(
             )));
         }
     }
+
+    // W10 Plan 2: 注册 note.reverse_capture compensation,payload 含 save_path。
+    // task.compensate 调用 auto_reverse 时,ReverseFnRegistry 路由到
+    // reverse_note_capture,删除 save_path 文件。
+    let comp_ref = create_post_commit_compensation_with_payload(
+        kernel,
+        &input.step_id,
+        "note.reverse_capture",
+        serde_json::json!({"save_path": &input.save_path}).to_string(),
+        CompensationLevel::Strong,
+        ConflictPolicy::AutoReverse,
+        3600,
+    )
+    .inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
+
+    finalize_step_success(kernel, &input.step_id, "strong", Some(&comp_ref)).inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     Ok(input.task_id.clone())
 }
@@ -514,11 +531,20 @@ mod tests {
             let on_disk = std::fs::read_to_string(&file_path).expect("file should exist");
             assert_eq!(on_disk, "hello notepad");
 
-            // Step is Succeeded with strong evidence + no compensation.
+            // Step is Succeeded with strong evidence + compensation registered.
             let step = kernel.get_step("s1").unwrap().unwrap();
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
-            assert!(step.compensation_ref.is_none());
+            // W10 Plan 2: compensation_ref 必须指向 note.reverse_capture 记录。
+            let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+            let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
+            assert_eq!(comp.compensate_fn, "note.reverse_capture");
+            assert_eq!(comp.level, CompensationLevel::Strong);
+            let payload: serde_json::Value = serde_json::from_str(&comp.reverse_payload).unwrap();
+            assert_eq!(
+                payload.get("save_path").and_then(|v| v.as_str()),
+                Some(save_path.as_str())
+            );
 
             // Approval was recorded (PerStep).
             let approvals = kernel.list_approvals_for_task("t1").unwrap();
@@ -718,10 +744,11 @@ mod tests {
             let on_disk = std::fs::read_to_string(&file_path).expect("file should exist");
             assert_eq!(on_disk, "hello notepad");
 
-            // Step is Succeeded with strong evidence.
+            // Step is Succeeded with strong evidence + compensation registered.
             let step = kernel.get_step("s1").unwrap().unwrap();
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
+            assert!(step.compensation_ref.is_some(), "compensation_ref must be set");
         });
     }
 
