@@ -48,9 +48,10 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    finalize_step_success, invoke_mcp_tool, record_approval_decision,
-    validate_input_against_manifest, ApprovalContext,
+    create_post_commit_compensation_with_payload, finalize_step_success, invoke_mcp_tool,
+    record_approval_decision, validate_input_against_manifest, ApprovalContext,
 };
+use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::skills::manifest::form_prepare_manifest;
 use crate::skills::verifiers::{verify_form_prepare, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
@@ -215,11 +216,7 @@ pub fn execute_form_prepare(
     };
     let outcome = verify_form_prepare(&verify_ctx, &input.fields)?;
     match outcome {
-        VerificationOutcome::Strong { .. } => {
-            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
-                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-            })?;
-        }
+        VerificationOutcome::Strong { .. } => { /* proceed to register compensation */ }
         VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
             return Err(KernelError::Skill(format!(
@@ -235,6 +232,25 @@ pub fn execute_form_prepare(
             )));
         }
     }
+
+    // W10 Plan 2: 注册 form.reverse_prepare compensation,payload 含 fields 映射。
+    // reverse_form_prepare 对每个 selector 调用 Playwright eval 清空 value。
+    let comp_ref = create_post_commit_compensation_with_payload(
+        kernel,
+        &input.step_id,
+        "form.reverse_prepare",
+        serde_json::json!({"fields": &input.fields}).to_string(),
+        CompensationLevel::Strong,
+        ConflictPolicy::AutoReverse,
+        3600,
+    )
+    .inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
+
+    finalize_step_success(kernel, &input.step_id, "strong", Some(&comp_ref)).inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     Ok(input.task_id.clone())
 }
@@ -451,6 +467,11 @@ for line in sys.stdin:
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Succeeded);
         assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
+        // W10 Plan 2: compensation_ref 必须指向 form.reverse_prepare 记录。
+        let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+        let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
+        assert_eq!(comp.compensate_fn, "form.reverse_prepare");
+        assert_eq!(comp.level, CompensationLevel::Strong);
 
         // Approval was recorded (PerStep).
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
