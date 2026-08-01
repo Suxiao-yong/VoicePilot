@@ -102,7 +102,6 @@ pub fn create_post_commit_compensation(
     conflict_policy: ConflictPolicy,
     ttl_seconds: i64,
 ) -> Result<String> {
-    let comp_id = format!("comp-{}", uuid::Uuid::new_v4());
     let reverse_payload_json = serde_json::json!({
         "moves": moved_paths.iter().map(|(orig, curr)| {
             serde_json::json!({
@@ -112,32 +111,71 @@ pub fn create_post_commit_compensation(
         }).collect::<Vec<_>>()
     })
     .to_string();
+    persist_compensation_record(
+        kernel,
+        step_id,
+        compensate_fn,
+        reverse_payload_json,
+        level,
+        conflict_policy,
+        ttl_seconds,
+    )
+}
+
+/// W10 Plan 2: Create a post-commit CompensationRecord with an arbitrary JSON
+/// payload string. Used by Skills whose reverse operation is not move-based
+/// (e.g. note.reverse_capture deletes a file, form.reverse_prepare clears
+/// form fields via Playwright).
+///
+/// `reverse_payload_json` should be a valid JSON string (e.g.
+/// `{"save_path": "..."}` or `{"fields": {...}}`). The reverse function is
+/// responsible for parsing and validating the payload.
+pub fn create_post_commit_compensation_with_payload(
+    kernel: &TrustKernel,
+    step_id: &str,
+    compensate_fn: &str,
+    reverse_payload_json: String,
+    level: CompensationLevel,
+    conflict_policy: ConflictPolicy,
+    ttl_seconds: i64,
+) -> Result<String> {
+    persist_compensation_record(
+        kernel,
+        step_id,
+        compensate_fn,
+        reverse_payload_json,
+        level,
+        conflict_policy,
+        ttl_seconds,
+    )
+}
+
+/// Private helper: persist a CompensationRecord with the given JSON payload.
+/// Handles stronghold encryption (3 branches per W9 Plan 2) + DB insert.
+///
+/// Branches:
+/// 1. stronghold_enabled + vault unlocked → encrypt, snapshot_encrypted=Some(bincode),
+///    reverse_payload="" (plaintext not persisted).
+/// 2. stronghold_enabled + vault not unlocked → degraded mode, plaintext persisted.
+/// 3. stronghold disabled → plaintext PoC (W3a behavior).
+fn persist_compensation_record(
+    kernel: &TrustKernel,
+    step_id: &str,
+    compensate_fn: &str,
+    reverse_payload_json: String,
+    level: CompensationLevel,
+    conflict_policy: ConflictPolicy,
+    ttl_seconds: i64,
+) -> Result<String> {
+    let comp_id = format!("comp-{}", uuid::Uuid::new_v4());
 
     // W9 Plan 2: Stronghold 加密 reverse_payload(spec §2.2 三分支)。
-    //
-    // 分支 1:stronghold_enabled && vault.is_unlocked() → 加密成功,
-    //   snapshot_encrypted = Some(bincode(EncryptedPayload)),
-    //   snapshot_vault_ref = Some(UUID v4),
-    //   reverse_payload = ""(明文不落盘)。
-    //   审计 stronghold_snapshot_encrypted(details 不含 plaintext,spec §6.4)。
-    //
-    // 分支 2:stronghold_enabled && !vault.is_unlocked() → 降级模式,
-    //   snapshot_encrypted = None,
-    //   snapshot_vault_ref = Some("degraded"),
-    //   reverse_payload = 明文 JSON(可读,降级模式可逆)。
-    //   降级模式进入审计由 Plan 1 在启动时触发,此处不重复。
-    //
-    // 分支 3:!stronghold_enabled(运行时 config stronghold.enabled = "false")→ 明文 PoC,
-    //   snapshot_encrypted = None,
-    //   snapshot_vault_ref = None,
-    //   reverse_payload = 明文 JSON。
     #[cfg(feature = "stronghold")]
     let (snapshot_encrypted, snapshot_vault_ref, stored_reverse_payload) =
         if kernel.stronghold_enabled() {
             let vault_opt = kernel.stronghold_vault();
             if let Some(vault) = vault_opt {
                 if vault.is_unlocked() {
-                    // 分支 1:加密成功
                     let payload = vault
                         .encrypt(reverse_payload_json.as_bytes())
                         .map_err(|e| KernelError::Compensation(format!("stronghold encrypt failed: {}", e)))?;
@@ -145,7 +183,6 @@ pub fn create_post_commit_compensation(
                         .map_err(|e| KernelError::Compensation(format!("bincode serialize failed: {e}")))?;
                     let vault_ref = uuid::Uuid::new_v4().to_string();
                     let plaintext_len = reverse_payload_json.len();
-                    // 审计 stronghold_snapshot_encrypted(不含 plaintext,spec §6.4)
                     let task_id = kernel
                         .task_id_for_step(step_id)?
                         .ok_or_else(|| KernelError::Compensation(format!("task_id not found for step {}", step_id)))?;
@@ -161,19 +198,15 @@ pub fn create_post_commit_compensation(
                     )?;
                     (Some(payload_bytes), Some(vault_ref), String::new())
                 } else {
-                    // 分支 2:降级模式(vault 注入但未解锁)
                     (None, Some("degraded".to_string()), reverse_payload_json)
                 }
             } else {
-                // 分支 2 变体:vault 未注入(等同降级模式)
                 (None, Some("degraded".to_string()), reverse_payload_json)
             }
         } else {
-            // 分支 3:运行时禁用 stronghold(config stronghold.enabled = "false")
             (None, None, reverse_payload_json)
         };
 
-    // stronghold feature 未启用时:编译期 fallback 到明文 PoC(W3a 行为)
     #[cfg(not(feature = "stronghold"))]
     let (snapshot_encrypted, snapshot_vault_ref, stored_reverse_payload) =
         (None, None, reverse_payload_json);
@@ -1127,5 +1160,54 @@ for line in sys.stdin:
         );
         assert!(result.error_code.is_none());
         assert!(result.started_at <= result.finished_at);
+    }
+
+    // ===== W10 Plan 2: create_post_commit_compensation_with_payload tests =====
+
+    #[test]
+    fn create_post_commit_compensation_with_payload_persists_custom_json() {
+        let kernel = setup_kernel_with_step();
+        let payload = serde_json::json!({
+            "save_path": "Documents/note-abc.txt"
+        })
+        .to_string();
+        let comp_id = create_post_commit_compensation_with_payload(
+            &kernel,
+            "s1",
+            "note.reverse_capture",
+            payload.clone(),
+            CompensationLevel::Strong,
+            ConflictPolicy::AutoReverse,
+            3600,
+        )
+        .unwrap();
+        assert!(comp_id.starts_with("comp-"));
+        let comp = kernel
+            .get_compensation(&comp_id)
+            .unwrap()
+            .expect("compensation must exist");
+        assert_eq!(comp.level, CompensationLevel::Strong);
+        assert_eq!(comp.status, "active");
+        assert_eq!(comp.compensate_fn, "note.reverse_capture");
+        assert_eq!(comp.reverse_payload, payload);
+    }
+
+    #[test]
+    fn create_post_commit_compensation_with_payload_empty_string_ok() {
+        // 空 payload 字符串允许(某些 reverse fn 可能不需要参数),
+        // 但 reverse 函数自身负责校验 payload 非空。
+        let kernel = setup_kernel_with_step();
+        let comp_id = create_post_commit_compensation_with_payload(
+            &kernel,
+            "s1",
+            "custom.reverse",
+            String::new(),
+            CompensationLevel::BestEffort,
+            ConflictPolicy::Fail,
+            60,
+        )
+        .unwrap();
+        let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
+        assert_eq!(comp.reverse_payload, "");
     }
 }
