@@ -39,7 +39,8 @@ fn auto_reverse_moves_files_back_to_original_locations() {
     }).to_string();
 
     let rec = sample_record(&payload);
-    auto_reverse_move(&rec).unwrap();
+    let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    auto_reverse_move(&kernel, &rec).unwrap();
 
     assert!(original.exists(), "original location must have the file back");
     assert!(!moved_to.exists(), "moved location must be empty");
@@ -61,7 +62,8 @@ fn auto_reverse_fails_when_move_target_missing() {
     }).to_string();
 
     let rec = sample_record(&payload);
-    let result = auto_reverse_move(&rec);
+    let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    let result = auto_reverse_move(&kernel, &rec);
     assert!(result.is_err(), "reverse must fail when current location is missing");
     fs::remove_dir_all(&dir).ok();
 }
@@ -69,7 +71,8 @@ fn auto_reverse_fails_when_move_target_missing() {
 #[test]
 fn auto_reverse_skips_when_payload_empty() {
     let rec = sample_record("{}");
-    let result = auto_reverse_move(&rec);
+    let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    let result = auto_reverse_move(&kernel, &rec);
     assert!(result.is_ok(), "empty payload should be a no-op");
 }
 
@@ -93,7 +96,8 @@ fn auto_reverse_rolls_back_partial_on_failure() {
     }).to_string();
 
     let rec = sample_record(&payload);
-    let result = auto_reverse_move(&rec);
+    let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
+    let result = auto_reverse_move(&kernel, &rec);
     assert!(result.is_err(), "must fail on bad move");
     // Rollback: ok_current should be back where it was.
     assert!(ok_current.exists(), "partial rollback must restore already-reversed file");

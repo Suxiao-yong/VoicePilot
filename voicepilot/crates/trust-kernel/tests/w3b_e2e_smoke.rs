@@ -161,7 +161,7 @@ fn end_to_end_compensation_can_be_reversed_via_auto_reverse() {
 
     // Load compensation + reverse it.
     let comp = kernel.get_compensation(comp_id).unwrap().unwrap();
-    auto_reverse_move(&comp).unwrap();
+    auto_reverse_move(&kernel, &comp).unwrap();
 
     // After reverse: file is back at src_dir/x.pdf.
     assert!(src_dir.join("x.pdf").exists(), "file must be back at original location");
