@@ -41,6 +41,12 @@ pub struct ReverseFnRegistry {
     fns: HashMap<String, ReverseFn>,
 }
 
+impl Default for ReverseFnRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReverseFnRegistry {
     /// Create a registry with all built-in reverse functions registered.
     /// W10 Plan 2 Task 7 will add 3 more entries (note/research/form).

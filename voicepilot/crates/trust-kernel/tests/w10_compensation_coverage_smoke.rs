@@ -195,7 +195,7 @@ mod tests {
     fn compensation_coverage_5_of_5_reversible_skills() {
         // 此测试是 fitness function,通过上述 5 个测试隐式验证。
         // 此处显式断言分母=5(非 6),记录 task.repeat_verified 排出决策。
-        let kernel = TrustKernel::open_in_memory().unwrap();
+        // task_repeat_verified_manifest() 是纯函数,无需 kernel。
         let manifest = trust_kernel::skills::manifest::task_repeat_verified_manifest();
         assert_eq!(
             manifest.compensation.level,
