@@ -97,11 +97,37 @@ pub fn verify_note_capture(
 }
 
 /// verify_research_save — 重读 save_path 文件存在 + size > 0。
+///
+/// markdown 内容由 Playwright eval 动态生成,sha256 难匹配,只验证
+/// 文件存在 + 非空(spec §6.3 "Strong = 真实 artifact 验证" 的弱化形式,
+/// 文件存在 + 非空已足以证明 commit 成功)。
 pub fn verify_research_save(
     _ctx: &VerificationContext<'_>,
-    _save_path: &str,
+    save_path: &str,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 3 implements verify_research_save")
+    use std::path::Path;
+
+    let path = Path::new(save_path);
+    if !path.exists() {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!("research markdown not found at {}", save_path),
+        });
+    }
+
+    let metadata = std::fs::metadata(path)?;
+    let size = metadata.len();
+    if size == 0 {
+        return Ok(VerificationOutcome::Failed {
+            reason: format!("research markdown is empty at {}", save_path),
+        });
+    }
+
+    Ok(VerificationOutcome::Strong {
+        evidence: serde_json::json!({
+            "save_path": save_path,
+            "size": size,
+        }),
+    })
 }
 
 /// verify_form_prepare — Playwright 重查表单字段值匹配 fields。
@@ -203,6 +229,76 @@ mod note_capture_tests {
             VerificationOutcome::Failed { reason } => {
                 assert!(reason.contains("sha256") || reason.contains("mismatch"),
                     "expected 'sha256' or 'mismatch' in reason, got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+
+        std::fs::remove_file(&path).ok();
+    }
+}
+
+#[cfg(test)]
+mod research_save_tests {
+    use super::*;
+
+    fn tmp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "voicepilot-w10p1-verify-research-{}.md",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[test]
+    fn verify_research_save_strong_when_file_exists_nonempty() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path();
+        std::fs::write(&path, b"# Example Domain\n\nillustrative examples").unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                let size = evidence.get("size").and_then(|v| v.as_u64());
+                assert!(size.is_some(), "evidence must contain size");
+                assert!(size.unwrap() > 0, "size must be > 0, got {}", size.unwrap());
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn verify_research_save_fails_when_file_missing() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("not found") || reason.contains("missing"),
+                    "got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn verify_research_save_fails_when_file_empty() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = tmp_path();
+        std::fs::write(&path, b"").unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("empty") || reason.contains("size"),
+                    "got: {}", reason);
             }
             other => panic!("expected Failed, got {:?}", other),
         }
