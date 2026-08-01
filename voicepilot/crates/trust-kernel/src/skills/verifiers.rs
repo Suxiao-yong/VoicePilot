@@ -130,12 +130,74 @@ pub fn verify_research_save(
     })
 }
 
-/// verify_form_prepare — Playwright 重查表单字段值匹配 fields。
+/// verify_form_prepare — Playwright eval 重查每个 selector 的值,与 fields 比较。
+///
+/// 通过 invoke_mcp_tool(playwright, eval, {script}) 查询所有字段当前值,
+/// JSON 脚本返回 {selector: value} 映射。全部匹配 → Strong;任一不匹配 → Failed。
+/// MCP 调用失败 → Err(KernelError::Mcp(...))。
 pub fn verify_form_prepare(
-    _ctx: &VerificationContext<'_>,
-    _fields: &std::collections::HashMap<String, String>,
+    ctx: &VerificationContext<'_>,
+    fields: &std::collections::HashMap<String, String>,
 ) -> Result<VerificationOutcome> {
-    unimplemented!("Task 4 implements verify_form_prepare")
+    use crate::skills::common::invoke_mcp_tool;
+    use std::collections::BTreeMap;
+
+    // 构造 eval 脚本:对每个 selector,返回其当前 value。
+    // 脚本返回 JSON 对象 {selector: value}。
+    let sorted: BTreeMap<&String, &String> = fields.iter().collect();
+    let selectors_vec: Vec<&str> = sorted.keys().map(|s| s.as_str()).collect();
+    let selectors_json = serde_json::to_string(&selectors_vec)?;
+    let script = format!(
+        "Object.fromEntries({}.map(s => [s, document.querySelector(s)?.value || '']))",
+        selectors_json
+    );
+
+    let result = invoke_mcp_tool(
+        ctx.kernel,
+        "playwright",
+        "eval",
+        serde_json::json!({"script": script}),
+    )?;
+
+    // eval 返回 {selector: value} 映射。
+    let actual: std::collections::HashMap<String, String> = result
+        .data
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut verified_count = 0u64;
+    for (selector, expected_value) in &sorted {
+        match actual.get(*selector) {
+            Some(actual_value) if actual_value == expected_value.as_str() => {
+                verified_count += 1;
+            }
+            Some(actual_value) => {
+                return Ok(VerificationOutcome::Failed {
+                    reason: format!(
+                        "field {} mismatch: expected {:?} got {:?}",
+                        selector, expected_value, actual_value
+                    ),
+                });
+            }
+            None => {
+                return Ok(VerificationOutcome::Failed {
+                    reason: format!("field {} not found in eval result", selector),
+                });
+            }
+        }
+    }
+
+    Ok(VerificationOutcome::Strong {
+        evidence: serde_json::json!({
+            "verified_count": verified_count,
+            "total_count": fields.len(),
+        }),
+    })
 }
 
 /// verify_form_submit — Playwright 查页面 URL 变更 或 success 元素存在。
@@ -304,5 +366,152 @@ mod research_save_tests {
         }
 
         std::fs::remove_file(&path).ok();
+    }
+}
+
+#[cfg(test)]
+mod form_prepare_tests {
+    use super::*;
+    use crate::kernel::TrustKernel;
+    use crate::mcp::repo::McpServerRepo;
+    use std::collections::HashMap;
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    static CWD_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn python_available() -> bool {
+        Command::new("python")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Mock Playwright 脚本:对 eval 调用,返回 FORM_VALUES_PATH 中预存的
+    /// 字段值 JSON(由测试预先写入)。
+    const MOCK_SCRIPT: &str = r#"
+import sys, json, os
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    if msg.get("method") == "initialize":
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "result": {"protocolVersion": "2025-11-25", "capabilities": {},
+                         "serverInfo": {"name": "mock", "version": "0.1"}}})
+    elif msg.get("method") == "notifications/initialized":
+        pass
+    elif msg.get("method") == "tools/call":
+        name = msg.get("params", {}).get("name")
+        if name == "eval":
+            values_path = os.environ.get("FORM_VALUES_PATH")
+            values = {}
+            if values_path and os.path.exists(values_path):
+                try:
+                    with open(values_path, "r", encoding="utf-8") as f:
+                        values = json.load(f)
+                except Exception:
+                    values = {}
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "result": {"content": [{"type": "text", "text": json.dumps(values)}],
+                             "isError": False}})
+        else:
+            emit({"jsonrpc": "2.0", "id": msg.get("id"),
+                  "error": {"code": -32601, "message": f"unknown {name}"}})
+    else:
+        emit({"jsonrpc": "2.0", "id": msg.get("id"),
+              "error": {"code": -32601, "message": "method not found"}})
+"#;
+
+    fn install_mock(kernel: &TrustKernel) {
+        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
+            .unwrap();
+        let mut rec = McpServerRepo::new()
+            .get(&kernel.conn(), "playwright")
+            .unwrap()
+            .unwrap();
+        rec.command = Some("python".to_string());
+        rec.args = Some(args_json);
+        rec.env = Some("{}".to_string());
+        McpServerRepo::new().update(&kernel.conn(), &rec).unwrap();
+    }
+
+    fn set_values_env(temp: &std::path::Path, values: &HashMap<String, String>) -> std::path::PathBuf {
+        let path = temp.join(format!("values-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, serde_json::to_string(values).unwrap()).unwrap();
+        std::env::set_var("FORM_VALUES_PATH", &path);
+        path
+    }
+
+    fn clear_values_env() {
+        std::env::remove_var("FORM_VALUES_PATH");
+    }
+
+    #[test]
+    fn verify_form_prepare_strong_when_all_fields_match() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+
+        let mut fields = HashMap::new();
+        fields.insert("#username".to_string(), "alice".to_string());
+        fields.insert("#email".to_string(), "alice@example.com".to_string());
+        set_values_env(temp.path(), &fields);
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_form_prepare(&ctx, &fields).unwrap();
+
+        match outcome {
+            VerificationOutcome::Strong { evidence } => {
+                assert_eq!(evidence.get("verified_count").and_then(|v| v.as_u64()), Some(2));
+            }
+            other => panic!("expected Strong, got {:?}", other),
+        }
+
+        clear_values_env();
+    }
+
+    #[test]
+    fn verify_form_prepare_fails_when_field_value_mismatches() {
+        if !python_available() {
+            eprintln!("skipping: python not on PATH");
+            return;
+        }
+        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        install_mock(&kernel);
+
+        let mut expected = HashMap::new();
+        expected.insert("#username".to_string(), "alice".to_string());
+        let mut actual = HashMap::new();
+        actual.insert("#username".to_string(), "bob".to_string());
+        set_values_env(temp.path(), &actual);
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let outcome = verify_form_prepare(&ctx, &expected).unwrap();
+
+        match outcome {
+            VerificationOutcome::Failed { reason } => {
+                assert!(reason.contains("#username") || reason.contains("mismatch"),
+                    "got: {}", reason);
+            }
+            other => panic!("expected Failed, got {:?}", other),
+        }
+
+        clear_values_env();
     }
 }
