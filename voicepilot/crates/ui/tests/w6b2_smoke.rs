@@ -94,7 +94,7 @@ fn audit_viewer_lists_recent_events() {
     let step = StepRecord::new(step_id, task_id, 1);
     kernel.create_step(&step).unwrap();
     kernel
-        .audit_append_external(task_id, Some(step_id), "STEP_STARTED", serde_json::json!({"k":"v"}))
+        .audit_append_external(task_id, Some(step_id), "step_started", serde_json::json!({"k":"v"}))
         .unwrap();
     let events = kernel.list_audit_recent(10).unwrap();
     assert!(!events.is_empty());

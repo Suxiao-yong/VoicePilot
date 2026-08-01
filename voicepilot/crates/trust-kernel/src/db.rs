@@ -18,6 +18,10 @@ const MIGRATION_005: &str = include_str!("migrations/005_compensations_reverse_p
 // ON CONFLICT(value_hash) DO UPDATE 路径依赖)。CREATE UNIQUE INDEX IF NOT EXISTS
 // 幂等,可重复执行。
 const MIGRATION_006: &str = include_str!("migrations/006_taints_unique_index.sql");
+// W10 清理项 3: audit_logs.event_type 历史数据 SCREAMING_SNAKE_CASE → lower_snake_case。
+// 单条 UPDATE ... CASE WHEN 语句,无 schema 变更。CASE WHEN 不匹配 lower_snake_case
+// 值,重复执行影响 0 行,天然幂等。
+const MIGRATION_007: &str = include_str!("migrations/007_audit_logs_event_type_lower_snake_case.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -96,6 +100,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // W9 Plan 3 Task 1: 006 创建 taints.value_hash UNIQUE 索引。CREATE ...
     // IF NOT EXISTS 幂等,单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_006)?;
+    // W10 清理项 3: 007 把 audit_logs.event_type 历史数据从 SCREAMING_SNAKE_CASE
+    // 转换为 lower_snake_case。单条 UPDATE ... CASE WHEN,CASE 不匹配
+    // lower_snake_case 值,重复执行影响 0 行,天然幂等,单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_007)?;
     tracing::info!("migrations applied");
     Ok(())
 }

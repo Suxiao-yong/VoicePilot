@@ -37,7 +37,7 @@ fn fresh_logger() -> SqliteAuditLogger {
 #[test]
 fn append_writes_event_with_correct_hash() {
     let logger = fresh_logger();
-    let event = make_event("task-1", "TASK_CREATED", None);
+    let event = make_event("task-1", "task_created", None);
     logger.append(&event).unwrap();
 
     let rows = logger
@@ -53,7 +53,7 @@ fn append_writes_event_with_correct_hash() {
 fn hash_chain_links_consecutive_events() {
     let logger = fresh_logger();
 
-    let e1 = make_event("task-2", "TASK_CREATED", None);
+    let e1 = make_event("task-2", "task_created", None);
     logger.append(&e1).unwrap();
     let first_hash: String = logger
         .query_rows(
@@ -64,7 +64,7 @@ fn hash_chain_links_consecutive_events() {
         .0
         .clone();
 
-    let e2 = make_event("task-2", "STATE_TRANSITION", Some(first_hash.clone()));
+    let e2 = make_event("task-2", "state_transition", Some(first_hash.clone()));
     logger.append(&e2).unwrap();
 
     let rows = logger
@@ -83,7 +83,7 @@ fn hash_chain_links_consecutive_events() {
 fn audit_logger_records_step_id_when_provided() {
     let logger = fresh_logger();
 
-    let mut event = make_event("task-3", "STEP_STARTED", None);
+    let mut event = make_event("task-3", "step_started", None);
     event.step_id = Some("step-1".to_string());
     logger.append(&event).unwrap();
 

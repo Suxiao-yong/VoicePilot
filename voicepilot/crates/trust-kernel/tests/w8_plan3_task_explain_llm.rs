@@ -24,12 +24,12 @@ fn seed_failed_step(kernel: &TrustKernel, step_id: &str, task_id: &str) {
     let mut step = StepRecord::new(step_id, task_id, 1);
     step.status = StepStatus::Failed;
     kernel.create_step(&step).unwrap();
-    // Emit a MCP_CALL_FAILED audit event so extract_failed_tool_calls has data.
+    // Emit a mcp_call_failed audit event so extract_failed_tool_calls has data.
     kernel
         .audit_append_external(
             task_id,
             Some(step_id),
-            "MCP_CALL_FAILED",
+            "mcp_call_failed",
             serde_json::json!({
                 "tool_name": "playwright.navigate",
                 "args": {"url": "https://example.com"},

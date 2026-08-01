@@ -89,13 +89,13 @@ impl TaskExplanation {
     }
 }
 
-/// 从 audit_logs 中提取 `MCP_CALL_FAILED` 事件的 tool_name / args / error_message。
+/// 从 audit_logs 中提取 `mcp_call_failed` 事件的 tool_name / args / error_message。
 fn extract_failed_tool_calls(
     audit_logs: &[crate::audit::AuditEvent],
 ) -> Vec<FailedToolCallSummary> {
     audit_logs
         .iter()
-        .filter(|e| e.event_type == "MCP_CALL_FAILED")
+        .filter(|e| e.event_type == "mcp_call_failed")
         .map(|e| FailedToolCallSummary {
             tool_name: e
                 .details
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn execute_explain_returns_task_id_and_logs_audit() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        // Seed 3 prior tasks — each emits TASK_CREATED + STEP_CREATED.
+        // Seed 3 prior tasks — each emits task_created + step_created.
         seed_audit_events(&kernel, 3);
 
         let before_count = kernel.list_audit_recent(1000).unwrap().len();

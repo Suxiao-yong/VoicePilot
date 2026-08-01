@@ -118,7 +118,7 @@ fn kernel_record_approval_persists_and_audits() {
     let list = k.list_approvals_for_task("t1").unwrap();
     assert_eq!(list.len(), 1);
 
-    // Audit trail must include APPROVAL_RECORDED.
+    // Audit trail must include approval_recorded.
     let audit_count = k.audit_count_for_task("t1").unwrap();
     assert!(audit_count >= 2, "task + approval events expected");
 }
@@ -139,7 +139,7 @@ fn kernel_audit_append_external_logs_event() {
     k.audit_append_external(
         "t-ext",
         None,
-        "MCP_TOOLS_CALL",
+        "mcp_tools_call",
         serde_json::json!({
             "tool": "filesystem.search_files",
             "args": {"root": "C:/Users", "pattern": "*.pdf"}
@@ -156,7 +156,7 @@ fn kernel_audit_append_external_rejects_unknown_task() {
     let result = k.audit_append_external(
         "nonexistent-task",
         None,
-        "MCP_TOOLS_CALL",
+        "mcp_tools_call",
         serde_json::json!({}),
     );
     // FK constraint — audit_logs.task_id REFERENCES tasks(task_id).

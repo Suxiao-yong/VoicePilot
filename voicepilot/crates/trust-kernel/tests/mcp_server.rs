@@ -154,12 +154,12 @@ fn server_tools_call_logs_audit_when_task_id_present() {
     server.handle_request(req).unwrap();
     let after = kernel.audit_count_for_task("t-audit").unwrap();
     // W9 Plan 3: 成功的 tools/call 现在记录 2 条审计事件:
-    //   1. MCP_TOOLS_CALL(既有,call_tool 调用记录)
+    //   1. mcp_tools_call(既有,call_tool 调用记录)
     //   2. taint_propagated(W9 Plan 3 新增,mcp_tool:<server_id> taint 标记)
     assert_eq!(
         after,
         before + 2,
-        "tools/call with task_id must log MCP_TOOLS_CALL + taint_propagated audit events"
+        "tools/call with task_id must log mcp_tools_call + taint_propagated audit events"
     );
 
     fs::remove_dir_all(&dir).ok();

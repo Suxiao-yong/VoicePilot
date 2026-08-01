@@ -11,7 +11,7 @@ fn text_command_flows_through_state_machine_with_audit() {
     // 1. Create task in IDLE
     let task = kernel.create_task(&task_id, goal).unwrap();
     assert_eq!(task.status, TaskState::Idle);
-    assert_audit_event_count(&kernel, &task_id, 1, "TASK_CREATED should be audited");
+    assert_audit_event_count(&kernel, &task_id, 1, "task_created should be audited");
 
     // 2. Listen → Plan → Await approval (text input simulates voice transcript)
     kernel.transition(&task_id, TaskState::Listening).unwrap();

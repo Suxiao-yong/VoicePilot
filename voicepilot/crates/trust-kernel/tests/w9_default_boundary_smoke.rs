@@ -517,17 +517,14 @@ fn iterable_source_user_slot_empty_slots_returns_user_slot_not_found() {
 fn audit_event_types_all_lower_snake_case() {
     // 扫描 audit_logs 表所有 event_type,验证命名规范。
     //
-    // spec §10 Conventions 要求 lower_snake_case,但 W1-W8 遗留 7 种
-    // SCREAMING_SNAKE_CASE 事件(TASK_CREATED / STEP_CREATED /
-    // COMPENSATION_CREATED / COMPENSATION_STATUS_CHANGED /
-    // APPROVAL_RECORDED / MCP_TOOLS_CALL / MCP_CALL_FAILED)。
-    //
-    // 按 Plan §Conventions "不修改 spec / 已有 plan,记录到 PROGRESS.md
-    // 已知偏离"原则,本测试不强制 W1-W8 既有事件改名(会破坏 W1-W8 测试),
-    // 改为:
-    // 1. 收集所有 event_type
-    // 2. W9 新增事件必须 lower_snake_case(强制)
-    // 3. W1-W8 既有 SCREAMING_SNAKE_CASE 事件记录为已知偏离(不 fail)
+    // spec §10 Conventions 要求所有 audit event_type 必须 lower_snake_case。
+    // W10 清理项 3 已将 W1-W8 遗留 14 种 SCREAMING_SNAKE_CASE 事件重命名为
+    // lower_snake_case(task_created / step_created / step_status_changed /
+    // step_prepared / step_committed / step_started / step_succeeded /
+    // step_failed / state_transition / compensation_created /
+    // compensation_status_changed / approval_recorded / mcp_tools_call /
+    // mcp_call_failed),并通过 migration 007 转换历史 audit_logs 数据。
+    // 本测试现在强制所有 event_type 必须 lower_snake_case,无 legacy 白名单。
     let kernel = TrustKernel::open_in_memory().unwrap();
     let _ = kernel.create_task("t-boundary-1", "trigger audit events");
     let event_types = list_distinct_event_types(&kernel);
@@ -536,34 +533,17 @@ fn audit_event_types_all_lower_snake_case() {
         "audit_logs must have at least one event_type after create_task"
     );
 
-    // W1-W8 遗留 SCREAMING_SNAKE_CASE 事件白名单(已知偏离,记录到 PROGRESS.md)
-    let legacy_screaming: std::collections::HashSet<&str> = [
-        "TASK_CREATED",
-        "STEP_CREATED",
-        "COMPENSATION_CREATED",
-        "COMPENSATION_STATUS_CHANGED",
-        "APPROVAL_RECORDED",
-        "MCP_TOOLS_CALL",
-        "MCP_CALL_FAILED",
-    ]
-    .iter()
-    .copied()
-    .collect();
-
     let re_lower = regex::Regex::new(r"^[a-z][a-z0-9_]*$").unwrap();
     let mut non_compliant: Vec<String> = Vec::new();
     for et in &event_types {
         if !re_lower.is_match(et) {
-            // 非合规:必须在 W1-W8 遗留白名单中,否则 fail
-            if !legacy_screaming.contains(et.as_str()) {
-                non_compliant.push(et.clone());
-            }
+            non_compliant.push(et.clone());
         }
     }
     assert!(
         non_compliant.is_empty(),
-        "found event_type(s) not matching lower_snake_case and not in legacy whitelist: {:?} \
-         (legacy SCREAMING_SNAKE_CASE events are recorded as known deviation in PROGRESS.md)",
+        "found event_type(s) not matching lower_snake_case: {:?} \
+         (W10 cleanup renamed all W1-W8 SCREAMING_SNAKE_CASE events to lower_snake_case)",
         non_compliant
     );
 }

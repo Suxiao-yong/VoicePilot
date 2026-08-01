@@ -590,13 +590,13 @@ async fn scenario_5_task_explain_calls_llm_yields_root_cause_zh_and_category() {
     kernel.update_step_status(&step_id, StepStatus::Failed).unwrap();
     // 写几条 audit_logs 给 LLM 归因用
     kernel
-        .audit_append_external(&task_id, Some(&step_id), "STEP_PREPARED", serde_json::json!({}))
+        .audit_append_external(&task_id, Some(&step_id), "step_prepared", serde_json::json!({}))
         .unwrap();
     kernel
         .audit_append_external(
             &task_id,
             Some(&step_id),
-            "STEP_FAILED",
+            "step_failed",
             serde_json::json!({"error": "path not allowed"}),
         )
         .unwrap();

@@ -124,7 +124,7 @@ fn audit_chain_hash_links_unbroken() {
     let kernel = TrustKernel::open_in_memory().expect("open_in_memory");
 
     // 在同一 task 上触发 4 个审计事件,构建真实哈希链。
-    // (不同 task 各只有 1 个 TASK_CREATED 事件,prev_hash 全为 None,无法验证链路)
+    // (不同 task 各只有 1 个 task_created 事件,prev_hash 全为 None,无法验证链路)
     kernel.create_task("chain-task", "hash chain test goal").expect("create_task");
     kernel
         .create_step(&StepRecord::new("chain-step-1", "chain-task", 1))

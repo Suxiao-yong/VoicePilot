@@ -30,7 +30,7 @@ fn make_audit_logs() -> Vec<AuditEvent> {
         log_id: "log-001".to_string(),
         task_id: "task-001".to_string(),
         step_id: Some("step-001".to_string()),
-        event_type: "MCP_CALL_FAILED".to_string(),
+        event_type: "mcp_call_failed".to_string(),
         details: serde_json::json!({"error": "command not found", "server": "playwright"}),
         timestamp: Utc::now(),
         prev_hash: None,

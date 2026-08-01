@@ -83,22 +83,22 @@ fn e2e_organize_files_with_auto_approver() {
 
     // 审计链验证:list_audit_recent 返回全局最近 N 条(此处 fresh DB 仅含本任务事件)。
     // 成功路径 8 个事件(参考 w6a_e2e_smoke.rs:52-60):
-    //   TASK_CREATED / STEP_CREATED / STEP_STATUS_CHANGED(Running) /
-    //   STEP_PREPARED / APPROVAL_RECORDED / COMPENSATION_CREATED /
-    //   STEP_COMMITTED / STEP_STATUS_CHANGED(Succeeded)
+    //   task_created / step_created / step_status_changed(Running) /
+    //   step_prepared / approval_recorded / compensation_created /
+    //   step_committed / step_status_changed(Succeeded)
     let audit = state.kernel.list_audit_recent(50).unwrap();
     assert!(!audit.is_empty(), "audit should have events");
 
-    // 精确断言关键事件类型存在(参考 kernel.rs: STEP_PREPARED / STEP_COMMITTED)。
+    // 精确断言关键事件类型存在(参考 kernel.rs: step_prepared / step_committed)。
     let event_types: Vec<String> = audit.iter().map(|e| e.event_type.clone()).collect();
     assert!(
-        event_types.iter().any(|t| t == "STEP_PREPARED"),
-        "audit should contain STEP_PREPARED event, got {:?}",
+        event_types.iter().any(|t| t == "step_prepared"),
+        "audit should contain step_prepared event, got {:?}",
         event_types
     );
     assert!(
-        event_types.iter().any(|t| t == "STEP_COMMITTED"),
-        "audit should contain STEP_COMMITTED event, got {:?}",
+        event_types.iter().any(|t| t == "step_committed"),
+        "audit should contain step_committed event, got {:?}",
         event_types
     );
 }

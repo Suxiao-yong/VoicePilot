@@ -154,8 +154,8 @@ fn e2e_explain_reads_audit_log_after_multiple_operations() {
     let approver = Arc::new(AutoApprover);
     let skill = FilesOrganizeSkill::new();
 
-    // Run 2 files.organize operations — each creates TASK_CREATED +
-    // STEP_CREATED + ... + COMPENSATION_CREATED audit events.
+    // Run 2 files.organize operations — each creates task_created +
+    // step_created + ... + compensation_created audit events.
     for i in 1..=2 {
         let src_dir = dir.join(format!("src{}", i));
         fs::create_dir_all(&src_dir).unwrap();
@@ -207,7 +207,7 @@ fn e2e_explain_reads_audit_log_after_multiple_operations() {
     assert_eq!(step_rec.status, StepStatus::Succeeded);
     assert_eq!(step_rec.evidence_strength.as_deref(), Some("weak"));
 
-    // Audit log grew (explain itself adds TASK_CREATED + STEP_CREATED + ... events).
+    // Audit log grew (explain itself adds task_created + step_created + ... events).
     let audit_after = kernel.list_audit_recent(100).unwrap().len();
     assert!(
         audit_after > audit_before,

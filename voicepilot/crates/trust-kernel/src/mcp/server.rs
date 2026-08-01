@@ -178,7 +178,7 @@ impl McpServer {
             if let Err(e) = self.kernel.audit_append_external(
                 tid,
                 step_id.as_deref(),
-                "MCP_TOOLS_CALL",
+                "mcp_tools_call",
                 serde_json::json!({
                     "tool": name,
                     "arguments": arguments,

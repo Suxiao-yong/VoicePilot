@@ -50,14 +50,14 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
     );
 
     // 验证:审计链有预期事件。成功路径共 8 个 audit 事件:
-    //   1. TASK_CREATED              (create_task)
-    //   2. STEP_CREATED              (create_step)
-    //   3. STEP_STATUS_CHANGED       (Running,executor step 1)
-    //   4. STEP_PREPARED             (executor step 2)
-    //   5. APPROVAL_RECORDED         (executor step 3)
-    //   6. COMPENSATION_CREATED      (executor step 6)
-    //   7. STEP_COMMITTED            (executor step 7,update_step_post_commit)
-    //   8. STEP_STATUS_CHANGED       (Succeeded,executor step 7)
+    //   1. task_created              (create_task)
+    //   2. step_created              (create_step)
+    //   3. step_status_changed       (Running,executor step 1)
+    //   4. step_prepared             (executor step 2)
+    //   5. approval_recorded         (executor step 3)
+    //   6. compensation_created      (executor step 6)
+    //   7. step_committed            (executor step 7,update_step_post_commit)
+    //   8. step_status_changed       (Succeeded,executor step 7)
     // 精确断言(N=8)以尽早捕获回归(参考 w4_e2e_smoke.rs:87 风格)。
     let audit_count = state.kernel.audit_count_for_task("t-w6a-smoke").unwrap();
     assert_eq!(

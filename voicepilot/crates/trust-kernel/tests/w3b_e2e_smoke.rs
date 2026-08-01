@@ -113,7 +113,7 @@ fn end_to_end_files_organize_skill_smoke() {
     let audit_count = kernel.audit_count_for_task(&task_id).unwrap();
     assert!(
         audit_count >= 4,
-        "expected at least 4 audit events for task (TASK_CREATED, STEP_CREATED, STEP_PREPARED, APPROVAL_RECORDED, STEP_COMMITTED, COMPENSATION_CREATED, STEP_STATUS_CHANGED), got {}",
+        "expected at least 4 audit events for task (task_created, step_created, step_prepared, approval_recorded, step_committed, compensation_created, step_status_changed), got {}",
         audit_count
     );
 

@@ -254,7 +254,7 @@ fn audit_hash_chain_remains_intact_after_dag_events() {
 
     let recent = kernel_arc.list_audit_recent(50).unwrap();
     // 至少应有:dag_plan_created + dag_skeleton_approved + dag_node_started
-    // + dag_node_succeeded + dag_completed + W1 TASK_CREATED + STATE_TRANSITION
+    // + dag_node_succeeded + dag_completed + W1 task_created + state_transition
     assert!(
         recent.len() >= 5,
         "expected >= 5 audit events, got: {}",

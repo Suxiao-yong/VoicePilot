@@ -319,7 +319,7 @@ impl TrustKernel {
             let conn = self.conn.lock().unwrap();
             self.task_repo.create(&conn, &task)?;
         }
-        self.audit_append(&task.task_id, None, "TASK_CREATED", serde_json::json!({
+        self.audit_append(&task.task_id, None, "task_created", serde_json::json!({
             "user_goal": task.user_goal,
         }))?;
         Ok(task)
@@ -331,7 +331,7 @@ impl TrustKernel {
     }
 
     /// Transition a task to a new state. Rejects illegal transitions.
-    /// Emits a `STATE_TRANSITION` audit event on success.
+    /// Emits a `state_transition` audit event on success.
     pub fn transition(&self, task_id: &str, target: TaskState) -> Result<()> {
         let current = self
             .get_task(task_id)?
@@ -346,7 +346,7 @@ impl TrustKernel {
             let conn = self.conn.lock().unwrap();
             self.task_repo.update_status(&conn, task_id, target)?;
         }
-        self.audit_append(task_id, None, "STATE_TRANSITION", serde_json::json!({
+        self.audit_append(task_id, None, "state_transition", serde_json::json!({
             "from": current.status,
             "to": target,
         }))?;
@@ -438,7 +438,7 @@ impl TrustKernel {
         self.audit_append(
             &task_id,
             Some(&rec.step_id),
-            "COMPENSATION_CREATED",
+            "compensation_created",
             serde_json::json!({
                 "comp_id": rec.comp_id,
                 "level": rec.level.as_str(),
@@ -474,7 +474,7 @@ impl TrustKernel {
         self.audit_append(
             &task_id,
             step_id_opt.as_deref(),
-            "COMPENSATION_STATUS_CHANGED",
+            "compensation_status_changed",
             serde_json::json!({
                 "comp_id": comp_id,
                 "new_status": new_status,
@@ -492,7 +492,7 @@ impl TrustKernel {
         self.audit_append(
             &rec.task_id,
             rec.step_id.as_deref(),
-            "APPROVAL_RECORDED",
+            "approval_recorded",
             serde_json::json!({
                 "approval_id": rec.approval_id,
                 "user_decision": rec.user_decision.as_str(),
@@ -542,7 +542,7 @@ impl TrustKernel {
         self.audit_append(
             &step.task_id,
             Some(&step.step_id),
-            "STEP_CREATED",
+            "step_created",
             serde_json::json!({
                 "step_id": step.step_id,
                 "step_order": step.step_order,
@@ -576,7 +576,7 @@ impl TrustKernel {
         self.audit_append(
             &task_id,
             Some(step_id),
-            "STEP_STATUS_CHANGED",
+            "step_status_changed",
             serde_json::json!({
                 "step_id": step_id,
                 "new_status": new_status.as_str(),
@@ -605,7 +605,7 @@ impl TrustKernel {
         self.audit_append(
             &task_id,
             Some(step_id),
-            "STEP_PREPARED",
+            "step_prepared",
             serde_json::json!({
                 "step_id": step_id,
                 "prepare_token": prepare_token,
@@ -632,7 +632,7 @@ impl TrustKernel {
         self.audit_append(
             &task_id,
             Some(step_id),
-            "STEP_COMMITTED",
+            "step_committed",
             serde_json::json!({
                 "step_id": step_id,
                 "evidence_strength": evidence_strength,

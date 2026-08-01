@@ -40,9 +40,9 @@ fn make_event(task_id: &str, step_id: Option<&str>, event_type: &str) -> AuditEv
 #[test]
 fn list_recent_returns_events_in_desc_order() {
     let logger = setup();
-    let e1 = make_event("task-1", None, "TASK_CREATED");
-    let e2 = make_event("task-1", Some("step-1"), "STEP_STARTED");
-    let e3 = make_event("task-2", None, "TASK_CREATED");
+    let e1 = make_event("task-1", None, "task_created");
+    let e2 = make_event("task-1", Some("step-1"), "step_started");
+    let e3 = make_event("task-2", None, "task_created");
     logger.append(&e1).expect("append");
     std::thread::sleep(std::time::Duration::from_millis(10));
     logger.append(&e2).expect("append");
@@ -58,22 +58,22 @@ fn list_recent_returns_events_in_desc_order() {
 #[test]
 fn list_for_task_returns_all_events_for_task() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "TASK_CREATED")).expect("append");
-    logger.append(&make_event("task-2", None, "TASK_CREATED")).expect("append");
-    logger.append(&make_event("task-1", Some("step-1"), "STEP_STARTED")).expect("append");
-    logger.append(&make_event("task-1", Some("step-1"), "STEP_SUCCEEDED")).expect("append");
+    logger.append(&make_event("task-1", None, "task_created")).expect("append");
+    logger.append(&make_event("task-2", None, "task_created")).expect("append");
+    logger.append(&make_event("task-1", Some("step-1"), "step_started")).expect("append");
+    logger.append(&make_event("task-1", Some("step-1"), "step_succeeded")).expect("append");
 
     let events = logger.list_for_task("task-1").expect("list_for_task");
     assert_eq!(events.len(), 3);
-    assert_eq!(events[0].event_type, "TASK_CREATED");
-    assert_eq!(events[1].event_type, "STEP_STARTED");
-    assert_eq!(events[2].event_type, "STEP_SUCCEEDED");
+    assert_eq!(events[0].event_type, "task_created");
+    assert_eq!(events[1].event_type, "step_started");
+    assert_eq!(events[2].event_type, "step_succeeded");
 }
 
 #[test]
 fn list_for_task_returns_empty_for_unknown_task() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "TASK_CREATED")).expect("append");
+    logger.append(&make_event("task-1", None, "task_created")).expect("append");
     let events = logger.list_for_task("nonexistent").expect("list_for_task");
     assert!(events.is_empty());
 }
@@ -81,7 +81,7 @@ fn list_for_task_returns_empty_for_unknown_task() {
 #[test]
 fn list_recent_with_zero_limit_returns_empty() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "TASK_CREATED")).expect("append");
+    logger.append(&make_event("task-1", None, "task_created")).expect("append");
     let events = logger.list_recent(0).expect("list_recent");
     assert!(events.is_empty());
 }

@@ -11,7 +11,7 @@ fn audit_event_dto_converts_from_kernel_event() {
         log_id: "log-1".to_string(),
         task_id: "task-1".to_string(),
         step_id: Some("step-1".to_string()),
-        event_type: "TASK_CREATED".to_string(),
+        event_type: "task_created".to_string(),
         details: serde_json::json!({"k": "v"}),
         timestamp: chrono::Utc::now(),
         prev_hash: None,
@@ -21,7 +21,7 @@ fn audit_event_dto_converts_from_kernel_event() {
     assert_eq!(dto.log_id, "log-1");
     assert_eq!(dto.task_id, "task-1");
     assert_eq!(dto.step_id.as_deref(), Some("step-1"));
-    assert_eq!(dto.event_type, "TASK_CREATED");
+    assert_eq!(dto.event_type, "task_created");
     assert_eq!(dto.hash, "abc");
     assert!(dto.timestamp.contains("T")); // RFC3339
 }
@@ -32,7 +32,7 @@ fn audit_event_dto_handles_none_step_id() {
         log_id: "log-2".to_string(),
         task_id: "task-2".to_string(),
         step_id: None,
-        event_type: "TASK_CREATED".to_string(),
+        event_type: "task_created".to_string(),
         details: serde_json::Value::Null,
         timestamp: chrono::Utc::now(),
         prev_hash: Some("prev".to_string()),
