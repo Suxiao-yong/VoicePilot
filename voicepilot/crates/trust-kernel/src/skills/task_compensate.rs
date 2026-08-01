@@ -16,16 +16,17 @@
 //!      approval prompt).
 //!   5. Update step → Running.
 //!   6. Record approval decision (E2 + PerStep). Branch on Allow/Deny/Modify.
-//!   7. Execute `auto_reverse_move` (the "commit" phase).
+//!   7. Execute `auto_reverse` dispatcher (the "commit" phase) — routes via
+//!      ReverseFnRegistry to the reverse function named by rec.compensate_fn.
 //!   8. Mark the compensation record status as "reversed".
 //!   9. Finalize step as Succeeded with Strong evidence.
 //!
-//! Reversing a reverse is out of scope — `auto_reverse_move` is idempotent
-//! enough; if it fails, files are rolled back by `auto_reverse_move` itself.
+//! Reversing a reverse is out of scope — registered reverse functions are
+//! idempotent enough; if it fails, files are rolled back by the function itself.
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
-use crate::compensation::executor::auto_reverse_move;
+use crate::compensation::executor::auto_reverse;
 use crate::compensation::types::CompensationRecord;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
@@ -172,7 +173,10 @@ pub fn execute_compensate(
     // Step 7: execute auto_reverse (the "commit" phase). On failure, mark
     // step Failed — auto_reverse_move itself rolls back any partial
     // reversals, so the filesystem is left in a consistent state.
-    auto_reverse_move(&target_comp).inspect_err(|_e| {
+    // W10 Plan 2: 改用 auto_reverse 分发器,通过 ReverseFnRegistry 路由到
+    // rec.compensate_fn 字段指定的 reverse 函数。原先硬编码 auto_reverse_move,
+    // 现在支持 note.reverse_capture / research.reverse_save / form.reverse_prepare 等。
+    auto_reverse(kernel, &target_comp).inspect_err(|_e| {
         let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
     })?;
 
