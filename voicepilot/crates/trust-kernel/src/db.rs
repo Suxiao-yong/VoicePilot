@@ -22,6 +22,9 @@ const MIGRATION_006: &str = include_str!("migrations/006_taints_unique_index.sql
 // 单条 UPDATE ... CASE WHEN 语句,无 schema 变更。CASE WHEN 不匹配 lower_snake_case
 // 值,重复执行影响 0 行,天然幂等。
 const MIGRATION_007: &str = include_str!("migrations/007_audit_logs_event_type_lower_snake_case.sql");
+// W10 Plan 3: voice_latency_samples 表 + idx_voice_latency_started 索引。
+// CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
+const MIGRATION_008: &str = include_str!("migrations/008_voice_latency_samples.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -104,6 +107,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // 转换为 lower_snake_case。单条 UPDATE ... CASE WHEN,CASE 不匹配
     // lower_snake_case 值,重复执行影响 0 行,天然幂等,单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_007)?;
+    // W10 Plan 3: 008 创建 voice_latency_samples 表 + idx_voice_latency_started
+    // 索引。CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_008)?;
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -147,4 +153,68 @@ pub fn migrate_005_compensations_stash(conn: &Connection) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// W10 Plan 3: migration 008 必须创建 voice_latency_samples 表 +
+    /// idx_voice_latency_started 索引,即使 voice feature 关闭(default-gated)。
+    #[test]
+    fn migration_008_creates_voice_latency_samples_table() {
+        let conn = open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // 验证表存在
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='voice_latency_samples'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            table_exists,
+            "voice_latency_samples table must exist after migration 008"
+        );
+
+        // 验证索引存在
+        let index_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_voice_latency_started'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            index_exists,
+            "idx_voice_latency_started index must exist after migration 008"
+        );
+
+        // 验证表结构:用 sqlite_master 的 sql 列验证列存在
+        let sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='voice_latency_samples'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("started_at_ms"),
+            "table must have started_at_ms column: {}",
+            sql
+        );
+        assert!(
+            sql.contains("latency_ms"),
+            "table must have latency_ms column: {}",
+            sql
+        );
+        assert!(sql.contains("model"), "table must have model column: {}", sql);
+        assert!(
+            sql.contains("privacy_mode"),
+            "table must have privacy_mode column: {}",
+            sql
+        );
+    }
 }
