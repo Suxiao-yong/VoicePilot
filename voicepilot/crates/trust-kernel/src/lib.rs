@@ -22,6 +22,12 @@ pub mod skills;
 pub mod llm;
 // W9 Plan 1: 加密原语模块(stronghold 子模块内部 #[cfg(feature = "stronghold")] 门控)
 pub mod crypto;
+// W10 Plan 3: voice_latency_samples 表的统计 + 清理 + 记录器。
+// default-gated(纯 DB 操作,不依赖 voice feature)—— voice listener(voice-gated)
+// 返回 ListenTimings 后,caller 用 LatencyRecorder 写表;CLI admin 命令直接调
+// compute_stats / prune_older_than。Fitness Function voice_latency_table_exists
+// (default-gated)也能访问 prune_older_than 验证函数存在。
+pub mod voice_latency;
 
 #[cfg(feature = "voice")]
 pub mod voice;

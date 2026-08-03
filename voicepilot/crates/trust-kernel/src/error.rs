@@ -65,6 +65,10 @@ pub enum KernelError {
     /// W9 Plan 4:DAG Modify 超过单次上限(第二次 Modify 被拒绝,防无限递归)。
     #[error("dag modify limit exceeded: plan_id={plan_id}")]
     DagModifyLimitExceeded { plan_id: String },
+    /// W10 Plan 3: Voice latency 记录错误(如 voice_started_at 早于 UNIX_EPOCH)。
+    /// default-gated(voice_latency.rs 不依赖 voice feature)。
+    #[error("voice latency error: {0}")]
+    VoiceLatency(String),
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;

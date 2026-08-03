@@ -754,6 +754,77 @@ impl TrustKernel {
         Ok(crate::skills::user_loader::scan_user_skills(&dir))
     }
 
+    // ===== W10 Plan 3: Voice latency sample recording =====
+
+    /// W10 Plan 3: 记录一条 voice latency 样本(spec §5.2/§5.3)。
+    ///
+    /// 1. 创建占位 task(满足 audit_logs.task_id FK 约束,与 stronghold_enter_degraded_mode 模式一致)
+    /// 2. emit `voice_started` audit event(Plan 5 将注册到 AUDIT_EVENT_TYPE_REGISTRY)
+    /// 3. INSERT 到 voice_latency_samples 表
+    ///
+    /// `started_at_ms`:VAD 检测首个 voiced chunk 的 epoch ms(t0)
+    /// `latency_ms`:t1 - t0(t1 = 首个 partial transcript 回调)
+    /// `model`:sherpa-rs 模型名
+    /// `privacy_mode`:true=local only,false=cloud LLM
+    pub fn record_voice_latency_sample(
+        &self,
+        started_at_ms: i64,
+        latency_ms: i64,
+        model: &str,
+        privacy_mode: bool,
+    ) -> Result<()> {
+        // 1. 占位 task 满足 FK(与 stronghold_enter_degraded_mode 模式一致)。
+        // 用 block scope 限制 MutexGuard 生命周期,避免 audit_append 二次加锁死锁。
+        let placeholder_task_id = format!("voice-latency-{}", Uuid::new_v4());
+        {
+            let conn = self.conn();
+            let placeholder = TaskRecord::new(&placeholder_task_id, "voice latency sample placeholder");
+            self.task_repo.create(&conn, &placeholder)?;
+        }
+        // 2. emit voice_started audit event
+        self.audit_append(
+            &placeholder_task_id,
+            None,
+            "voice_started",
+            serde_json::json!({
+                "started_at_ms": started_at_ms,
+                "latency_ms": latency_ms,
+                "model": model,
+                "privacy_mode": privacy_mode,
+            }),
+        )?;
+        // 3. INSERT 样本
+        {
+            let conn = self.conn();
+            conn.execute(
+                "INSERT INTO voice_latency_samples (started_at_ms, latency_ms, model, privacy_mode)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![started_at_ms, latency_ms, model, privacy_mode as i64],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// W10 Plan 3: 计算 voice latency 统计(spec §5.2 compute_stats)。
+    ///
+    /// `since`:可选 epoch ms 下界,None = 全部样本。
+    pub fn compute_voice_latency_stats(
+        &self,
+        since: Option<i64>,
+    ) -> Result<crate::voice_latency::LatencyStats> {
+        let conn = self.conn();
+        crate::voice_latency::compute_stats(&conn, since)
+    }
+
+    /// W10 Plan 3: 清理旧 voice latency 样本(spec §5.2 prune_older_than)。
+    ///
+    /// `days`:保留天数。返回删除的行数。
+    /// `now_ms` 由 caller 传入(便于测试注入固定时间),生产用 `Utc::now().timestamp_millis()`。
+    pub fn prune_voice_latency_older_than(&self, days: u32, now_ms: i64) -> Result<u64> {
+        let conn = self.conn();
+        crate::voice_latency::prune_older_than(&conn, days, now_ms)
+    }
+
     fn audit_append(
         &self,
         task_id: &str,
@@ -978,5 +1049,117 @@ mod tests {
         }
         let kernel = TrustKernel::open_file(path).unwrap();
         assert!(!kernel.privacy_mode(), "invalid privacy.mode value must default to false");
+    }
+
+    // ===== W10 Plan 3: voice latency sample recording =====
+
+    #[test]
+    fn record_voice_latency_sample_writes_row_and_emits_audit_event() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        kernel
+            .record_voice_latency_sample(1_700_000_000_000, 120, "sense_voice", false)
+            .unwrap();
+
+        // 验证 voice_latency_samples 表有 1 行
+        let conn = kernel.conn();
+        let (latency_ms, model, privacy_mode): (i64, String, i64) = conn
+            .query_row(
+                "SELECT latency_ms, model, privacy_mode FROM voice_latency_samples",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(latency_ms, 120);
+        assert_eq!(model, "sense_voice");
+        assert_eq!(privacy_mode, 0);
+        drop(conn);
+
+        // 验证 voice_started audit event 已 emit
+        let events = kernel.list_audit_recent(10).unwrap();
+        let voice_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == "voice_started")
+            .collect();
+        assert_eq!(
+            voice_events.len(),
+            1,
+            "exactly 1 voice_started event expected, got {}",
+            voice_events.len()
+        );
+    }
+
+    #[test]
+    fn record_voice_latency_sample_multiple_rows_accumulate() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        kernel
+            .record_voice_latency_sample(1_000, 50, "m1", false)
+            .unwrap();
+        kernel
+            .record_voice_latency_sample(2_000, 80, "m1", false)
+            .unwrap();
+        kernel
+            .record_voice_latency_sample(3_000, 120, "m2", true)
+            .unwrap();
+
+        let conn = kernel.conn();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM voice_latency_samples",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 3, "3 samples should be recorded");
+        drop(conn);
+
+        // 3 个 voice_started audit events
+        let events = kernel.list_audit_recent(100).unwrap();
+        let voice_count = events
+            .iter()
+            .filter(|e| e.event_type == "voice_started")
+            .count();
+        assert_eq!(voice_count, 3);
+    }
+
+    #[test]
+    fn compute_voice_latency_stats_returns_correct_percentiles() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        // 插入 100 样本,latency = 100..200
+        for i in 0..100i64 {
+            kernel
+                .record_voice_latency_sample(1_000_000 + i, 100 + i, "m", false)
+                .unwrap();
+        }
+        let stats = kernel.compute_voice_latency_stats(None).unwrap();
+        assert_eq!(stats.sample_count, 100);
+        assert_eq!(stats.p50_ms, 149);
+        assert_eq!(stats.p95_ms, 194);
+        assert_eq!(stats.p99_ms, 198);
+        assert_eq!(stats.max_ms, 199);
+    }
+
+    #[test]
+    fn prune_voice_latency_older_than_deletes_old_samples() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let now_ms: i64 = 10_000_000_000;
+        // 60 天前样本(应删除)+ 当前样本(应保留)
+        kernel
+            .record_voice_latency_sample(
+                now_ms - 60 * 86_400 * 1000,
+                100,
+                "m",
+                false,
+            )
+            .unwrap();
+        kernel
+            .record_voice_latency_sample(now_ms, 200, "m", false)
+            .unwrap();
+
+        let deleted = kernel.prune_voice_latency_older_than(30, now_ms).unwrap();
+        assert_eq!(deleted, 1, "should delete 1 old sample");
+
+        let stats = kernel.compute_voice_latency_stats(None).unwrap();
+        assert_eq!(stats.sample_count, 1);
+        assert_eq!(stats.max_ms, 200);
     }
 }
