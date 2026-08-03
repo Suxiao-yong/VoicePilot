@@ -200,6 +200,25 @@ impl VadDetector {
         // 注:不处理 "音频末尾仍有语音" 情况 —— 这正是本方法与 detect() 的区别。
         None
     }
+
+    /// W10 Plan 3: 快速判断 chunk 是否含语音(spec §5.2 v2 修订 #6)。
+    ///
+    /// 计算整个 chunk 的 RMS 能量,与 `config.energy_threshold` 比较。
+    /// 用于 listener 在每个 chunk 录制后快速检测首个 voiced chunk(t0)。
+    ///
+    /// 与 `detect()` / `detect_end_of_speech()` 的区别:
+    /// - `detect()` 按 frame 切分,返回 Speech/NoSpeech + sample 索引
+    /// - `detect_end_of_speech()` 检测静音超时结束的语音段
+    /// - `chunk_has_speech()` 是粗粒度快速判断(整 chunk 一个 RMS 值),
+    ///   用于 t0 触发,不返回 sample 索引
+    ///
+    /// 空 chunk 返回 false(RMS = 0 < threshold)。
+    pub fn chunk_has_speech(&self, samples: &[i16]) -> bool {
+        if samples.is_empty() {
+            return false;
+        }
+        rms_energy(samples) >= self.config.energy_threshold
+    }
 }
 
 fn rms_energy(samples: &[i16]) -> f32 {
@@ -214,4 +233,54 @@ fn rms_energy(samples: &[i16]) -> f32 {
         })
         .sum();
     (sum_squares / samples.len() as f64).sqrt() as f32
+}
+
+#[cfg(test)]
+mod w10_plan3_tests {
+    use super::*;
+
+    #[test]
+    fn chunk_has_speech_returns_true_for_high_energy_chunk() {
+        // 构造 16000 samples(1 秒 @ 16kHz),全为 10000 → 高能量
+        let vad = VadDetector::new(VadConfig::default());
+        let samples: Vec<i16> = vec![10_000; 16000];
+        assert!(
+            vad.chunk_has_speech(&samples),
+            "high energy chunk should have speech"
+        );
+    }
+
+    #[test]
+    fn chunk_has_speech_returns_false_for_silent_chunk() {
+        let vad = VadDetector::new(VadConfig::default());
+        // 全 0 样本 → 能量 0 < threshold(100.0)
+        let samples: Vec<i16> = vec![0; 16000];
+        assert!(
+            !vad.chunk_has_speech(&samples),
+            "silent chunk should not have speech"
+        );
+    }
+
+    #[test]
+    fn chunk_has_speech_returns_false_for_empty_chunk() {
+        let vad = VadDetector::new(VadConfig::default());
+        let samples: Vec<i16> = vec![];
+        assert!(
+            !vad.chunk_has_speech(&samples),
+            "empty chunk should not have speech"
+        );
+    }
+
+    #[test]
+    fn chunk_has_speech_threshold_boundary() {
+        // energy_threshold = 100.0,default config
+        // RMS = sqrt(mean(x^2))。构造 samples 使 RMS = 100.0
+        // x = 100 → RMS = 100.0(刚好等于 threshold,>= 判定为 speech)
+        let vad = VadDetector::new(VadConfig::default());
+        let samples: Vec<i16> = vec![100; 16000];
+        assert!(
+            vad.chunk_has_speech(&samples),
+            "RMS=100.0 should be >= threshold=100.0"
+        );
+    }
 }
