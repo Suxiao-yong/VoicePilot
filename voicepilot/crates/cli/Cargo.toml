@@ -18,6 +18,8 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 # W8 Plan 4: voice-dag 子命令需要 tokio runtime 来调 async route_text_with_dag
 tokio = { workspace = true }
+# W10 Plan 3: voice latency-stats / latency-prune 命令需要 chrono 计算 now_ms + since 偏移
+chrono = { workspace = true }
 
 [features]
 default = ["llm"]

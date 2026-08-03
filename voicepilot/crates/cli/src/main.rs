@@ -117,6 +117,8 @@ fn main() -> Result<()> {
     println!("  voice-dag <text>          Route text via W8 DAG-aware router (keyword→LLM decompose→W7 fallback)");
     #[cfg(feature = "voice")]
     println!("  voice listen             Record 5s audio, transcribe, route to Skill");
+    println!("  voice latency-stats [--since <dur>]  Show P50/P95/P99/max voice latency (W10 Plan 3)");
+    println!("  voice latency-prune [--days <N>]     Prune voice latency samples older than N days (default 30)");
     println!("  quit");
     println!();
 
@@ -180,6 +182,17 @@ fn main() -> Result<()> {
                 handle_voice_listen_command()?;
                 return Ok(());
             }
+        }
+        // W10 Plan 3: voice latency admin 命令(default-gated,纯 DB 操作)。
+        // 不放在 #[cfg(feature = "voice")] 块内 —— 即使 voice feature 关闭,
+        // admin 也能查询 / 清理历史样本(只要 trust-kernel default migration 008 已运行)。
+        if let Some(rest) = line.strip_prefix("voice latency-stats") {
+            handle_voice_latency_stats_command(&kernel, rest.trim());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("voice latency-prune") {
+            handle_voice_latency_prune_command(&kernel, rest.trim());
+            continue;
         }
         if line == "mcp-serve" {
             // Terminal command — consumes kernel and exits.
@@ -678,4 +691,100 @@ fn handle_voice_listen_command() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+// ===== W10 Plan 3: voice latency admin 命令(default-gated)=====
+
+/// W10 Plan 3: `voice latency-stats [--since <duration>]` 命令处理。
+///
+/// 输出 P50/P95/P99/max + 样本数。
+/// `--since` 可选,格式如 `24h` / `7d` / `3600s` / `60m`,None = 全部样本。
+///
+/// **feature gate:** default(纯 DB 操作,不依赖 voice feature)。
+/// 即使 voice feature 关闭,admin 也能查询历史样本(只要 migration 008 已运行)。
+fn handle_voice_latency_stats_command(kernel: &TrustKernel, args: &str) {
+    let since_offset_ms: Option<i64> = if let Some(dur_str) = args.strip_prefix("--since ") {
+        match parse_duration_to_ms(dur_str.trim()) {
+            Some(ms) => Some(ms),
+            None => {
+                println!("invalid --since duration: {} (supported: 24h / 7d / 3600s / 60m)", dur_str);
+                return;
+            }
+        }
+    } else if !args.is_empty() {
+        println!("usage: voice latency-stats [--since <duration>]");
+        println!("       duration format: 24h / 7d / 3600s / 60m");
+        return;
+    } else {
+        None
+    };
+
+    // since_offset_ms 是 "距今 N ms" 的下界,转为 epoch ms:now - offset
+    let since_epoch_ms = since_offset_ms.map(|offset| {
+        chrono::Utc::now().timestamp_millis() - offset
+    });
+
+    match kernel.compute_voice_latency_stats(since_epoch_ms) {
+        Ok(stats) => {
+            println!("voice latency stats:");
+            println!("  sample_count: {}", stats.sample_count);
+            println!("  p50_ms: {}", stats.p50_ms);
+            println!("  p95_ms: {}", stats.p95_ms);
+            println!("  p99_ms: {}", stats.p99_ms);
+            println!("  max_ms: {}", stats.max_ms);
+            if stats.sample_count == 0 {
+                println!("  (no samples — run 'voice listen' to generate)");
+            }
+        }
+        Err(e) => println!("error: {}", e),
+    }
+}
+
+/// W10 Plan 3: `voice latency-prune [--days <N>]` 命令处理。
+///
+/// 清理早于 N 天的样本,默认 30 天。输出删除行数。
+fn handle_voice_latency_prune_command(kernel: &TrustKernel, args: &str) {
+    let days: u32 = if let Some(days_str) = args.strip_prefix("--days ") {
+        match days_str.trim().parse::<u32>() {
+            Ok(d) => d,
+            Err(_) => {
+                println!("invalid --days value: {} (expected positive integer)", days_str);
+                return;
+            }
+        }
+    } else if args.is_empty() {
+        30 // 默认 30 天(spec §5.2 v2 修订 #15)
+    } else {
+        println!("usage: voice latency-prune [--days <N>]");
+        println!("       default: 30 days");
+        return;
+    };
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    match kernel.prune_voice_latency_older_than(days, now_ms) {
+        Ok(deleted) => {
+            println!("pruned {} voice latency samples older than {} days", deleted, days);
+        }
+        Err(e) => println!("error: {}", e),
+    }
+}
+
+/// 解析时长字符串为毫秒。支持 `24h` / `7d` / `3600s` / `60m`。
+///
+/// 单字符后缀:h=小时,m=分钟,s=秒,d=天。不支持组合(如 `1h30m`)。
+/// 空串或无法解析返回 None。
+fn parse_duration_to_ms(s: &str) -> Option<i64> {
+    if s.is_empty() {
+        return None;
+    }
+    let (num_str, unit) = s.split_at(s.len() - 1);
+    let num: i64 = num_str.parse().ok()?;
+    let ms = match unit {
+        "s" => num * 1000,
+        "m" => num * 60 * 1000,
+        "h" => num * 3600 * 1000,
+        "d" => num * 86_400 * 1000,
+        _ => return None,
+    };
+    Some(ms)
 }

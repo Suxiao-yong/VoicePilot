@@ -50,16 +50,14 @@ pub struct LatencyStats {
 /// - 100 样本时:P50 = idx 49,P95 = idx 94,P99 = idx 98
 /// - sample_count = 0 时返回全 0
 pub fn compute_stats(conn: &Connection, since: Option<i64>) -> Result<LatencyStats> {
-    let mut stmt = if since.is_some() {
-        conn.prepare(
-            "SELECT latency_ms FROM voice_latency_samples WHERE started_at_ms >= ?1 ORDER BY latency_ms ASC",
-        )?
+    let sql = if since.is_some() {
+        "SELECT latency_ms FROM voice_latency_samples WHERE started_at_ms >= ?1 ORDER BY latency_ms ASC"
     } else {
-        conn.prepare("SELECT latency_ms FROM voice_latency_samples ORDER BY latency_ms ASC")?
+        "SELECT latency_ms FROM voice_latency_samples ORDER BY latency_ms ASC"
     };
+    let mut stmt = conn.prepare(sql)?;
 
-    let latencies: Vec<i64> = if since.is_some() {
-        let since_ms = since.unwrap();
+    let latencies: Vec<i64> = if let Some(since_ms) = since {
         stmt.query_map(params![since_ms], |r| r.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect()
@@ -82,7 +80,7 @@ pub fn compute_stats(conn: &Connection, since: Option<i64>) -> Result<LatencySta
 
     let percentile = |p: u64| -> i64 {
         // P 索引(0-based)= ceil(n * P / 100) - 1,clamp 到 [0, n-1]
-        let idx = ((n as u64 * p + 99) / 100) as usize;
+        let idx = ((n as u64 * p).div_ceil(100)) as usize;
         latencies[idx.saturating_sub(1).min(n - 1)]
     };
 
