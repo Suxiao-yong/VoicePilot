@@ -75,6 +75,12 @@ pub enum IterableSource {
 pub enum DagStatus {
     Pending,
     Running,
+    /// W10 Plan 4: Kill Switch 中间态(spec §6.2 v2 修订 #9)。
+    ///
+    /// 语义:DAG 进入 Cancelling 时,正在执行的 node 等待完成(不主动中断),
+    /// 未启动 node 跳过。node 完成后 DAG → Cancelled。
+    /// DAG 级不强制 1s SLA(node 执行时长可能 > 1s)。
+    Cancelling,
     Succeeded,
     Failed { failed_node: String, cause: String },
     /// 决策 #8:循环失败时,若有成功节点 → PartiallySucceeded
@@ -91,6 +97,7 @@ impl DagStatus {
         match self {
             Self::Pending => "pending",
             Self::Running => "running",
+            Self::Cancelling => "cancelling",
             Self::Succeeded => "succeeded",
             Self::Failed { .. } => "failed",
             Self::PartiallySucceeded { .. } => "partially_succeeded",
@@ -102,6 +109,7 @@ impl DagStatus {
         match s {
             "pending" => Some(Self::Pending),
             "running" => Some(Self::Running),
+            "cancelling" => Some(Self::Cancelling),
             "succeeded" => Some(Self::Succeeded),
             "failed" => Some(Self::Failed {
                 failed_node: String::new(),
@@ -117,13 +125,16 @@ impl DagStatus {
         }
     }
 
-    /// W9 Plan 7: 检查从 from 到 to 的状态转换是否合法(spec §2.7 状态机)。
+    /// W9 Plan 7 + W10 Plan 4: 检查从 from 到 to 的状态转换是否合法(spec §2.7 状态机)。
     ///
     /// 合法转换:
     /// - Pending → Running
     /// - Running → Succeeded
     /// - Running → Failed
-    /// - Running → Cancelled
+    /// - Running → Cancelled(直跳,向后兼容)
+    /// - Running → Cancelling(W10 Plan 4 新增)
+    /// - Cancelling → Cancelled(W10 Plan 4 新增)
+    /// - Running → PartiallySucceeded
     ///
     /// 终态(Succeeded / Failed / PartiallySucceeded / Cancelled)不可逆。
     /// 返回 true=合法,false=非法。
@@ -135,6 +146,8 @@ impl DagStatus {
                 | (Running, Succeeded)
                 | (Running, Failed { .. })
                 | (Running, Cancelled)
+                | (Running, Cancelling)
+                | (Cancelling, Cancelled)
                 | (Running, PartiallySucceeded { .. })
         )
     }
