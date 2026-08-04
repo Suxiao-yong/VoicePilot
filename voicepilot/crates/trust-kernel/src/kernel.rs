@@ -825,6 +825,113 @@ impl TrustKernel {
         crate::voice_latency::prune_older_than(&conn, days, now_ms)
     }
 
+    /// W10 Plan 4: 触发 Kill Switch(spec §6.2 Kill Switch 触发路径 step 2-3)。
+    ///
+    /// 1. 读取当前 task 状态
+    /// 2. emit `kill_switch_triggered { timestamp_ms, from_state, source }` audit event
+    /// 3. 若当前态为 Idle:直接 transition → Cancelled(无 Cancelling 中间态,≤ 100ms)
+    ///    否则:transition → Cancelling(进入中间态,等待 complete_cancellation)
+    /// 4. 返回 t0(epoch ms)供 complete_cancellation 计算 SLA
+    ///
+    /// `task_id`:目标任务 ID(必须已存在于 tasks 表)
+    /// `source`:触发来源,如 "voice_command" / "cli" / "ui_button"
+    ///
+    /// 返回:t0 epoch ms(用于 SLA 计算)
+    ///
+    /// Audit events emitted:
+    /// 1. `kill_switch_triggered { timestamp_ms, from_state, source }`
+    /// 2. `state_transition { from: <current>, to: Cancelling | Cancelled }`(via self.transition)
+    ///
+    /// 注意:若 task 已在终态(Done/Failed/Cancelled),仅 emit kill_switch_triggered
+    /// for audit,不 transition(返回 Err 会让 caller 难以继续)。返回当前 epoch ms。
+    pub fn trigger_kill_switch(&self, task_id: &str, source: &str) -> Result<i64> {
+        let now_ms = Utc::now().timestamp_millis();
+        let current = self
+            .get_task(task_id)?
+            .ok_or_else(|| KernelError::TaskNotFound(task_id.to_string()))?;
+        let from_state = current.status;
+
+        // 1. emit kill_switch_triggered audit event
+        self.audit_append(
+            task_id,
+            None,
+            "kill_switch_triggered",
+            serde_json::json!({
+                "timestamp_ms": now_ms,
+                "from_state": from_state,
+                "source": source,
+            }),
+        )?;
+
+        // 2. 若已终态,不再 transition
+        let is_terminal = matches!(
+            from_state,
+            TaskState::Done | TaskState::Failed | TaskState::Cancelled
+        );
+        if !is_terminal {
+            // 3. Idle 特殊处理:直接 → Cancelled(无 Cancelling 中间态)
+            //    其他非终态:→ Cancelling(中间态,等 complete_cancellation)
+            let target = if from_state == TaskState::Idle {
+                TaskState::Cancelled
+            } else {
+                TaskState::Cancelling
+            };
+            // transition 内部会 emit state_transition audit event
+            self.transition(task_id, target)?;
+        }
+
+        Ok(now_ms)
+    }
+
+    /// W10 Plan 4: 完成任务取消(spec §6.2 Kill Switch 触发路径 step 4-5)。
+    ///
+    /// 1. 读取当前 task 状态
+    /// 2. 若当前态为 Cancelling:transition → Cancelled(emit state_transition)
+    ///    若当前态已为 Cancelled(Idle 直跳路径):不重复 transition
+    /// 3. 计算 duration_ms = now_ms - triggered_at_ms
+    /// 4. 计算 sla_met = duration_ms <= 1000
+    /// 5. emit `task_cancelled { duration_ms, sla_met }` audit event
+    ///
+    /// `task_id`:目标任务 ID
+    /// `triggered_at_ms`:t0 epoch ms(来自 trigger_kill_switch 返回值)
+    /// `now_ms`:t1 epoch ms(caller 传入便于测试注入;生产用 Utc::now().timestamp_millis())
+    ///
+    /// Audit events emitted:
+    /// 1. `state_transition { from: Cancelling, to: Cancelled }`(若当前态为 Cancelling)
+    /// 2. `task_cancelled { duration_ms, sla_met }`
+    pub fn complete_cancellation(
+        &self,
+        task_id: &str,
+        triggered_at_ms: i64,
+        now_ms: i64,
+    ) -> Result<()> {
+        let current = self
+            .get_task(task_id)?
+            .ok_or_else(|| KernelError::TaskNotFound(task_id.to_string()))?;
+
+        // 1. 若当前态为 Cancelling,transition → Cancelled
+        //    若已为 Cancelled(Idle 直跳路径),跳过 transition
+        if current.status == TaskState::Cancelling {
+            self.transition(task_id, TaskState::Cancelled)?;
+        }
+
+        // 2. 计算 SLA
+        let duration_ms = now_ms.saturating_sub(triggered_at_ms);
+        let sla_met = duration_ms <= 1000;
+
+        // 3. emit task_cancelled audit event
+        self.audit_append(
+            task_id,
+            None,
+            "task_cancelled",
+            serde_json::json!({
+                "duration_ms": duration_ms,
+                "sla_met": sla_met,
+            }),
+        )?;
+        Ok(())
+    }
+
     fn audit_append(
         &self,
         task_id: &str,
