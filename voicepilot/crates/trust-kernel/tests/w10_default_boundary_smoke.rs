@@ -75,3 +75,172 @@ fn voice_latency_table_exists() {
     assert_eq!(stats.p99_ms, 0);
     assert_eq!(stats.max_ms, 0);
 }
+
+// ===== W10 Plan 4: Kill Switch + Cancelling 状态机 Fitness Functions =====
+
+use trust_kernel::state::TaskState;
+use trust_kernel::skills::dag_types::DagStatus;
+use std::time::Instant;
+use chrono::Utc;
+use uuid::Uuid;
+
+/// 测试 3:Idle → Cancelled ≤ 100ms(可中断,无 Cancelling 中间态)。
+#[test]
+fn kill_switch_sla_met_from_idle() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = Uuid::new_v4().to_string();
+    kernel.create_task(&task_id, "fitness: idle kill switch").unwrap();
+
+    let t0 = Instant::now();
+    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    kernel
+        .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    let task = kernel.get_task(&task_id).unwrap().unwrap();
+    assert_eq!(task.status, TaskState::Cancelled);
+    assert!(elapsed.as_millis() <= 100, "Idle kill switch must be ≤ 100ms, got {}ms", elapsed.as_millis());
+}
+
+/// 测试 4:Listening → Cancelling → Cancelled ≤ 1s(可中断)。
+#[test]
+fn kill_switch_sla_met_from_listening() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = Uuid::new_v4().to_string();
+    kernel.create_task(&task_id, "fitness: listening kill switch").unwrap();
+    kernel.transition(&task_id, TaskState::Listening).unwrap();
+
+    let t0 = Instant::now();
+    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    kernel
+        .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    let task = kernel.get_task(&task_id).unwrap().unwrap();
+    assert_eq!(task.status, TaskState::Cancelled);
+    assert!(elapsed.as_millis() <= 1000, "Listening kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+}
+
+/// 测试 5:Planning → Cancelling → Cancelled ≤ 1s(可中断)。
+#[test]
+fn kill_switch_sla_met_from_planning() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = Uuid::new_v4().to_string();
+    kernel.create_task(&task_id, "fitness: planning kill switch").unwrap();
+    kernel.transition(&task_id, TaskState::Listening).unwrap();
+    kernel.transition(&task_id, TaskState::Planning).unwrap();
+
+    let t0 = Instant::now();
+    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    kernel
+        .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    let task = kernel.get_task(&task_id).unwrap().unwrap();
+    assert_eq!(task.status, TaskState::Cancelled);
+    assert!(elapsed.as_millis() <= 1000, "Planning kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+}
+
+/// 测试 6:AwaitingApproval → Cancelling → Cancelled ≤ 1s(可中断)。
+#[test]
+fn kill_switch_sla_met_from_awaiting_approval() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = Uuid::new_v4().to_string();
+    kernel.create_task(&task_id, "fitness: awaiting kill switch").unwrap();
+    kernel.transition(&task_id, TaskState::Listening).unwrap();
+    kernel.transition(&task_id, TaskState::Planning).unwrap();
+    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+
+    let t0 = Instant::now();
+    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    kernel
+        .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    let task = kernel.get_task(&task_id).unwrap().unwrap();
+    assert_eq!(task.status, TaskState::Cancelled);
+    assert!(elapsed.as_millis() <= 1000, "AwaitingApproval kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+}
+
+/// 测试 7:Executing voice loop chunk 边界 → Cancelling → Cancelled ≤ 1s(可中断)。
+#[test]
+fn kill_switch_sla_met_from_executing_voice_loop() {
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = Uuid::new_v4().to_string();
+    kernel.create_task(&task_id, "fitness: executing kill switch").unwrap();
+    kernel.transition(&task_id, TaskState::Listening).unwrap();
+    kernel.transition(&task_id, TaskState::Planning).unwrap();
+    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+    kernel.transition(&task_id, TaskState::Executing).unwrap();
+
+    let t0 = Instant::now();
+    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    kernel
+        .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
+        .unwrap();
+    let elapsed = t0.elapsed();
+
+    let task = kernel.get_task(&task_id).unwrap().unwrap();
+    assert_eq!(task.status, TaskState::Cancelled);
+    assert!(elapsed.as_millis() <= 1000, "Executing voice loop kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+}
+
+/// 测试 8:Cancelling → Cancelled 合法 + Cancelled 直跳仍合法(TaskState)。
+#[test]
+fn task_state_cancelling_transitions_legal() {
+    use TaskState::*;
+    // Cancelling → Cancelled 合法
+    assert!(Cancelling.can_transition_to(Cancelled));
+    // 直跳路径仍合法(向后兼容 v2 修订 #15)
+    assert!(Executing.can_transition_to(Cancelled));
+    assert!(Verifying.can_transition_to(Cancelled));
+    assert!(Compensating.can_transition_to(Cancelled));
+    // Executing/Verifying/Compensating → Cancelling 新增合法
+    assert!(Executing.can_transition_to(Cancelling));
+    assert!(Verifying.can_transition_to(Cancelling));
+    assert!(Compensating.can_transition_to(Cancelling));
+}
+
+/// 测试 9:Cancelling → 其他态非法(TaskState)。
+#[test]
+fn task_state_cancelling_transitions_illegal() {
+    use TaskState::*;
+    assert!(!Cancelling.can_transition_to(Idle));
+    assert!(!Cancelling.can_transition_to(Listening));
+    assert!(!Cancelling.can_transition_to(Planning));
+    assert!(!Cancelling.can_transition_to(Executing));
+    assert!(!Cancelling.can_transition_to(Done));
+    assert!(!Cancelling.can_transition_to(Failed));
+}
+
+/// 测试 10:DAG Running → Cancelling → Cancelled 合法 + Running → Cancelled 直跳仍合法。
+#[test]
+fn dag_status_cancelling_transitions_legal() {
+    // Running → Cancelling 合法(W10 Plan 4 新增)
+    assert!(DagStatus::transition(&DagStatus::Running, &DagStatus::Cancelling));
+    // Cancelling → Cancelled 合法(W10 Plan 4 新增)
+    assert!(DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Cancelled));
+    // Running → Cancelled 直跳仍合法(向后兼容)
+    assert!(DagStatus::transition(&DagStatus::Running, &DagStatus::Cancelled));
+}
+
+/// 测试 11:DAG Cancelling → Running 非法(Cancelling 不可逆)。
+#[test]
+fn dag_status_cancelling_transitions_illegal() {
+    // Cancelling → Running 非法(不可逆)
+    assert!(!DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Running));
+    // Cancelling → Succeeded 非法(必须先 → Cancelled)
+    assert!(!DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Succeeded));
+    // Cancelling → Failed 非法
+    assert!(!DagStatus::transition(
+        &DagStatus::Cancelling,
+        &DagStatus::Failed {
+            failed_node: "n1".into(),
+            cause: "test".into(),
+        }
+    ));
+}
