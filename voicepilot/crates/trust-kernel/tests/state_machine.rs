@@ -66,3 +66,66 @@ fn verifying_to_compensating_is_allowed_when_verification_fails() {
 fn compensating_to_done_is_allowed_when_compensation_succeeds() {
     assert!(Compensating.can_transition_to(Done));
 }
+
+// ===== W10 Plan 4: Cancelling 中间态转换测试 =====
+
+#[test]
+fn cancelling_to_cancelled_is_allowed() {
+    assert!(Cancelling.can_transition_to(Cancelled));
+}
+
+#[test]
+fn cancelling_to_other_states_is_forbidden() {
+    // Cancelling 仅允许 → Cancelled,其他态都非法
+    assert!(!Cancelling.can_transition_to(Idle));
+    assert!(!Cancelling.can_transition_to(Listening));
+    assert!(!Cancelling.can_transition_to(Planning));
+    assert!(!Cancelling.can_transition_to(AwaitingApproval));
+    assert!(!Cancelling.can_transition_to(Executing));
+    assert!(!Cancelling.can_transition_to(Verifying));
+    assert!(!Cancelling.can_transition_to(Compensating));
+    assert!(!Cancelling.can_transition_to(Done));
+    assert!(!Cancelling.can_transition_to(Failed));
+}
+
+#[test]
+fn executing_to_cancelling_is_allowed() {
+    // W10 Plan 4: Executing → Cancelling 新增合法转换
+    assert!(Executing.can_transition_to(Cancelling));
+}
+
+#[test]
+fn verifying_to_cancelling_is_allowed() {
+    // W10 Plan 4: Verifying → Cancelling 新增合法转换
+    assert!(Verifying.can_transition_to(Cancelling));
+}
+
+#[test]
+fn compensating_to_cancelling_is_allowed() {
+    // W10 Plan 4: Compensating → Cancelling 新增合法转换
+    assert!(Compensating.can_transition_to(Cancelling));
+}
+
+#[test]
+fn executing_to_cancelled_direct_jump_still_allowed() {
+    // W10 Plan 4 v2 修订 #15: Executing → Cancelled 直跳路径保留(向后兼容)
+    assert!(Executing.can_transition_to(Cancelled));
+}
+
+#[test]
+fn verifying_to_cancelled_direct_jump_still_allowed() {
+    // W10 Plan 4 v2 修订 #15: Verifying → Cancelled 直跳路径保留
+    assert!(Verifying.can_transition_to(Cancelled));
+}
+
+#[test]
+fn compensating_to_cancelled_direct_jump_still_allowed() {
+    // W10 Plan 4 v2 修订 #15: Compensating → Cancelled 直跳路径保留
+    assert!(Compensating.can_transition_to(Cancelled));
+}
+
+#[test]
+fn cancelling_is_not_terminal() {
+    // Cancelling 不是终态,允许 → Cancelled
+    assert!(!Cancelling.allowed_next().is_empty());
+}
