@@ -107,6 +107,24 @@ fn compensating_to_cancelling_is_allowed() {
 }
 
 #[test]
+fn listening_to_cancelling_is_allowed() {
+    // W10 Plan 4: Listening → Cancelling 可中断路径
+    assert!(Listening.can_transition_to(Cancelling));
+}
+
+#[test]
+fn planning_to_cancelling_is_allowed() {
+    // W10 Plan 4: Planning → Cancelling 可中断路径
+    assert!(Planning.can_transition_to(Cancelling));
+}
+
+#[test]
+fn awaiting_approval_to_cancelling_is_allowed() {
+    // W10 Plan 4: AwaitingApproval → Cancelling 可中断路径
+    assert!(AwaitingApproval.can_transition_to(Cancelling));
+}
+
+#[test]
 fn executing_to_cancelled_direct_jump_still_allowed() {
     // W10 Plan 4 v2 修订 #15: Executing → Cancelled 直跳路径保留(向后兼容)
     assert!(Executing.can_transition_to(Cancelled));

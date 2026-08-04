@@ -32,10 +32,12 @@ impl TaskState {
     pub fn allowed_next(self) -> &'static [TaskState] {
         use TaskState::*;
         match self {
+            // Idle 不加 Cancelling:Kill Switch 触发时直接 → Cancelled(无 ongoing work)
             Idle => &[Listening, Cancelled],
-            Listening => &[Planning, Cancelled],
-            Planning => &[AwaitingApproval, Failed, Cancelled],
-            AwaitingApproval => &[Executing, Cancelled],
+            // W10 Plan 4: Listening/Planning/AwaitingApproval 可中断 → Cancelling
+            Listening => &[Planning, Cancelling, Cancelled],
+            Planning => &[AwaitingApproval, Failed, Cancelling, Cancelled],
+            AwaitingApproval => &[Executing, Cancelling, Cancelled],
             // W10 Plan 4: Executing 同时允许 Cancelling(新)+ Cancelled(直跳,向后兼容)
             Executing => &[Verifying, Compensating, Failed, Cancelling, Cancelled],
             // W10 Plan 4: Verifying 同时允许 Cancelling + Cancelled
