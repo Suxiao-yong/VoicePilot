@@ -10,6 +10,16 @@ pub enum TaskState {
     Executing,
     Verifying,
     Compensating,
+    /// W10 Plan 4: Kill Switch 中间态(spec §6.2 v2 修订 #15)。
+    ///
+    /// 语义:Kill Switch 触发后,当前态可中断时(Idle/Listening/Planning/
+    /// AwaitingApproval/voice loop chunk 边界)进入 Cancelling,等当前 chunk
+    /// 完成后 → Cancelled。Cancelling 仅允许 → Cancelled(不可逆)。
+    ///
+    /// 向后兼容:Executing/Verifying/Compensating → Cancelled 直跳路径保留
+    /// (allowed_next 同时包含 Cancelling 与 Cancelled),现有
+    /// `kill_switch_can_cancel_from_any_non_terminal_state` 测试不破坏。
+    Cancelling,
     Done,
     Failed,
     Cancelled,
@@ -18,6 +28,7 @@ pub enum TaskState {
 impl TaskState {
     /// Returns allowed next states from the current state.
     /// Spec §3.1: IDLE→LISTENING→PLANNING→…; Kill Switch can cancel from most states.
+    /// W10 Plan 4: 加 Cancelling 中间态(spec §6.2 v2 修订 #15)。
     pub fn allowed_next(self) -> &'static [TaskState] {
         use TaskState::*;
         match self {
@@ -25,9 +36,14 @@ impl TaskState {
             Listening => &[Planning, Cancelled],
             Planning => &[AwaitingApproval, Failed, Cancelled],
             AwaitingApproval => &[Executing, Cancelled],
-            Executing => &[Verifying, Compensating, Failed, Cancelled],
-            Verifying => &[Done, Compensating, Failed, Cancelled],
-            Compensating => &[Done, Failed, Cancelled],
+            // W10 Plan 4: Executing 同时允许 Cancelling(新)+ Cancelled(直跳,向后兼容)
+            Executing => &[Verifying, Compensating, Failed, Cancelling, Cancelled],
+            // W10 Plan 4: Verifying 同时允许 Cancelling + Cancelled
+            Verifying => &[Done, Compensating, Failed, Cancelling, Cancelled],
+            // W10 Plan 4: Compensating 同时允许 Cancelling + Cancelled
+            Compensating => &[Done, Failed, Cancelling, Cancelled],
+            // W10 Plan 4: Cancelling 仅允许 → Cancelled(终态前最后一步)
+            Cancelling => &[Cancelled],
             Done => &[],
             Failed => &[],
             Cancelled => &[],
