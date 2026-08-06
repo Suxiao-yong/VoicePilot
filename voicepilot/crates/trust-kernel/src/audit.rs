@@ -203,3 +203,108 @@ impl AuditLogger for SqliteAuditLogger {
         Ok(out)
     }
 }
+
+// ===== W10 Plan 5: AUDIT_EVENT_TYPE_REGISTRY + is_valid_event_type =====
+
+/// W10 Plan 5: 审计事件类型注册表(spec §7.2)。
+///
+/// 基于 Grep 核对的全部实际 emit callsite,共 28 种:
+/// - W1-W3 基础(kernel.rs):9 种
+/// - W4 MCP(mcp/server.rs):1 种
+/// - W8 DAG + LLM(dag_executor.rs, llm/client.rs, task_explain.rs):10 种
+/// - W9 Stronghold / Taint(kernel.rs, common.rs, task_compensate.rs, gateway.rs, dispatcher.rs, mcp/server.rs):5 种
+/// - W10 新增(Plan 3 voice_started + Plan 4 kill_switch_triggered / task_cancelled):3 种
+///
+/// **v2 修订 #11 修正:** spec §7.1 列出 27 种,但遗漏了 W8 Plan 3 在
+/// `task_explain.rs:219` 新增的 `llm_explain_called`。本 registry 补入,共 28 种。
+///
+/// 运行时校验:`kernel.rs::audit_append` 调用 `is_valid_event_type` 校验,
+/// 若无效则 `tracing::warn!` 但继续写入(不阻塞,spec §7.2 v2 修订 #3)。
+pub const AUDIT_EVENT_TYPE_REGISTRY: &[&str] = &[
+    // W1-W3 基础(kernel.rs)
+    "task_created",
+    "state_transition",
+    "step_created",
+    "step_status_changed",
+    "step_prepared",
+    "step_committed",
+    "compensation_created",
+    "compensation_status_changed",
+    "approval_recorded",
+    // W4 MCP(mcp/server.rs)
+    "mcp_tools_call",
+    // W8 DAG + LLM(dag_executor.rs, llm/client.rs, task_explain.rs)
+    "llm_decompose_called",
+    "llm_explain_called",
+    "dag_plan_created",
+    "dag_skeleton_approved",
+    "dag_skeleton_modified",
+    "dag_modify_limit_exceeded",
+    "dag_node_started",
+    "dag_node_succeeded",
+    "dag_node_failed",
+    "dag_completed",
+    // W9 Stronghold / Taint
+    "stronghold_degraded_mode_entered",
+    "stronghold_snapshot_encrypted",
+    "stronghold_snapshot_decrypt_failed",
+    "taint_propagated",
+    "taint_blocked",
+    // W10 新增(Plan 3/4)
+    "voice_started",
+    "kill_switch_triggered",
+    "task_cancelled",
+];
+
+/// W10 Plan 5: 校验 event_type 是否在 AUDIT_EVENT_TYPE_REGISTRY 中(spec §7.2)。
+///
+/// 供 `kernel.rs::audit_append` 在构造 AuditEvent 前调用。若返回 false,
+/// caller 应 `tracing::warn!` 但继续写入(不返回 Err,避免回归现有 callsite)。
+pub fn is_valid_event_type(name: &str) -> bool {
+    AUDIT_EVENT_TYPE_REGISTRY.contains(&name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_contains_28_event_types() {
+        assert_eq!(
+            AUDIT_EVENT_TYPE_REGISTRY.len(),
+            28,
+            "registry must contain exactly 28 event types (spec §7.1 + llm_explain_called)"
+        );
+    }
+
+    #[test]
+    fn registry_has_no_duplicates() {
+        let mut sorted = AUDIT_EVENT_TYPE_REGISTRY.to_vec();
+        sorted.sort();
+        let mut deduped = sorted.clone();
+        deduped.dedup();
+        assert_eq!(
+            sorted.len(),
+            deduped.len(),
+            "registry must not contain duplicate event types"
+        );
+    }
+
+    #[test]
+    fn is_valid_event_type_recognizes_known_events() {
+        assert!(is_valid_event_type("task_created"));
+        assert!(is_valid_event_type("state_transition"));
+        assert!(is_valid_event_type("voice_started"));
+        assert!(is_valid_event_type("kill_switch_triggered"));
+        assert!(is_valid_event_type("task_cancelled"));
+        assert!(is_valid_event_type("llm_explain_called"));
+    }
+
+    #[test]
+    fn is_valid_event_type_rejects_unknown_events() {
+        assert!(!is_valid_event_type("unknown_event"));
+        assert!(!is_valid_event_type(""));
+        assert!(!is_valid_event_type("TASK_CREATED")); // SCREAMING_SNAKE_CASE 不应匹配
+        assert!(!is_valid_event_type("task_created ")); // 带空格
+    }
+}
