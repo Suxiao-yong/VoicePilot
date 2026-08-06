@@ -311,3 +311,54 @@ fn audit_coverage_default_full() {
         uncovered
     );
 }
+
+// ===== W10 Plan 6: Verifier 覆盖率 Fitness Function(spec §8.1 测试 1 + §9.4 ⑥)=====
+
+use trust_kernel::skills::manifest::{
+    files_organize_manifest, form_prepare_manifest, form_submit_manifest,
+    note_capture_manifest, research_save_manifest, task_compensate_manifest,
+    task_explain_manifest, task_repeat_verified_manifest,
+};
+
+/// 测试 1(W10 Plan 6):7/7 有副作用 Skill verifier.strategy = "strong" +
+/// task.explain verifier.strategy = "none"(只读 Skill 不计入分母)。
+///
+/// spec §8.1 测试 1 + §9.4 ⑥:V1 发布门禁 "Strong Verifier 覆盖率 ≥ 80%"。
+/// 分母 = 7(排除只读 task.explain),目标 7/7 = 100% ≥ 80%。
+///
+/// **注意:** 本 Fitness Function 通过 manifest 常量直接断言,不依赖 Skill executor
+/// 运行时(那些断言已在 w10_verifier_coverage_smoke.rs 7 个测试覆盖)。本测试是
+/// V1 发布门禁的"单点失败"断言 — manifest 是编译期常量,若任何人误改 strategy
+/// 字段,本测试立即失败。
+#[test]
+fn verifier_coverage_all_strong() {
+    // 7 个有副作用 Skill 必须为 "strong"
+    let seven_strong = [
+        ("files.organize", files_organize_manifest().verifier.strategy),
+        ("note.capture", note_capture_manifest().verifier.strategy),
+        ("research.save_markdown", research_save_manifest().verifier.strategy),
+        ("form.prepare", form_prepare_manifest().verifier.strategy),
+        ("form.submit", form_submit_manifest().verifier.strategy),
+        ("task.repeat_verified", task_repeat_verified_manifest().verifier.strategy),
+        ("task.compensate", task_compensate_manifest().verifier.strategy),
+    ];
+    for (name, strategy) in &seven_strong {
+        assert_eq!(
+            strategy, "strong",
+            "V1 gate: {} verifier.strategy must be 'strong' (W10 Plan 1, spec §3.2)",
+            name
+        );
+    }
+    // task.explain 是只读 Skill,显式 "none",不计入 Strong Verifier 分母(spec §3.2 v2 修订 #5)
+    assert_eq!(
+        task_explain_manifest().verifier.strategy,
+        "none",
+        "V1 gate: task.explain verifier.strategy must be 'none' (read-only skill, spec §6.3)"
+    );
+    // 分母断言:7 个有副作用 Skill
+    assert_eq!(
+        seven_strong.len(),
+        7,
+        "Strong Verifier denominator must be 7 (8 skills - 1 read-only task.explain)"
+    );
+}
