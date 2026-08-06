@@ -1,7 +1,7 @@
 //! W10 Plan 6 — 全 feature 审计事件覆盖率集成测试(spec §8.1 + §9.4 ⑩)。
 //!
-//! **feature gate:** voice,tauri,llm,uia,stronghold(全 feature,文件级 cfg gate)。
-//! **test gate:** `#[ignore]` — 需手动 `cargo test --features voice,tauri,llm,uia,stronghold -- --ignored`。
+//! **feature gate:** voice,llm,uia,stronghold(trust-kernel 全 feature,文件级 cfg gate)。
+//! **test gate:** `#[ignore]` — 需手动 `cargo test -p trust-kernel --features voice,llm,uia,stronghold -- --ignored`。
 //!
 //! 1 个测试:`audit_coverage_full_features` — 全 feature 28/28 = 100% 覆盖。
 //!
@@ -16,7 +16,6 @@
 
 #![cfg(all(
     feature = "voice",
-    feature = "tauri",
     feature = "llm",
     feature = "uia",
     feature = "stronghold"
@@ -36,13 +35,13 @@ use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
 /// stronghold_snapshot_decrypt_failed 3 种),验证 `AuditCoverageChecker::new(&kernel)`
 /// (全量 registry)报告 28/28 = 100% 覆盖。
 ///
-/// **运行方式:** `cargo test -p trust-kernel --features voice,tauri,llm,uia,stronghold -- --ignored audit_coverage_full_features`
+/// **运行方式:** `cargo test -p trust-kernel --features voice,llm,uia,stronghold -- --ignored audit_coverage_full_features`
 ///
 /// **注意:** 本测试用直接 emit 方式,不通过真实 Skill / Stronghold / Voice 路径触发
 /// (那些路径已有测试覆盖)。本测试聚焦 registry 完整性 — 任何 event_type 被移除或
 /// 重命名,本测试立即失败,强制 registry 与 emit callsite 同步。
 #[test]
-#[ignore = "requires all features (voice,tauri,llm,uia,stronghold) - manual run only"]
+#[ignore = "requires all features (voice,llm,uia,stronghold) - manual run only"]
 fn audit_coverage_full_features() {
     // 全量 registry 28 种 event_type(W10 Plan 5 §用户决策 #1)
     assert_eq!(
