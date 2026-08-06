@@ -244,3 +244,70 @@ fn dag_status_cancelling_transitions_illegal() {
         }
     ));
 }
+
+// ===== W10 Plan 5: 审计覆盖率 Fitness Function =====
+
+use trust_kernel::audit_coverage::AuditCoverageChecker;
+use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
+
+/// 测试 13(W10 Plan 5):default feature 25/25 = 100% audit event_type 覆盖。
+///
+/// spec §8.1 测试 13 + §9.4 ⑩:V1 发布门禁 "审计日志覆盖率 100%"。
+/// default feature 可触发 25 种 event_type(排除 voice_started /
+/// stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed 三个
+/// 需其他 feature 的)。本 Fitness Function 通过 audit_append_external
+/// 直接 emit 25 种,断言 AuditCoverageChecker 报告 100% 覆盖。
+///
+/// **注意:** 本测试与 w10_audit_coverage_smoke.rs::audit_coverage_default_full
+/// 逻辑一致,但作为 V1 发布门禁 Fitness Function 必须存在于 boundary smoke 文件。
+#[test]
+fn audit_coverage_default_full() {
+    const DEFAULT_REACHABLE: &[&str] = &[
+        "task_created",
+        "state_transition",
+        "step_created",
+        "step_status_changed",
+        "step_prepared",
+        "step_committed",
+        "compensation_created",
+        "compensation_status_changed",
+        "approval_recorded",
+        "mcp_tools_call",
+        "llm_decompose_called",
+        "llm_explain_called",
+        "dag_plan_created",
+        "dag_skeleton_approved",
+        "dag_skeleton_modified",
+        "dag_modify_limit_exceeded",
+        "dag_node_started",
+        "dag_node_succeeded",
+        "dag_node_failed",
+        "dag_completed",
+        "stronghold_degraded_mode_entered",
+        "taint_propagated",
+        "taint_blocked",
+        "kill_switch_triggered",
+        "task_cancelled",
+    ];
+    assert_eq!(DEFAULT_REACHABLE.len(), 25);
+
+    let kernel = TrustKernel::open_in_memory().unwrap();
+    let task_id = "t-fitness-coverage";
+    {
+        let conn = kernel.conn();
+        let task = TaskRecord::new(task_id, "fitness coverage placeholder");
+        TaskRepo::new().create(&conn, &task).unwrap();
+    }
+    for et in DEFAULT_REACHABLE {
+        kernel
+            .audit_append_external(task_id, None, et, serde_json::json!({"fitness": et}))
+            .unwrap();
+    }
+    let checker = AuditCoverageChecker::with_expected(&kernel, DEFAULT_REACHABLE);
+    let uncovered = checker.uncovered().unwrap();
+    assert!(
+        uncovered.is_empty(),
+        "V1 gate: default feature must cover all 25 reachable audit event types, uncovered: {:?}",
+        uncovered
+    );
+}
