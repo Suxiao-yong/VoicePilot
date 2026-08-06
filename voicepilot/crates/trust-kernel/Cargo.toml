@@ -56,7 +56,10 @@ wiremock = "0.6"
 # W10 Plan 5: 捕获 tracing::warn! 输出验证 audit_emit_warns_on_unknown_event_type 测试。
 # 仅 dev-dependency,不影响生产 build。#[traced_test] 属性注入 logs_contain() 方法。
 # crates.io 包名为连字符形式;Rust 代码中仍以 `tracing_test::traced_test` 导入(自动归一化)。
-tracing-test = "0.2"
+# `no-env-filter` feature:集成测试在 tests/ 目录下编译为独立 crate,默认 env-filter
+# 只捕获测试 crate 本身的日志,会过滤掉 trust_kernel 库的 tracing::warn!。
+# tracing-test 官方文档 "Per-crate Filtering" 章节明确说明:集成测试必须启用此 feature。
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 [features]
 default = ["llm"]
