@@ -205,6 +205,7 @@ pub fn verify_form_prepare(
 /// 提交不可逆,verifier 必须验证提交确实发生。两种证据(任一满足即 Strong):
 /// 1. document.URL != submitted_url(已跳转到 success/thank-you 页)
 /// 2. document.querySelector('.success, [data-success="true"]') 存在
+///
 /// 都不满足 → Failed。
 pub fn verify_form_submit(
     ctx: &VerificationContext<'_>,
