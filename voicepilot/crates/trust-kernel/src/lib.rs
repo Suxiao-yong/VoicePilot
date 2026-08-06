@@ -29,6 +29,14 @@ pub mod crypto;
 // (default-gated)也能访问 prune_older_than 验证函数存在。
 pub mod voice_latency;
 
+// W10 Plan 5: 审计事件覆盖率检查器(spec §7.2)。
+// default-gated(纯 DB 操作,不依赖 voice/stronghold feature)。
+// AuditCoverageChecker 查 audit_logs 表 DISTINCT event_type,与
+// AUDIT_EVENT_TYPE_REGISTRY 对比计算覆盖率。Fitness Function
+// audit_coverage_default_full(default-gated)用 with_expected 传入
+// 25 种 default-reachable 子集断言 100% 覆盖。
+pub mod audit_coverage;
+
 #[cfg(feature = "voice")]
 pub mod voice;
 
