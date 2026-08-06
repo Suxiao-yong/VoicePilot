@@ -119,6 +119,7 @@ fn main() -> Result<()> {
     println!("  voice listen             Record 5s audio, transcribe, route to Skill");
     println!("  voice latency-stats [--since <dur>]  Show P50/P95/P99/max voice latency (W10 Plan 3)");
     println!("  voice latency-prune [--days <N>]     Prune voice latency samples older than N days (default 30)");
+    println!("  audit coverage          Show audit event_type coverage (covered/uncovered/ratio, W10 Plan 5)");
     println!("  quit");
     println!();
 
@@ -192,6 +193,11 @@ fn main() -> Result<()> {
         }
         if let Some(rest) = line.strip_prefix("voice latency-prune") {
             handle_voice_latency_prune_command(&kernel, rest.trim());
+            continue;
+        }
+        // W10 Plan 5: audit coverage 命令(default-gated,纯 DB 操作)。
+        if line == "audit coverage" {
+            handle_audit_coverage_command(&kernel);
             continue;
         }
         if line == "mcp-serve" {
@@ -787,4 +793,42 @@ fn parse_duration_to_ms(s: &str) -> Option<i64> {
         _ => return None,
     };
     Some(ms)
+}
+
+// ===== W10 Plan 5: audit coverage admin 命令(default-gated)=====
+
+/// W10 Plan 5: `audit coverage` 命令处理。
+///
+/// 输出 AUDIT_EVENT_TYPE_REGISTRY 中所有 event_type 的覆盖情况:
+/// - 已覆盖事件数 / 总 registry 数
+/// - 覆盖率百分比
+/// - 未覆盖 event_type 列表(字母序)
+///
+/// **feature gate:** default(纯 DB 操作,不依赖 voice/stronghold feature)。
+/// 即使 voice/stronghold feature 关闭,admin 也能查询已写入 audit_logs 的事件覆盖率。
+/// 注意:default feature 下 voice_started / stronghold_snapshot_encrypted /
+/// stronghold_snapshot_decrypt_failed 3 种事件不可触发,会出现在 uncovered 列表中。
+fn handle_audit_coverage_command(kernel: &TrustKernel) {
+    use trust_kernel::audit_coverage::AuditCoverageChecker;
+
+    let checker = AuditCoverageChecker::new(kernel);
+    match (checker.covered(), checker.uncovered(), checker.coverage_ratio()) {
+        (Ok(covered), Ok(uncovered), Ok(ratio)) => {
+            let total = checker.expected().len();
+            println!("audit event_type coverage:");
+            println!("  covered:   {} / {}", covered.len(), total);
+            println!("  ratio:     {:.1}%", ratio * 100.0);
+            if uncovered.is_empty() {
+                println!("  uncovered: (none — 100% coverage)");
+            } else {
+                println!("  uncovered ({}):", uncovered.len());
+                for et in &uncovered {
+                    println!("    - {}", et);
+                }
+            }
+        }
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+            println!("error computing audit coverage: {}", e);
+        }
+    }
 }
