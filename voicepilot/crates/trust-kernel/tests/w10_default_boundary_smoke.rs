@@ -419,3 +419,39 @@ fn compensation_coverage_all_strong() {
         "Strong Compensation denominator must be 5 (8 skills - 3 None: form.submit/task.explain/task.repeat_verified)"
     );
 }
+
+// ===== W10 Plan 6: Audit Registry 命名规范 Fitness Function(spec §8.1 测试 12 + §9.4 ⑩)=====
+
+use trust_kernel::audit::AUDIT_EVENT_TYPE_REGISTRY;
+
+/// 测试 12(W10 Plan 6):AUDIT_EVENT_TYPE_REGISTRY 所有 event_type 匹配
+/// `^[a-z][a-z0-9_]*$`(lower_snake_case)。
+///
+/// spec §8.1 测试 12 + §10 Conventions:registry 是编译期常量,本测试验证常量
+/// 本身命名合规。与 W9 `w9_default_boundary_smoke.rs::audit_event_types_all_lower_snake_case`
+/// 互补 —— W9 测运行时 audit_logs 表数据,本测试测编译期 registry 常量。
+///
+/// **注意:** 本测试与 `w10_audit_coverage_smoke.rs::audit_registry_all_lower_snake_case`
+/// (Plan 5 测试 1)逻辑一致,但作为 V1 发布门禁 Fitness Function 必须存在于
+/// boundary smoke 文件(与 Plan 5 `audit_coverage_default_full` 重复模式一致)。
+#[test]
+fn audit_registry_all_lower_snake_case() {
+    let re = regex::Regex::new(r"^[a-z][a-z0-9_]*$").unwrap();
+    let mut non_compliant: Vec<String> = Vec::new();
+    for et in AUDIT_EVENT_TYPE_REGISTRY {
+        if !re.is_match(et) {
+            non_compliant.push(et.to_string());
+        }
+    }
+    assert!(
+        non_compliant.is_empty(),
+        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY contains event_type(s) not matching lower_snake_case: {:?}",
+        non_compliant
+    );
+    // 分母断言:registry 必须有 28 种 event_type(W10 Plan 5 §用户决策 #1)
+    assert_eq!(
+        AUDIT_EVENT_TYPE_REGISTRY.len(),
+        28,
+        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 28 event types (spec §7.1 + llm_explain_called)"
+    );
+}
