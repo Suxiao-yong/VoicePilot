@@ -53,6 +53,10 @@ chrono = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"
 wiremock = "0.6"
+# W10 Plan 5: 捕获 tracing::warn! 输出验证 audit_emit_warns_on_unknown_event_type 测试。
+# 仅 dev-dependency,不影响生产 build。#[traced_test] 属性注入 logs_contain() 方法。
+# crates.io 包名为连字符形式;Rust 代码中仍以 `tracing_test::traced_test` 导入(自动归一化)。
+tracing-test = "0.2"
 
 [features]
 default = ["llm"]
