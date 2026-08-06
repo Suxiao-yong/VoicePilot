@@ -939,6 +939,15 @@ impl TrustKernel {
         event_type: &str,
         details: serde_json::Value,
     ) -> Result<()> {
+        // W10 Plan 5: 校验 event_type 是否在 AUDIT_EVENT_TYPE_REGISTRY 中。
+        // 若无效,warn 但继续写入(不返回 Err,避免回归现有 callsite)。
+        // spec §7.2 v2 修订 #3:运行时校验降级为 warn,不阻塞 audit 写入链路。
+        if !crate::audit::is_valid_event_type(event_type) {
+            tracing::warn!(
+                event_type = event_type,
+                "unknown audit event_type: please register in AUDIT_EVENT_TYPE_REGISTRY (audit.rs)"
+            );
+        }
         let event = AuditEvent {
             log_id: Uuid::new_v4().to_string(),
             task_id: task_id.to_string(),
