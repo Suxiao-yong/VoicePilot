@@ -362,3 +362,60 @@ fn verifier_coverage_all_strong() {
         "Strong Verifier denominator must be 7 (8 skills - 1 read-only task.explain)"
     );
 }
+
+// ===== W10 Plan 6: Compensation 覆盖率 Fitness Function(spec §8.1 测试 2 + §9.4 ⑦)=====
+
+use trust_kernel::compensation::types::CompensationLevel;
+
+/// 测试 2(W10 Plan 6):5/5 可逆 Skill compensation.level = Strong +
+/// 3 个 None Skill(form.submit / task.explain / task.repeat_verified)。
+///
+/// spec §8.1 测试 2 + §9.4 ⑦:V1 发布门禁 "Strong Compensation 成功率 ≥ 95%"。
+/// 分母 = 5(可逆 Skill),目标 5/5 = 100% ≥ 95%。
+///
+/// **注意(偏离 spec §4.1/§4.2):** spec 说分母 = 6(含 task.repeat_verified)。
+/// W10 Plan 2 已将 task.repeat_verified 重新分类为只读 Skill(仅 search_files +
+/// verify_move,无文件变动),compensation_level = Strong → None,manifest.rs:286
+/// + manifest.rs:849-859 单元测试已锁。本 Fitness Function 分母 = 5。
+///
+/// **注意:** 本 Fitness Function 通过 manifest 常量直接断言,不依赖 auto_reverse
+/// 运行时(那些断言已在 w10_compensation_coverage_smoke.rs 5 个测试覆盖)。
+#[test]
+fn compensation_coverage_all_strong() {
+    // 5 个可逆 Skill 必须为 Strong
+    let five_strong = [
+        ("files.organize", files_organize_manifest().compensation.level),
+        ("note.capture", note_capture_manifest().compensation.level),
+        ("research.save_markdown", research_save_manifest().compensation.level),
+        ("form.prepare", form_prepare_manifest().compensation.level),
+        ("task.compensate", task_compensate_manifest().compensation.level),
+    ];
+    for (name, level) in &five_strong {
+        assert_eq!(
+            *level,
+            CompensationLevel::Strong,
+            "V1 gate: {} compensation.level must be Strong (W10 Plan 2, spec §4.2)",
+            name
+        );
+    }
+    // 3 个 None Skill:form.submit(不可逆)+ task.explain(只读)+ task.repeat_verified(只读,Plan 2 重新分类)
+    let three_none = [
+        ("form.submit", form_submit_manifest().compensation.level),
+        ("task.explain", task_explain_manifest().compensation.level),
+        ("task.repeat_verified", task_repeat_verified_manifest().compensation.level),
+    ];
+    for (name, level) in &three_none {
+        assert_eq!(
+            *level,
+            CompensationLevel::None,
+            "V1 gate: {} compensation.level must be None (irreversible or read-only)",
+            name
+        );
+    }
+    // 分母断言:5 个可逆 Skill
+    assert_eq!(
+        five_strong.len(),
+        5,
+        "Strong Compensation denominator must be 5 (8 skills - 3 None: form.submit/task.explain/task.repeat_verified)"
+    );
+}
