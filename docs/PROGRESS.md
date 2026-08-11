@@ -64,6 +64,7 @@
 | W9 Plan 7 | 集成验收 + Fitness Functions 闭合(spec §5) | ✅ 已完成 | +19 default 测试(w9_default_boundary_smoke 16 + w9_audit_chain_smoke 3 default-gated 2 + stronghold-gated 1);7 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告(default + 全特性);npm build PASS;非门控测试 506 ≥ 286;default cargo test 505 passed 0 failed | 2026-08-01 | `e467038` |
 | W9 | Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收 | ✅ 已完成 | 7 个 Plan 全部完成(Plan 1 Stronghold + Plan 2 Taint + Plan 3 DAG Modify + Plan 4 UserSlot + Plan 5 审计扩展 + Plan 6 PostCommitCompensation + Plan 7 集成验收) | 2026-08-01 | `e467038`(W9 head) |
 | W10 | V1 发布门禁闭合(Strong Verifier / Compensation / P95 延迟 / Kill Switch / 审计覆盖率)| ✅ 已完成 | 613 default cargo test | 2026-08-06 | (direct on master) |
+| W11 Plan 1 | 评测骨架 + Inspect AI 集成 + 100 功能任务 | ✅ 已完成 | +3 default (eval_subcommand_smoke) → 616 default;+5 Python scorer 单元测试 | 2026-08-11 | (direct on master) |
 
 **累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
@@ -2822,6 +2823,57 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - vault 文件权限 600(Windows ACL)
 - 真实 Silero VAD(W6b-1 用能量阈值)
 - LLM 调用计费 / 速率限制
+
+---
+
+### W11 Plan 1: 评测骨架 + Inspect AI 集成 + 100 功能任务 ✅
+
+**完成日期:** 2026-08-11
+**Commit 范围:** `feat(w11p1):` / `chore(w11p1):` / `docs(w11p1):` 系列(7 个 commit)
+**Spec §:** §四 Plan 1(评测骨架 + Inspect AI + 100 任务 + 3 scorer)
+
+**实现内容:**
+- `evals/` 目录骨架(7 子目录:functional / redteam / toctou / malicious_server / data_security / scorers / reports)
+- `evals/pyproject.toml` 锁版本(inspect-ai>=0.3 / pydantic>=2.0 / pyyaml>=6.0 / jsonschema>=4.0 / promptfoo>=0.90)
+- `evals/.gitignore` 忽略 reports/ + __pycache__/ + .venv/
+- `voicepilot eval --input <json> --mode auto|interactive` CLI 子命令:
+  - 输入 JSON:`{"transcript":"...","mode":"auto"}`
+  - 输出 JSON:`{task_id, transcript, skill_id, risk_level, approval_decision, commit_status, blocked, block_reason, audit_trace, error}`
+  - auto mode 行为:E<3 且 D<3 → approval=auto / blocked=false / commit_status=skipped;E>=3 或 D>=3 → approval=deny / blocked=true / commit_status=aborted
+  - 评测模式不真实执行 Skill(避免文件系统副作用),仅构造 audit_trace
+- `evals/functional/100_tasks.yaml`(100 任务 = 50 单步 + 50 多步):
+  - files_organize 25 / note_capture 15 / research_save 15 / form 15 / app_control 15 / dag 15
+  - risk_level 与 SkillManifest 对齐,transcript 含 router 关键词
+  - canary string: `VP-EVAL-CANARY-2026`
+- `evals/functional/100_tasks.schema.json`(JSON Schema 校验 id/category/type/transcript/target_skill/expected_outcome/risk_level)
+- `evals/inspect_evals.py`(Inspect AI Task 定义):
+  - `voicepilot_functional()` Task 加载 100_tasks.yaml,每个 Sample 调用 `voicepilot eval --input <json>`
+  - `voicepilot_functional_scorer` 校验 skill_id + commit_status 匹配
+  - `call_voicepilot_eval` helper:subprocess 调用 + 30s timeout + JSON 解析容错
+  - self-test:`python inspect_evals.py` 跑第 1 个任务,打印 JSON 结果
+- 3 个 Python scorer:
+  - `scorers/risk_level_scorer.py`:校验 E×D 格式 + 与 expected 一致
+  - `scorers/undo_success_scorer.py`:校验 audit_trace 含 compensation_reversed 事件
+  - `scorers/audit_completeness_scorer.py`:校验 audit_trace 含 task_created + skill_routed + approval_decided 3 个必需事件
+- `evals/scorers/test_scorers.py`:5 个单元测试(parse_risk_level valid/invalid + REQUIRED_EVENTS + scorer 可调用 + 100_tasks.yaml 格式校验)
+- `evals/README.md`:完整运行说明(目录结构 + 环境准备 + 运行 100 任务 + self-test + scorers 测试 + 门禁表 + JSON schema + canary)
+
+**偏离 spec §四:**
+- spec §四说 5 个 scorer,Plan 1 只实现 3 个(risk_level / undo_success / audit_completeness),toctou_block_scorer 留 Plan 3,egress_block_scorer 留 Plan 5
+- 100 任务数据集是手工 + 合成,不来自生产 telemetry(V1 还未上线)
+- 评测用 `voicepilot eval --mode auto`:避免人工审批阻塞,但 E3/D3 仍走 AutoDenier(强制验证 Kill Switch 拦截)
+- Inspect AI `sandbox="local"`:V1 Windows-only + 单用户桌面 Agent,sandbox 隔离由 Trust Kernel 提供
+
+**验收门禁:**
+- 7 套 feature 组合 cargo check 全 PASS(default/voice/tauri/voice,tauri/voice,tauri,llm/trust-kernel voice,llm,uia / trust-kernel voice,llm,uia,stronghold)
+- clippy `-D warnings` 0 警告(default + trust-kernel 全 feature)
+- npm build PASS(dist/index.html + assets 生成)
+- default `cargo test --workspace --no-default-features` 616 passed, 0 failed(W10 613 + 3 eval_subcommand_smoke)
+- `voicepilot eval --input <json>` 3 个烟雾测试 PASS(unknown intent / files.organize keyword / invalid JSON)
+- 100_tasks.yaml 含 100 任务(50 单步 + 50 多步)+ JSON Schema 校验 PASS
+- `python inspect_evals.py` self-test 输出 100 任务 + 1 个 sample 结果(Valid JSON)
+- 5 个 Python scorer 单元测试 PASS
+- 7 个 commit 全部提交到 master
 
 ---
 
