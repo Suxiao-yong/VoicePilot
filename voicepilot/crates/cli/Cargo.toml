@@ -20,9 +20,16 @@ uuid = { workspace = true }
 tokio = { workspace = true }
 # W10 Plan 3: voice latency-stats / latency-prune 命令需要 chrono 计算 now_ms + since 偏移
 chrono = { workspace = true }
+# W11 Plan 1: eval 子命令需要 serde_json 解析 --input JSON + 构造输出 JSON
+serde_json = { workspace = true }
 
 [features]
 default = ["llm"]
 # W7: LLM 路由能力(默认开启,与 trust-kernel/default 对齐)
 llm = ["trust-kernel/llm"]
 voice = ["trust-kernel/voice", "llm"]
+
+[dev-dependencies]
+# W11 Plan 1: eval_subcommand_smoke 测试也需要 serde_json 解析 voicepilot eval 输出
+# (已在 [dependencies] 中声明,dev-deps 复用)
+

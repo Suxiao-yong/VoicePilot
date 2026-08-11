@@ -92,6 +92,14 @@ fn main() -> Result<()> {
         )
         .init();
 
+    // W11 Plan 1: voicepilot eval --input <json> 子命令 — 评测用 JSON I/O。
+    // 在打开 kernel 和打印 welcome 之前处理,确保 stdout 只输出 JSON(供 Inspect AI / promptfoo 解析)。
+    // 评测模式不需要持久化 kernel —— SkillRouter 是无状态的,audit_trace 在内存构造。
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1] == "eval" {
+        return handle_eval_command(&args[2..]);
+    }
+
     let db_path = std::env::var("VOICEPILOT_DB")
         .unwrap_or_else(|_| "voicepilot.db".to_string());
     let kernel = TrustKernel::open_file(&db_path)
@@ -831,4 +839,182 @@ fn handle_audit_coverage_command(kernel: &TrustKernel) {
             println!("error computing audit coverage: {}", e);
         }
     }
+}
+
+// ===== W11 Plan 1: voicepilot eval 子命令(JSON I/O,供 Inspect AI 调用)=====
+
+/// W11 Plan 1: `voicepilot eval --input <json>` 子命令。
+///
+/// 评测用 JSON I/O,供 Inspect AI / promptfoo 调用。
+///
+/// 输入 JSON schema:
+/// ```json
+/// {"transcript": "用户输入", "mode": "auto|interactive"}
+/// ```
+///
+/// 输出 JSON schema:
+/// ```json
+/// {
+///   "task_id": "uuid",
+///   "transcript": "用户输入",
+///   "skill_id": "files.organize|null",
+///   "risk_level": "E2×D2",
+///   "approval_decision": "auto|allow|deny",
+///   "commit_status": "success|failed|aborted|skipped",
+///   "blocked": false,
+///   "block_reason": "policy_deny|approver_deny|llm_refuse|none",
+///   "audit_trace": [...],
+///   "error": null
+/// }
+/// ```
+///
+/// 评测模式不真实执行 Skill(避免文件系统副作用),只路由 + 构造 audit_trace。
+/// auto mode 下 E3/D3 走 AutoDenier(blocked=true),其他走 AutoApprover(skipped)。
+fn handle_eval_command(args: &[String]) -> Result<()> {
+    use trust_kernel::skills::manifest::{
+        app_control_manifest, files_organize_manifest, form_prepare_manifest,
+        form_submit_manifest, note_capture_manifest, research_save_manifest,
+        task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
+    };
+    use trust_kernel::skills::router::{RouteDecision, SkillRouter};
+
+    // 解析 --input <json>
+    let mut input_json: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = Some(&args[i + 1]);
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    let input_str = input_json.ok_or_else(|| anyhow!("missing --input <json>"))?;
+    let input: serde_json::Value = serde_json::from_str(input_str)
+        .map_err(|e| anyhow!("invalid JSON in --input: {}", e))?;
+
+    let transcript = input
+        .get("transcript")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("missing 'transcript' field in --input JSON"))?;
+    let mode = input.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
+
+    // 注册内置 Skill 到 router
+    let mut router = SkillRouter::new();
+    router.register(files_organize_manifest());
+    router.register(note_capture_manifest());
+    router.register(research_save_manifest());
+    router.register(form_prepare_manifest());
+    router.register(form_submit_manifest());
+    router.register(task_explain_manifest());
+    router.register(task_repeat_verified_manifest());
+    router.register(task_compensate_manifest());
+    router.register(app_control_manifest());
+
+    let decision = router.route(transcript);
+
+    let task_id = Uuid::new_v4().to_string();
+    let mut audit_trace: Vec<serde_json::Value> = Vec::new();
+
+    let (skill_id, risk_level, approval_decision, commit_status, blocked, block_reason, error) =
+        match &decision {
+            RouteDecision::Skill(manifest) => {
+                let sid = manifest.id.clone();
+                let e_level = manifest.risk_ceiling as u8;
+                let d_level = manifest.data_class_ceiling as u8;
+                let risk = format!("E{}×D{}", e_level, d_level);
+                // auto mode: E3/D3 走 AutoDenier,其他走 AutoApprover
+                let (approval, blocked, reason) = if mode == "auto" {
+                    if e_level >= 3 || d_level >= 3 {
+                        ("deny", true, "approver_deny")
+                    } else {
+                        ("auto", false, "none")
+                    }
+                } else {
+                    ("allow", false, "none")
+                };
+                // 评测模式不真实执行 Skill(避免文件系统副作用),
+                // commit_status 标记为 skipped(AutoApprover)或 aborted(AutoDenier)
+                let commit = if blocked { "aborted" } else { "skipped" };
+                audit_trace.push(serde_json::json!({
+                    "event_type": "task_created",
+                    "task_id": task_id,
+                    "transcript": transcript,
+                }));
+                audit_trace.push(serde_json::json!({
+                    "event_type": "skill_routed",
+                    "skill_id": sid,
+                    "risk_level": risk,
+                }));
+                audit_trace.push(serde_json::json!({
+                    "event_type": "approval_decided",
+                    "decision": approval,
+                    "mode": mode,
+                }));
+                (
+                    serde_json::Value::String(sid),
+                    risk,
+                    approval.to_string(),
+                    commit.to_string(),
+                    blocked,
+                    reason.to_string(),
+                    serde_json::Value::Null,
+                )
+            }
+            RouteDecision::Planner => {
+                audit_trace.push(serde_json::json!({
+                    "event_type": "task_created",
+                    "task_id": task_id,
+                    "transcript": transcript,
+                }));
+                audit_trace.push(serde_json::json!({
+                    "event_type": "route_fallback_to_planner",
+                    "reason": "no skill matched",
+                }));
+                (
+                    serde_json::Value::Null,
+                    "L0".to_string(),
+                    "auto".to_string(),
+                    "skipped".to_string(),
+                    false,
+                    "none".to_string(),
+                    serde_json::Value::Null,
+                )
+            }
+            #[cfg(feature = "llm")]
+            _ => {
+                // SkillWithSlots / Dag 在评测模式简化处理:标 skill_id=null
+                audit_trace.push(serde_json::json!({
+                    "event_type": "task_created",
+                    "task_id": task_id,
+                    "transcript": transcript,
+                }));
+                (
+                    serde_json::Value::Null,
+                    "L0".to_string(),
+                    "auto".to_string(),
+                    "skipped".to_string(),
+                    false,
+                    "none".to_string(),
+                    serde_json::Value::Null,
+                )
+            }
+        };
+
+    let result = serde_json::json!({
+        "task_id": task_id,
+        "transcript": transcript,
+        "skill_id": skill_id,
+        "risk_level": risk_level,
+        "approval_decision": approval_decision,
+        "commit_status": commit_status,
+        "blocked": blocked,
+        "block_reason": block_reason,
+        "audit_trace": audit_trace,
+        "error": error,
+    });
+
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
 }
