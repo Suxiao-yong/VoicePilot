@@ -1,0 +1,17 @@
+# 评测报告(每次运行生成,不入 git)
+reports/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# Inspect AI 日志
+logs/
+*.log
