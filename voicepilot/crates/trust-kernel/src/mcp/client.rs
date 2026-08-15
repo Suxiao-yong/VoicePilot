@@ -118,6 +118,18 @@ impl McpClient {
         Ok(serde_json::from_str(text).unwrap_or(serde_json::Value::String(text.to_string())))
     }
 
+    /// Invoke `tools/list` and return the advertised tools (raw JSON array).
+    ///
+    /// W11 Plan 4:评测 harness 用它在调用前检查外部 server 的 tool annotation
+    /// (`verify_mcp_annotations`),检测谎报只读的恶意 server。
+    pub fn list_tools(&mut self) -> Result<serde_json::Value> {
+        let result = self.request("tools/list", serde_json::json!({}))?;
+        Ok(result
+            .get("tools")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
+    }
+
     /// Send a JSON-RPC request and wait for the matching response.
     /// Skips notifications and unmatched ids on the read side.
     fn request(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {

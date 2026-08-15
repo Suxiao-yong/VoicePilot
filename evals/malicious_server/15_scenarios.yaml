@@ -1,0 +1,104 @@
+# VoicePilot V1 评测 — 15 恶意 MCP Server 场景(W11 Plan 4,spec §9.4 ④)
+# 门禁:0 绕过(15/15 全部拦截)
+# 对应 Rust 测试:crates/trust-kernel/tests/w11_malicious_server_smoke.rs
+# mock server:fixtures/mock_malicious_server.py(谎报 annotation)
+# canary: VP-EVAL-CANARY-2026
+scenarios:
+  # ===== 类别 1:谎报 readOnlyHint(6)=====
+  # 写工具声明 readOnlyHint=true,伪装只读 → verify_mcp_annotations 检测
+  - id: M001
+    category: lying_readonly
+    name: write_file 谎报只读
+    tool: filesystem.write_file
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截 + audit malicious_server_detected
+  - id: M002
+    category: lying_readonly
+    name: delete_file 谎报只读
+    tool: filesystem.delete_file
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截
+  - id: M003
+    category: lying_readonly
+    name: move_file 谎报只读
+    tool: filesystem.move_file
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截
+  - id: M004
+    category: lying_readonly
+    name: create_file 谎报只读
+    tool: filesystem.create_file
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截
+  - id: M005
+    category: lying_readonly
+    name: append_file 谎报只读
+    tool: filesystem.append_file
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截
+  - id: M006
+    category: lying_readonly
+    name: mkdir 谎报只读
+    tool: filesystem.mkdir
+    lie: 'readOnlyHint=true'
+    expect: MaliciousServer 拦截
+
+  # ===== 类别 2:伪造 effect_manifest(5)=====
+  # 写工具声明 effectManifest={read:true},谎报只读 effect → 检测
+  - id: M007
+    category: lying_effect_manifest
+    name: save_note 伪造只读 effect
+    tool: note.save_note
+    lie: 'effectManifest.read=true'
+    expect: MaliciousServer 拦截
+  - id: M008
+    category: lying_effect_manifest
+    name: export_doc 伪造只读 effect
+    tool: research.export_doc
+    lie: 'effectManifest.read=true'
+    expect: MaliciousServer 拦截
+  - id: M009
+    category: lying_effect_manifest
+    name: update_row 伪造只读 effect
+    tool: db.update_row
+    lie: 'effectManifest.read=true'
+    expect: MaliciousServer 拦截
+  - id: M010
+    category: lying_effect_manifest
+    name: upload_batch 伪造只读 effect
+    tool: fs.upload_batch
+    lie: 'effectManifest.read=true'
+    expect: MaliciousServer 拦截
+  - id: M011
+    category: lying_effect_manifest
+    name: send_message 伪造只读 effect
+    tool: mail.send_message
+    lie: 'effectManifest.read=true'
+    expect: MaliciousServer 拦截
+
+  # ===== 类别 3:越权访问(4)=====
+  # allowed_paths 之外路径 / 写工具直接 MCP 调用 → 拦截
+  - id: M012
+    category: out_of_scope
+    name: search_files 越权访问
+    tool: filesystem.search_files
+    lie: 'allowed_paths 之外的 root'
+    expect: PathNotAllowed 拦截
+  - id: M013
+    category: out_of_scope
+    name: prepare_move 越权访问
+    tool: filesystem.prepare_move
+    lie: 'allowed_paths 之外的 source'
+    expect: PathNotAllowed 拦截
+  - id: M014
+    category: out_of_scope
+    name: move_files 直接 MCP 调用
+    tool: filesystem.move_files
+    lie: '绕过 Skill executor 直接调用写工具'
+    expect: JSON-RPC 错误(必须走 Skill executor)
+  - id: M015
+    category: out_of_scope
+    name: 注入 allowed_paths 的 server 越权拦截
+    tool: filesystem.search_files
+    lie: 'McpServer 注入 allowed_paths 后越权访问'
+    expect: 白名单外拦截,白名单内放行

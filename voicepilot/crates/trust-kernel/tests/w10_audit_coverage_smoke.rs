@@ -3,7 +3,7 @@
 //! 3 个 default-gated 测试:
 //! 1. `audit_registry_all_lower_snake_case` — registry 命名规范(编译时常量)
 //! 2. `audit_emit_warns_on_unknown_event_type` — emit "unknown_event" 触发 warn
-//! 3. `audit_coverage_default_full` — default feature 25/25 = 100% 覆盖
+//! 3. `audit_coverage_default_full` — default feature 26/26 = 100% 覆盖
 //!
 //! **不写文件级 cfg gate** —— 让 default 组合(--no-default-features)也能编译运行此文件。
 //! tracing_test dev-dep 在 default 下可用(不依赖任何 feature)。
@@ -103,6 +103,8 @@ fn audit_coverage_default_full() {
         "approval_recorded",
         // W4 MCP
         "mcp_tools_call",
+        // W11 Plan 4
+        "malicious_server_detected",
         // W8 DAG + LLM
         "llm_decompose_called",
         "llm_explain_called",
@@ -124,8 +126,8 @@ fn audit_coverage_default_full() {
     ];
     assert_eq!(
         DEFAULT_REACHABLE.len(),
-        25,
-        "default-reachable event types must be exactly 25 (28 - 3 unreachable)"
+        26,
+        "default-reachable event types must be exactly 26 (29 - 3 unreachable)"
     );
 
     let kernel = TrustKernel::open_in_memory().unwrap();

@@ -39,6 +39,10 @@ pub enum KernelError {
     Skill(String),
     #[error("mcp error: {0}")]
     Mcp(String),
+    /// W11 Plan 4: MCP tool annotation 与实际行为不符(恶意 server,spec §6.1)。
+    /// 如 tool 谎报 `readOnlyHint=true` 但名字/行为是写操作。
+    #[error("malicious MCP server: {0}")]
+    MaliciousServer(String),
     #[error("path not allowed: {0}")]
     PathNotAllowed(String),
     /// W7 Plan 4: Windows UIA automation error (wraps `uiautomation::Error`).

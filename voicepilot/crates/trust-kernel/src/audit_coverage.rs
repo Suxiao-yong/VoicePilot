@@ -142,15 +142,15 @@ mod tests {
     #[test]
     fn uncovered_returns_missing_events() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        // 只 emit 一个事件,其余 27 种应出现在 uncovered
+        // 只 emit 一个事件,其余 28 种应出现在 uncovered
         emit_events(&kernel, "t1", &["task_created"]);
         let checker = AuditCoverageChecker::new(&kernel);
         let uncovered = checker.uncovered().unwrap();
         assert!(!uncovered.contains(&"task_created".to_string()));
         assert!(uncovered.contains(&"state_transition".to_string()));
         assert!(uncovered.contains(&"voice_started".to_string()));
-        // 总 registry 28 种,覆盖 1 种,未覆盖 27 种
-        assert_eq!(uncovered.len(), 27);
+        // 总 registry 29 种,覆盖 1 种,未覆盖 28 种
+        assert_eq!(uncovered.len(), 28);
     }
 
     #[test]
@@ -159,8 +159,8 @@ mod tests {
         emit_events(&kernel, "t1", &["task_created", "state_transition"]);
         let checker = AuditCoverageChecker::new(&kernel);
         let ratio = checker.coverage_ratio().unwrap();
-        // 2/28 ≈ 0.0714
-        assert!((ratio - 2.0 / 28.0).abs() < 1e-6, "ratio must be 2/28, got {}", ratio);
+        // 2/29 ≈ 0.0690
+        assert!((ratio - 2.0 / 29.0).abs() < 1e-6, "ratio must be 2/29, got {}", ratio);
     }
 
     #[test]

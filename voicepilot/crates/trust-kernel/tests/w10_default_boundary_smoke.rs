@@ -250,13 +250,13 @@ fn dag_status_cancelling_transitions_illegal() {
 use trust_kernel::audit_coverage::AuditCoverageChecker;
 use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
 
-/// 测试 13(W10 Plan 5):default feature 25/25 = 100% audit event_type 覆盖。
+/// 测试 13(W10 Plan 5):default feature 26/26 = 100% audit event_type 覆盖。
 ///
 /// spec §8.1 测试 13 + §9.4 ⑩:V1 发布门禁 "审计日志覆盖率 100%"。
-/// default feature 可触发 25 种 event_type(排除 voice_started /
+/// default feature 可触发 26 种 event_type(排除 voice_started /
 /// stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed 三个
 /// 需其他 feature 的)。本 Fitness Function 通过 audit_append_external
-/// 直接 emit 25 种,断言 AuditCoverageChecker 报告 100% 覆盖。
+/// 直接 emit 26 种,断言 AuditCoverageChecker 报告 100% 覆盖。
 ///
 /// **注意:** 本测试与 w10_audit_coverage_smoke.rs::audit_coverage_default_full
 /// 逻辑一致,但作为 V1 发布门禁 Fitness Function 必须存在于 boundary smoke 文件。
@@ -273,6 +273,8 @@ fn audit_coverage_default_full() {
         "compensation_status_changed",
         "approval_recorded",
         "mcp_tools_call",
+        // W11 Plan 4
+        "malicious_server_detected",
         "llm_decompose_called",
         "llm_explain_called",
         "dag_plan_created",
@@ -289,7 +291,7 @@ fn audit_coverage_default_full() {
         "kill_switch_triggered",
         "task_cancelled",
     ];
-    assert_eq!(DEFAULT_REACHABLE.len(), 25);
+    assert_eq!(DEFAULT_REACHABLE.len(), 26);
 
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = "t-fitness-coverage";
@@ -307,7 +309,7 @@ fn audit_coverage_default_full() {
     let uncovered = checker.uncovered().unwrap();
     assert!(
         uncovered.is_empty(),
-        "V1 gate: default feature must cover all 25 reachable audit event types, uncovered: {:?}",
+        "V1 gate: default feature must cover all 26 reachable audit event types, uncovered: {:?}",
         uncovered
     );
 }
@@ -448,10 +450,10 @@ fn audit_registry_all_lower_snake_case() {
         "V1 gate: AUDIT_EVENT_TYPE_REGISTRY contains event_type(s) not matching lower_snake_case: {:?}",
         non_compliant
     );
-    // 分母断言:registry 必须有 28 种 event_type(W10 Plan 5 §用户决策 #1)
+    // 分母断言:registry 必须有 29 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4)
     assert_eq!(
         AUDIT_EVENT_TYPE_REGISTRY.len(),
-        28,
-        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 28 event types (spec §7.1 + llm_explain_called)"
+        29,
+        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 29 event types (spec §7.1 + llm_explain_called + malicious_server_detected)"
     );
 }

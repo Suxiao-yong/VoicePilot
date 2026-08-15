@@ -233,6 +233,9 @@ pub const AUDIT_EVENT_TYPE_REGISTRY: &[&str] = &[
     "approval_recorded",
     // W4 MCP(mcp/server.rs)
     "mcp_tools_call",
+    // W11 Plan 4: 检测到 MCP tool annotation 与实际行为不符(恶意 server)。
+    // 由 verify_mcp_annotations 的调用方在拦截时发射(mcp/schema.rs)。
+    "malicious_server_detected",
     // W8 DAG + LLM(dag_executor.rs, llm/client.rs, task_explain.rs)
     "llm_decompose_called",
     "llm_explain_called",
@@ -272,8 +275,8 @@ mod tests {
     fn registry_contains_28_event_types() {
         assert_eq!(
             AUDIT_EVENT_TYPE_REGISTRY.len(),
-            28,
-            "registry must contain exactly 28 event types (spec §7.1 + llm_explain_called)"
+            29,
+            "registry must contain exactly 29 event types (spec §7.1 + llm_explain_called + malicious_server_detected)"
         );
     }
 

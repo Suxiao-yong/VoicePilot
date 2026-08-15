@@ -3,16 +3,16 @@
 //! **feature gate:** voice,llm,uia,stronghold(trust-kernel 全 feature,文件级 cfg gate)。
 //! **test gate:** `#[ignore]` — 需手动 `cargo test -p trust-kernel --features voice,llm,uia,stronghold -- --ignored`。
 //!
-//! 1 个测试:`audit_coverage_full_features` — 全 feature 28/28 = 100% 覆盖。
+//! 1 个测试:`audit_coverage_full_features` — 全 feature 29/29 = 100% 覆盖。
 //!
-//! 与 `w10_audit_coverage_smoke.rs::audit_coverage_default_full`(Plan 5,25/25)
-//! 互补:default 测 25 种 default-reachable,本测试补 3 种需 voice/stronghold feature
+//! 与 `w10_audit_coverage_smoke.rs::audit_coverage_default_full`(Plan 5,26/26)
+//! 互补:default 测 26 种 default-reachable,本测试补 3 种需 voice/stronghold feature
 //! 的事件(voice_started / stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed)。
 //!
 //! **直接 emit 偏离(沿用 Plan 5 §用户决策 #5):** 不通过真实 Skill happy path +
 //! Stronghold encrypt/decrypt 路径触发(那些已在 w9_stronghold_api_smoke /
 //! w9_snapshot_encrypted_smoke / w10_voice_latency_smoke 等测试覆盖)。本测试用
-//! `audit_append_external` 直接 emit 28 种,聚焦 registry 完整性 + coverage 机制。
+//! `audit_append_external` 直接 emit 29 种,聚焦 registry 完整性 + coverage 机制。
 
 #![cfg(all(
     feature = "voice",
@@ -26,14 +26,14 @@ use trust_kernel::audit_coverage::AuditCoverageChecker;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
 
-/// W10 Plan 6:全 feature 28/28 = 100% audit event_type 覆盖。
+/// W10 Plan 6:全 feature 29/29 = 100% audit event_type 覆盖。
 ///
 /// spec §8.1 + §9.4 ⑩:V1 发布门禁 "审计日志覆盖率 100%"。
 ///
-/// 本测试通过 `audit_append_external` 直接 emit AUDIT_EVENT_TYPE_REGISTRY 全部 28 种
+/// 本测试通过 `audit_append_external` 直接 emit AUDIT_EVENT_TYPE_REGISTRY 全部 29 种
 /// event_type(含 default 不可达的 voice_started / stronghold_snapshot_encrypted /
 /// stronghold_snapshot_decrypt_failed 3 种),验证 `AuditCoverageChecker::new(&kernel)`
-/// (全量 registry)报告 28/28 = 100% 覆盖。
+/// (全量 registry)报告 29/29 = 100% 覆盖。
 ///
 /// **运行方式:** `cargo test -p trust-kernel --features voice,llm,uia,stronghold -- --ignored audit_coverage_full_features`
 ///
@@ -43,11 +43,11 @@ use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
 #[test]
 #[ignore = "requires all features (voice,llm,uia,stronghold) - manual run only"]
 fn audit_coverage_full_features() {
-    // 全量 registry 28 种 event_type(W10 Plan 5 §用户决策 #1)
+    // 全量 registry 29 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4)
     assert_eq!(
         AUDIT_EVENT_TYPE_REGISTRY.len(),
-        28,
-        "AUDIT_EVENT_TYPE_REGISTRY must contain exactly 28 event types"
+        29,
+        "AUDIT_EVENT_TYPE_REGISTRY must contain exactly 29 event types"
     );
 
     let kernel = TrustKernel::open_in_memory().unwrap();
@@ -58,14 +58,14 @@ fn audit_coverage_full_features() {
         TaskRepo::new().create(&conn, &task).unwrap();
     }
 
-    // 直接 emit 全部 28 种 event_type
+    // 直接 emit 全部 29 种 event_type
     for et in AUDIT_EVENT_TYPE_REGISTRY {
         kernel
             .audit_append_external(task_id, None, et, serde_json::json!({"full_feature": et}))
             .unwrap();
     }
 
-    // 用全量 registry checker 断言 28/28 = 100% 覆盖
+    // 用全量 registry checker 断言 29/29 = 100% 覆盖
     let checker = AuditCoverageChecker::new(&kernel);
     let covered = checker.covered().unwrap();
     let uncovered = checker.uncovered().unwrap();
@@ -73,8 +73,8 @@ fn audit_coverage_full_features() {
 
     assert_eq!(
         covered.len(),
-        28,
-        "full feature must cover all 28 event types, covered: {:?}",
+        29,
+        "full feature must cover all 29 event types, covered: {:?}",
         covered
     );
     assert!(
