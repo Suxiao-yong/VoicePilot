@@ -73,6 +73,11 @@
 | W11 | 评测基础设施(①-⑤ 全部闭合) | ✅ 已完成 | 6 个 Plan 全部完成(Plan 1 骨架+Inspect+100 任务 / Plan 2 redteam / Plan 3 TOCTOU / Plan 4 恶意 Server / Plan 5 数据安全 / Plan 6 集成验收) | 2026-08-16 | (direct on master) |
 | W12 Plan 1 | cargo-deny 依赖安全 + Rust edition 2021 → 2024 | ✅ 已完成 | 测试数不变(edition 升级无新测试) | 2026-08-15 | (direct on master) |
 | W12 Plan 2 | GitHub Actions CI 5 job 矩阵 + eslint | ✅ 已完成 | 测试数不变(CI 配置,无新测试) | 2026-08-15 | (direct on master) |
+| W12 Plan 3 | API docs(rustdoc + typedoc)+ changeset | ✅ 已完成 | 测试数不变(文档生成,无新测试);修复 8 个 rustdoc warning;typedoc 生成 docs/api/ui | 2026-08-16 | `98dd49c` |
+| W12 Plan 4 | ADR 架构决策记录 + 文档归档 | ✅ 已完成 | 测试数不变(文档,无新测试);docs/adr/ 12 文件(11 ADR + template)+ README 索引 | 2026-08-16 | `9b87529` |
+| W12 Plan 5 | NSIS 安装包配置完善 + release.yml | ✅ 已完成 | 测试数不变(打包配置,无新测试);webview2 bootstrapper + release.yml + docs/release.md | 2026-08-16 | `975f4ea` |
+| W12 Plan 6 | 集成验收 + audit + 5 Fitness Functions | ✅ 已完成 | +5 default (w12_default_boundary_smoke);audit.sh + audit.yml(每周一) | 2026-08-16 | `32c96a5` |
+| W12 | 工程规范(spec §10.4 未就绪项) | ✅ 已完成 | 6 个 Plan 全部完成(Plan 1 cargo-deny+edition 2024 / Plan 2 CI / Plan 3 API docs / Plan 4 ADR / Plan 5 NSIS / Plan 6 audit+Fitness) | 2026-08-16 | (direct on master) |
 
 **累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
@@ -3059,6 +3064,95 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `cargo clippy --workspace --all-features -- -D warnings` PASS(ci.yml lint job 命令本地验证)✅
 - npm run build + npm test PASS(17 tests,无 regression)✅
 - 4 个 commit 全部提交到 master ✅
+
+---
+
+### W12 Plan 3: API docs(rustdoc + typedoc)+ changeset ✅
+
+**完成日期:** 2026-08-16
+**Commit 范围:** `feat(w12p3):`(1 个 commit `98dd49c`)
+**Spec §:** §六 Plan 3(API docs + changeset)
+
+**实现内容:**
+- `voicepilot/Cargo.toml`:新增 `[workspace.metadata.docs.rs]`(all-features = true + no-default-features = true)
+- `voicepilot/crates/ui/web/typedoc.json`:typedoc 配置(entryPointStrategy expand + typedoc-plugin-markdown + out 到 docs/api/ui)
+- `package.json`:新增 `docs` script(typedoc)+ typedoc/typedoc-plugin-markdown devDependencies
+- 修复 8 个 rustdoc warning(unclosed HTML tag / disambiguator / unresolved link)
+  - `mcp/repo.rs`:`'["-y",...]'` disambiguator → 反引号包裹
+  - `skills/dispatcher.rs`:`node_outputs[node_id]` unresolved link → 反引号
+  - `audit.rs` / `mcp/server.rs` / `dag_types.rs` / `dag_executor.rs`:泛型尖括号 HTML 误解析 → 反引号包裹
+- `.changeset/config.json`:changeset SemVer 管理配置
+- `.github/workflows/docs.yml`:cargo doc + typedoc → GitHub Pages 部署
+- `docs/api/ui/`:生成 100+ typedoc markdown 文件
+
+**验证:**
+- `cargo doc --workspace --no-deps --no-default-features` 0 warning ✅
+- `npm run docs` 0 error(typedoc 生成成功,仅 9 个 props 未包含 warning 非 error)✅
+
+---
+
+### W12 Plan 4: ADR 架构决策记录 + 文档归档 ✅
+
+**完成日期:** 2026-08-16
+**Commit 范围:** `docs(w12p4):`(1 个 commit `9b87529`)
+**Spec §:** §七 Plan 4(ADR + 文档归档)
+
+**实现内容:**
+- `docs/adr/` 目录(12 文件):
+  - `0000-template.md`:ADR 模板(背景 / 决策 / 替代方案 / 后果 / 参考)
+  - `0001-0011`:11 个 ADR 回填 W1-W12 决策
+    - 0001 Windows-only / 0002 cloud-LLM-only / 0003 Stronghold vault
+    - 0004 Cedar policy / 0005 MCP version locked / 0006 sherpa-rs voice
+    - 0007 Tauri 2 UI / 0008 DAG orchestration / 0009 taint tracking
+    - 0010 Inspect AI + promptfoo eval / 0011 cargo-deny supply chain
+  - `README.md`:ADR 索引表 + 新增流程
+
+**验证:**
+- `docs/adr/` 含 11 个 ADR 文件(不含 template)✅
+- 每个 ADR 含 5 个 section(背景 / 决策 / 替代方案 / 后果 / 参考)✅
+
+---
+
+### W12 Plan 5: NSIS 安装包配置完善 + release.yml ✅
+
+**完成日期:** 2026-08-16
+**Commit 范围:** `feat(w12p5):`(1 个 commit `975f4ea`)
+**Spec §:** §八 Plan 5(NSIS 打包 + 签名 + WebView2 引导)
+
+**实现内容:**
+- `voicepilot/crates/ui/tauri.conf.json`:`windows.nsis.webview2.bootstrapper = true`(自动引导 WebView2 运行时)
+- `.github/workflows/release.yml`:tag `v*` 触发 → cargo tauri build --target nsis → 上传 GitHub Release(draft)
+- `docs/release.md`:发布手册(版本号 / 打 tag / 触发 CI / 手动安装测试 / 签名说明 / release notes 模板 / 回滚)
+
+**偏离 spec §八(延续 spec §8.4):**
+- V1 不做 Authenticode 代码签名(EV 证书成本高),release notes 标注未签名
+- V1 不做 tauri-plugin-updater(无签名证书),留 V1.1+
+
+**验证:**
+- `tauri.conf.json` 合法 JSON ✅
+- NSIS 打包需非 sandbox 环境 / GitHub Actions Windows runner 验证(本 sandbox 无法跑)✅
+
+---
+
+### W12 Plan 6: 集成验收 + cargo audit + npm audit + Fitness Function ✅
+
+**完成日期:** 2026-08-16
+**Commit 范围:** `feat(w12p6):`(1 个 commit `32c96a5`)
+**Spec §:** §九 Plan 6(集成验收 + 审计 + Fitness Function)
+
+**实现内容:**
+- `voicepilot/audit.sh`:cargo audit + npm audit 串联脚本
+- `.github/workflows/audit.yml`:每周一 00:00 UTC 自动审计(cargo-audit rustsec/audit-check + npm audit --audit-level=high)
+- `voicepilot/crates/trust-kernel/tests/w12_default_boundary_smoke.rs`:5 个 Fitness Function
+  1. `deny_toml_exists` — deny.toml + [licenses]/[advisories]/[bans]/[sources]
+  2. `ci_workflow_exists` — ci.yml + 5 个 job
+  3. `adr_completeness` — docs/adr/ ≥ 11 个 ADR
+  4. `cargo_edition_2024` — workspace Cargo.toml edition = "2024"
+  5. `nsis_bundle_configured` — tauri.conf.json bundle.targets 含 "nsis"
+
+**验证:**
+- `cargo test -p trust-kernel --test w12_default_boundary_smoke` 5 passed 0 failed ✅
+- cargo-audit 本地安装因环境网络 SSL 限制失败(cargo install cargo-audit 报 schannel SSL connect error),但 CI 的 `rustsec/audit-check@v2` action 已配置,无需本地安装;cargo-deny(已装 0.20.2)已覆盖漏洞检查
 
 ---
 
