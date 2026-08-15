@@ -42,7 +42,10 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "displayLanguageSelector": false,
-        "languages": ["SimpChinese", "English"]
+        "languages": ["SimpChinese", "English"],
+        "webview2": {
+          "bootstrapper": true
+        }
       }
     }
   }
