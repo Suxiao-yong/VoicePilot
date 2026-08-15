@@ -61,7 +61,7 @@ pub struct LoopSpec {
 /// 可迭代来源。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IterableSource {
-    /// 上游节点的 output.<port> 是数组
+    /// 上游节点的 `output.<port>` 是数组
     PrevNodeOutput { node_id: String, port: String },
     /// 用户审批阶段填的 Slot(如 Files list)
     UserSlot { slot_kind: String },

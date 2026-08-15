@@ -44,7 +44,7 @@ use crate::skills::note_capture::NoteCaptureInput;
 pub struct DispatchOutcome {
     pub task_id: String,
     pub step_id: String,
-    /// 节点 output,作为下游模板 resolve 的 node_outputs[node_id]。
+    /// 节点 output,作为下游模板 resolve 的 `node_outputs[node_id]`。
     pub output: serde_json::Value,
     /// 是否成功(executor 返回 Ok 但 ToolStatus 可能是 Cancelled)。
     pub succeeded: bool,

@@ -102,7 +102,7 @@ impl SqliteAuditLogger {
         Ok(out)
     }
 
-    /// Test helper: run a query that returns a single Optional<String> column.
+    /// Test helper: run a query that returns a single `Optional<String>` column.
     pub fn query_single(&self, sql: &str, param: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let value: Option<String> = conn

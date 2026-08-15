@@ -1,7 +1,7 @@
 //! MCP server — V1.1 §6.1.
 //!
 //! Owns a McpHandler + dispatches JSON-RPC 2.0 requests to method handlers.
-//! Holds the kernel via Arc<TrustKernel> so multiple owners (server + test
+//! Holds the kernel via `Arc<TrustKernel>` so multiple owners (server + test
 //! harness) can share the same audit log / DB state.
 
 use crate::error::Result;

@@ -1,0 +1,86 @@
+# VoicePilot V1 API Docs (W12 Plan 3)
+# spec §六 Plan 3:rustdoc + typedoc → GitHub Pages
+#
+# 触发:
+#   push -> master:生成 rustdoc + typedoc,deploy 到 GitHub Pages
+#   workflow_dispatch:手动重跑
+#
+# 生成:
+#   - rustdoc:voicepilot/target/doc(workspace,no-deps)
+#   - typedoc:voicepilot/docs/api/ui(markdown)
+#   upload-pages-artifact 打包合并后部署到 Pages
+
+name: docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "voicepilot/crates/**/*.rs"
+      - "voicepilot/crates/ui/web/src/**"
+      - "voicepilot/Cargo.toml"
+      - "voicepilot/crates/ui/web/package.json"
+      - "voicepilot/crates/ui/web/typedoc.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    name: Build rustdoc + typedoc
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: voicepilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: docs
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: cargo doc (rustdoc, no-deps)
+        run: cargo doc --workspace --no-deps --no-default-features
+
+      - name: npm ci
+        run: npm ci
+        working-directory: voicepilot/crates/ui/web
+
+      - name: typedoc (npm run docs)
+        run: npm run docs
+        working-directory: voicepilot/crates/ui/web
+
+      - name: Stage rustdoc + typedoc for Pages
+        run: |
+          New-Item -ItemType Directory -Force docs/_site | Out-Null
+          Copy-Item -Recurse -Force target/doc/* docs/_site/
+          Copy-Item -Recurse -Force docs/api/ui/* docs/_site/ui/
+          echo "docs built"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: voicepilot/docs/_site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build-docs
+    runs-on: windows-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

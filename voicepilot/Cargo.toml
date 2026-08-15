@@ -17,6 +17,13 @@ rust-version = "1.85"
 authors = ["VoicePilot Team"]
 license = "MIT"
 
+# W12 Plan 3: rustdoc 配置(spec §六 Plan 3)。
+# all-features = true 生成全特性 API docs,no-default-features = true 避免默认特性
+# 引入 voice/tauri 的额外编译噪声。docs.rs 与本地 cargo doc 均使用此配置。
+[workspace.metadata.docs.rs]
+all-features = true
+no-default-features = true
+
 [workspace.dependencies]
 # W7: default-features=false 让 downstream crate 显式 opt-in trust-kernel 的 feature
 # (llm/voice/tauri)。与 trust-kernel/default = ["llm"] 配合:downstream 默认需写

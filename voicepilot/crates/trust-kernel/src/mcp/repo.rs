@@ -28,9 +28,9 @@ pub struct McpServerRecord {
     pub allowed_paths: Option<String>,   // JSON array, raw text
     /// W7 Plan 5: spawn command (e.g. "npx"). `None` for in-process servers.
     pub command: Option<String>,
-    /// W7 Plan 5: JSON array of args (e.g. '["-y","@playwright/mcp@latest"]').
+    /// W7 Plan 5: JSON array of args (e.g. `["-y","@playwright/mcp@latest"]`).
     pub args: Option<String>,
-    /// W7 Plan 5: JSON object of env overrides (e.g. '{"FOO":"bar"}').
+    /// W7 Plan 5: JSON object of env overrides (e.g. `{"FOO":"bar"}`).
     pub env: Option<String>,
 }
 

@@ -87,9 +87,9 @@ impl DagExecutor {
     ///
     /// 参数:
     ///
-    /// - `kernel`:Arc<TrustKernel>(调用方持 Arc,DagExecutor clone 一份)
-    /// - `approver`:Arc<dyn Approver>(骨架审批 + 节点级审批都用同一个)
-    /// - `dag_repo`:Arc<DagRepo>(无状态,可共享)
+    /// - `kernel`: `Arc<TrustKernel>`(调用方持 Arc,DagExecutor clone 一份)
+    /// - `approver`: `Arc<dyn Approver>`(骨架审批 + 节点级审批都用同一个)
+    /// - `dag_repo`: `Arc<DagRepo>`(无状态,可共享)
     pub fn new(
         kernel: Arc<TrustKernel>,
         approver: Arc<dyn Approver>,
