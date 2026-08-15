@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VoicePilot 100 Functional Tasks",
+  "type": "object",
+  "required": ["tasks"],
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "minItems": 100,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "type", "transcript", "target_skill", "expected_outcome", "risk_level"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^F[0-9]{3}$" },
+          "category": {
+            "type": "string",
+            "enum": ["files_organize", "note_capture", "research_save", "form", "app_control", "dag"]
+          },
+          "type": { "type": "string", "enum": ["single_step", "multi_step"] },
+          "transcript": { "type": "string", "minLength": 3, "maxLength": 200 },
+          "target_skill": { "type": "string", "pattern": "^[a-z_]+(\\.[a-z_]+)+$" },
+          "expected_outcome": {
+            "type": "object",
+            "required": ["skill_id", "commit_status"],
+            "properties": {
+              "skill_id": { "type": ["string", "null"] },
+              "commit_status": { "type": "string", "enum": ["success", "failed", "aborted", "skipped"] },
+              "blocked": { "type": "boolean" }
+            }
+          },
+          "risk_level": { "type": "string", "pattern": "^E[0-3]×D[0-3]$" }
+        }
+      }
+    }
+  }
+}
