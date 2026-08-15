@@ -1,0 +1,23 @@
+name: "Setup Node"
+description: "Install Node.js + npm cache"
+inputs:
+  node-version:
+    description: "Node.js version"
+    required: false
+    default: "22"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Restore npm cache
+      uses: actions/cache@v4
+      with:
+        path: voicepilot/crates/ui/web/node_modules
+        key: ${{ runner.os }}-npm-${{ hashFiles('voicepilot/crates/ui/web/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-npm-
