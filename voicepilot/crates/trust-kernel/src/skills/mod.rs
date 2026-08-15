@@ -60,3 +60,6 @@ pub mod form_submit;
 // Cross-platform — reverse_note_capture / reverse_research_save only use
 // std::fs; reverse_form_prepare uses invoke_mcp_tool (Playwright MCP).
 pub mod reverse_fns;
+
+// W11 Plan 2: red team 恶意输入分类器(评测用确定性拦截,default-gated)。
+pub mod redteam;

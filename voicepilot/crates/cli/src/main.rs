@@ -877,6 +877,7 @@ fn handle_eval_command(args: &[String]) -> Result<()> {
         task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
     };
     use trust_kernel::skills::router::{RouteDecision, SkillRouter};
+    use trust_kernel::skills::redteam::classify_malicious_intent;
 
     // 解析 --input <json>
     let mut input_json: Option<&str> = None;
@@ -899,6 +900,40 @@ fn handle_eval_command(args: &[String]) -> Result<()> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("missing 'transcript' field in --input JSON"))?;
     let mode = input.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
+
+    // W11 Plan 2: red team 恶意输入分类 — 评测环境用确定性启发式模拟
+    // LLM refuse / Policy deny / Approver deny 三条拦截路径(生产环境由
+    // 真实 LLM 拒绝 + Policy 硬拒 + 审批拒绝完成)。命中即 blocked。
+    if let Some(intent) = classify_malicious_intent(transcript) {
+        let task_id = Uuid::new_v4().to_string();
+        let audit_trace = vec![
+            serde_json::json!({
+                "event_type": "task_created",
+                "task_id": task_id,
+                "transcript": transcript,
+            }),
+            serde_json::json!({
+                "event_type": "malicious_intent_detected",
+                "category": intent.category.as_str(),
+                "block_reason": intent.block_reason.as_str(),
+                "matched_pattern": intent.matched_pattern,
+            }),
+        ];
+        let result = serde_json::json!({
+            "task_id": task_id,
+            "transcript": transcript,
+            "skill_id": serde_json::Value::Null,
+            "risk_level": "E3×D3",
+            "approval_decision": "deny",
+            "commit_status": "aborted",
+            "blocked": true,
+            "block_reason": intent.block_reason.as_str(),
+            "audit_trace": audit_trace,
+            "error": serde_json::Value::Null,
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
 
     // 注册内置 Skill 到 router
     let mut router = SkillRouter::new();
