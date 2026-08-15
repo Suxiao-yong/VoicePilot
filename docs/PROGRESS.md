@@ -65,6 +65,7 @@
 | W9 | Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收 | ✅ 已完成 | 7 个 Plan 全部完成(Plan 1 Stronghold + Plan 2 Taint + Plan 3 DAG Modify + Plan 4 UserSlot + Plan 5 审计扩展 + Plan 6 PostCommitCompensation + Plan 7 集成验收) | 2026-08-01 | `e467038`(W9 head) |
 | W10 | V1 发布门禁闭合(Strong Verifier / Compensation / P95 延迟 / Kill Switch / 审计覆盖率)| ✅ 已完成 | 613 default cargo test | 2026-08-06 | (direct on master) |
 | W11 Plan 1 | 评测骨架 + Inspect AI 集成 + 100 功能任务 | ✅ 已完成 | +3 default (eval_subcommand_smoke) → 616 default;+5 Python scorer 单元测试 | 2026-08-11 | (direct on master) |
+| W12 Plan 1 | cargo-deny 依赖安全 + Rust edition 2021 → 2024 | ✅ 已完成 | 测试数不变(edition 升级无新测试) | 2026-08-15 | (direct on master) |
 
 **累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
@@ -2874,6 +2875,43 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `python inspect_evals.py` self-test 输出 100 任务 + 1 个 sample 结果(Valid JSON)
 - 5 个 Python scorer 单元测试 PASS
 - 7 个 commit 全部提交到 master
+
+---
+
+### W12 Plan 1: cargo-deny 依赖安全 + Rust edition 2021 → 2024 ✅
+
+**完成日期:** 2026-08-15
+**Commit 范围:** `chore(w12p1):` / `fix(w12p1):` / `docs(w12p1):` 系列(4 个 commit)
+**Spec §:** §四 Plan 1(依赖供应链安全 + edition 2024)+ §10.4 工程规范
+
+**实现内容:**
+- `deny.toml` 仓库根配置文件(5 section):
+  - `[graph]`:x86_64-pc-windows-msvc only(Windows-only,spec §1.1)+ all-features(与 CI 7 套矩阵对齐)
+  - `[advisories]`:unmaintained=workspace / unsound=all;ignore RUSTSEC-2025-0141(bincode 1.3.3 unmaintained,iota_stronghold 传递引入,无安全升级可用)
+  - `[bans]`:multiple-versions=warn(spec §2.1/§2.7 明确 Warn,非模板的 deny)+ wildcards=deny;deny git2/openssl/openssl-sys/libssh2-sys;skip-tree(tauri windows/windows-sys、sherpa-rs cmake,无法替换)
+  - `[sources]`:unknown-registry=deny / unknown-git=deny / allow-git=[]
+  - `[licenses]`:confidence-threshold=0.93;allow MIT/Apache-2.0/ISC/Zlib/BSD/MPL-2.0/CDLA-Permissive-2.0(webpki-roots)等
+- `.gitignore` 追加 `advisory-dbs/`(cargo-deny 本地缓存)
+- workspace `edition = "2024"`(2021)→ 3 个 crate(trust-kernel/cli/ui)同步升级
+- `rust-version = "1.96" → "1.85"`(edition 2024 stabilized in 1.85,允许更多用户安装)
+- `trust-kernel` workspace 依赖补 `version = "0.1.0"`(消除 wildcard 误报)
+- `cargo fix --edition` 自动迁移 + edition 2024 breaking change 修复(unsafe_op_in_unsafe_fn 补 unsafe 块 + clippy let_and_return in audio.rs)
+
+**偏离 spec §四:**
+- spec §四说 `windows` crate 被 deny,实际 tauri 2 强依赖 `windows`,用 `skip-tree` 跳过(tauri 无法替换)
+- spec §四说 `rust-version = "1.85"`,实际当前为 1.96,同步降到 1.85
+- plan Task 3/4 的 `-p trust-kernel --features voice,tauri,llm,uia` 无效(trust-kernel 无 tauri feature),改用 `-p trust-kernel --features voice,llm,uia` / `voice,llm,uia,stronghold`
+
+**验收门禁:**
+- `deny.toml` 存在 + 含 [graph]/[advisories]/[bans]/[sources]/[licenses] 5 section ✅
+- `cargo deny check` 4 项全 ok(advisories / bans / licenses / sources),仅 duplicate warning(multiple-versions=warn)✅
+- workspace `edition = "2024"`,`rust-version = "1.85"` ✅
+- 3 个 crate Cargo.toml `edition = "2024"` ✅
+- 7 套 feature 组合 cargo check 全 PASS(default/voice/tauri/voice,tauri/voice,tauri,llm/trust-kernel voice,llm,uia/trust-kernel voice,llm,uia,stronghold)✅
+- clippy `-D warnings` 0 警告(7 套组合)✅
+- workspace default `cargo test --workspace --no-default-features` 全 PASS 0 failed(edition 升级无 regression)✅
+- npm build PASS(dist/index.html + assets 生成)✅
+- 4 个 commit 全部提交到 master ✅
 
 ---
 
