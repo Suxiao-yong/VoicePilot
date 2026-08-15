@@ -1,0 +1,170 @@
+# VoicePilot V1 CI / CD (W12 Plan 2)
+# spec §10.4 工程规范:lint + test + build + 评测
+#
+# 触发:
+#   push -> master / release branch -> 5 个 job 全跑
+#   pull_request -> 4 个 job(evals 仅 tag 触发)
+#   tag v* -> evals job 触发 + release.yml
+#
+# 5 个 job:
+#   lint:        cargo fmt + clippy + eslint
+#   test-default: cargo test --workspace --no-default-features
+#   test-full:    cargo test 按 crate 拆分(trust-kernel + ui)
+#   build-ui:     npm ci + npm run build + npm test
+#   evals:        evals/run_all.sh(仅 tag + manual dispatch)
+
+name: CI
+
+on:
+  push:
+    branches: [master, "release/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      run_evals:
+        description: "Run evals job (requires OPENAI_API_KEY)"
+        type: boolean
+        default: false
+
+jobs:
+  # ── Job 1: lint ──────────────────────────────────────────────
+  lint:
+    name: Lint (fmt + clippy + eslint)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: voicepilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: lint
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy (default)
+        run: cargo clippy --workspace --no-default-features -- -D warnings
+
+      - name: cargo clippy (all features)
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+      - name: npm ci
+        run: npm ci
+        working-directory: voicepilot/crates/ui/web
+
+      - name: eslint
+        run: npm run lint
+        working-directory: voicepilot/crates/ui/web
+
+  # ── Job 2: test-default ──────────────────────────────────────
+  test-default:
+    name: Test (default features)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: voicepilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test-default
+
+      - name: cargo test (no-default-features)
+        run: cargo test --workspace --no-default-features
+
+  # ── Job 3: test-full ─────────────────────────────────────────
+  test-full:
+    name: Test (full features)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: voicepilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test-full
+
+      - name: cargo test (trust-kernel voice+llm+uia+stronghold)
+        run: cargo test -p trust-kernel --features voice,llm,uia,stronghold
+
+      - name: cargo test (ui voice+tauri+llm+uia)
+        run: cargo test -p voicepilot-ui --features voice,tauri,llm,uia
+
+  # ── Job 4: build-ui ──────────────────────────────────────────
+  build-ui:
+    name: Build UI (npm build + test)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: voicepilot/crates/ui/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run build
+        run: npm run build
+
+      - name: npm test
+        run: npm test
+
+  # ── Job 5: evals ─────────────────────────────────────────────
+  evals:
+    name: Evals (100 tasks + scorers)
+    runs-on: windows-latest
+    if: |
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' && inputs.run_evals
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: evals
+          # evals 需要 cli 二进制，build 时可能用到 clippy
+          components: ""
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Build voicepilot CLI
+        run: cargo build --manifest-path ../voicepilot/Cargo.toml -p cli --no-default-features
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: |
+          python -m venv .venv
+          .venv\Scripts\Activate.ps1
+          pip install -e .
+
+      - name: Run evals (self-test)
+        run: |
+          .venv\Scripts\Activate.ps1
+          python inspect_evals.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
