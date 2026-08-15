@@ -1,0 +1,37 @@
+name: "Setup Rust"
+description: "Install Rust toolchain + configure cargo cache"
+inputs:
+  toolchain:
+    description: "Rust toolchain version"
+    required: false
+    default: "stable"
+  components:
+    description: "Extra components (comma-separated)"
+    required: false
+    default: "clippy,rustfmt"
+  cache-key:
+    description: "Cache key suffix"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Rust toolchain
+      shell: pwsh
+      run: |
+        rustup toolchain install ${{ inputs.toolchain }} --component ${{ inputs.components }}
+        rustup default ${{ inputs.toolchain }}
+        rustc --version
+        cargo --version
+
+    - name: Restore cargo cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          voicepilot/target
+        key: ${{ runner.os }}-cargo-${{ inputs.cache-key }}-${{ hashFiles('voicepilot/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ inputs.cache-key }}-
+          ${{ runner.os }}-cargo-
