@@ -1,0 +1,114 @@
+# VoicePilot V1 评测 — 20 TOCTOU 场景(W11 Plan 3)
+# 门禁:0 成功(20/20 全部 abort)
+# 对应 Rust 测试:crates/trust-kernel/tests/w11_toctou_block_smoke.rs
+# canary: VP-EVAL-CANARY-2026
+scenarios:
+  # ===== 类别 1:文件内容替换(6)=====
+  - id: T001
+    category: content_tamper
+    name: 不同大小内容替换
+    attack: prepare 后把 source 内容替换为不同长度内容(size + sha256 都变)
+    expect: commit 返回 Err(PreconditionMismatch),source 保留
+  - id: T002
+    category: content_tamper
+    name: 同大小内容替换
+    attack: prepare 后把 source 内容替换为同长度不同内容(仅 sha256 变)
+    expect: commit 返回 Err(PreconditionMismatch),证明检测不依赖 size
+  - id: T003
+    category: content_tamper
+    name: 多 source 单文件篡改
+    attack: prepare 两个 source 后只篡改其中一个
+    expect: commit 整体 abort,两个 source 都保留(无部分移动)
+  - id: T004
+    category: content_tamper
+    name: 删除并重建同内容文件
+    attack: prepare 后删除 source 并重建同内容文件(file_id 变化)
+    expect: commit 返回 Err(file_id 变化被 preconditions_hash 捕获)
+  - id: T005
+    category: content_tamper
+    name: 追加内容
+    attack: prepare 后向 source 追加字节(size + sha256 变化)
+    expect: commit 返回 Err
+  - id: T006
+    category: content_tamper
+    name: 内容替换 + 新目标冲突
+    attack: prepare 后同时篡改 source 内容 + 在 dest 预置同名文件
+    expect: commit 返回 Err(双重 TOCTOU 都检测)
+
+  # ===== 类别 2:符号链接替换(5)=====
+  # 注意:Windows 创建 symlink 需管理员 / Developer Mode,
+  # 无权限机器上对应 Rust 测试 soft-skip(见测试文件头注释)。
+  - id: T007
+    category: symlink_replace
+    name: symlink 指向其他文件
+    attack: prepare 后用指向 evil.txt 的 symlink 替换 source
+    expect: commit 返回 Err(file_id + 内容变化)
+  - id: T008
+    category: symlink_replace
+    name: symlink 指向同内容文件
+    attack: prepare 后用指向同内容文件的 symlink 替换 source(sha256 相同)
+    expect: commit 返回 Err(file_id 不同仍被捕获)
+  - id: T009
+    category: symlink_replace
+    name: symlink 链
+    attack: prepare 后用 a.txt → link1 → link2 → target 的 symlink 链替换
+    expect: commit 返回 Err
+  - id: T010
+    category: symlink_replace
+    name: symlink 指向目录
+    attack: prepare 后用指向目录的 symlink 替换 source(文件 → 目录)
+    expect: commit 返回 Err(snapshot 非普通文件)
+  - id: T011
+    category: symlink_replace
+    name: broken symlink
+    attack: prepare 后用指向不存在目标的 broken symlink 替换 source
+    expect: commit 返回 Err(snapshot 目标不存在)
+
+  # ===== 类别 3:重定向跳转(5)=====
+  - id: T012
+    category: redirect
+    name: 重命名 source 父目录
+    attack: prepare 后 rename source 所在目录(路径重定向)
+    expect: commit 返回 Err(source 路径失效)
+  - id: T013
+    category: redirect
+    name: 重命名目标目录
+    attack: prepare 后 rename 目标目录
+    expect: commit 返回 Err(source 保留)
+  - id: T014
+    category: redirect
+    name: 两 source 内容互换
+    attack: prepare 两个 source 后互换内容
+    expect: commit 返回 Err(双方 sha256 都变)
+  - id: T015
+    category: redirect
+    name: source 提前移到目标
+    attack: prepare 后把 source 提前 rename 到目标(路径重定向 + 新冲突)
+    expect: commit 返回 Err
+  - id: T016
+    category: redirect
+    name: source 目录删除重建
+    attack: prepare 后删除 source 目录并重建同内容文件(file_id 全变)
+    expect: commit 返回 Err
+
+  # ===== 类别 4:args_hash 篡改(4)=====
+  - id: T017
+    category: args_tamper
+    name: 篡改 manifest.destination
+    attack: prepare 后调用方把 manifest.destination 改为攻击者目录
+    expect: commit 返回 Err(PreconditionMismatch)
+  - id: T018
+    category: args_tamper
+    name: 篡改 manifest.sources
+    attack: prepare 后调用方把 sources[0].canonical_path 指向 decoy 文件
+    expect: commit 返回 Err(PreconditionMismatch)
+  - id: T019
+    category: args_tamper
+    name: 篡改 manifest.total_bytes
+    attack: prepare 后调用方把 manifest.total_bytes 改为 999999
+    expect: commit 返回 Err(PreconditionMismatch)
+  - id: T020
+    category: args_tamper
+    name: token 复用重放
+    attack: 首次 commit 成功后复用同一 token 重放
+    expect: commit 返回 Err(InvalidPrepareToken,一次性 token)
