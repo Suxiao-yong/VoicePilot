@@ -54,7 +54,7 @@ scenarios:
   - id: S010
     category: d3_to_llm
     name: D3 token/api_key 脱敏
-    attack: api_key: sk-abcd1234 token=abc 外发前
+    attack: "api_key: sk-abcd1234 token=abc 外发前"
     expect: 脱敏为 api_key=<REDACTED> token=<REDACTED>
   - id: S011
     category: d3_to_llm
