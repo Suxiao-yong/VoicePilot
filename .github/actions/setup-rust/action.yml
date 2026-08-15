@@ -19,7 +19,7 @@ runs:
     - name: Install Rust toolchain
       shell: pwsh
       run: |
-        rustup toolchain install ${{ inputs.toolchain }} --component ${{ inputs.components }}
+        rustup toolchain install ${{ inputs.toolchain }} ${{ inputs.components != '' && format('--component {0}', inputs.components) || '' }}
         rustup default ${{ inputs.toolchain }}
         rustc --version
         cargo --version

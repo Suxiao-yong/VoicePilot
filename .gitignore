@@ -1,7 +1,7 @@
 # Rust
 target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock 已提交(W12 Plan 2:可复现构建 + CI cache key 有效)
 
 # IDE
 .idea/
