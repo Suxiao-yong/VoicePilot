@@ -66,6 +66,7 @@
 | W10 | V1 发布门禁闭合(Strong Verifier / Compensation / P95 延迟 / Kill Switch / 审计覆盖率)| ✅ 已完成 | 613 default cargo test | 2026-08-06 | (direct on master) |
 | W11 Plan 1 | 评测骨架 + Inspect AI 集成 + 100 功能任务 | ✅ 已完成 | +3 default (eval_subcommand_smoke) → 616 default;+5 Python scorer 单元测试 | 2026-08-11 | (direct on master) |
 | W12 Plan 1 | cargo-deny 依赖安全 + Rust edition 2021 → 2024 | ✅ 已完成 | 测试数不变(edition 升级无新测试) | 2026-08-15 | (direct on master) |
+| W12 Plan 2 | GitHub Actions CI 5 job 矩阵 + eslint | ✅ 已完成 | 测试数不变(CI 配置,无新测试) | 2026-08-15 | (direct on master) |
 
 **累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
@@ -2911,6 +2912,41 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - clippy `-D warnings` 0 警告(7 套组合)✅
 - workspace default `cargo test --workspace --no-default-features` 全 PASS 0 failed(edition 升级无 regression)✅
 - npm build PASS(dist/index.html + assets 生成)✅
+- 4 个 commit 全部提交到 master ✅
+
+---
+
+### W12 Plan 2: GitHub Actions CI 5 job 矩阵 + eslint ✅
+
+**完成日期:** 2026-08-15
+**Commit 范围:** `chore(w12p2):` 系列(4 个 commit)
+**Spec §:** §五 Plan 2(CI 自动化)
+
+**实现内容:**
+- `.github/actions/setup-rust/action.yml`:复合 action(Rust toolchain + cargo cache,key 含 Cargo.lock hash + cache-key 后缀)
+- `.github/actions/setup-node/action.yml`:复合 action(Node.js 22 + npm cache)
+- `voicepilot/crates/ui/web/eslint.config.js`:ESLint flat config(React + TypeScript + hooks 规则)
+- `voicepilot/crates/ui/web/package.json`:追加 `lint` / `lint:fix` 脚本 + eslint/@eslint/js/typescript-eslint/eslint-plugin-react-hooks/eslint-plugin-react-refresh devDependencies
+- `.github/workflows/ci.yml`:主 CI workflow,5 个 job 并行矩阵
+  - `lint`:cargo fmt --check + clippy(2 套:default + all-features)+ eslint
+  - `test-default`:cargo test --workspace --no-default-features
+  - `test-full`:按 crate 拆分(trust-kernel voice+llm+uia+stronghold + ui voice+tauri+llm+uia)
+  - `build-ui`:npm ci + npm run build + npm test
+  - `evals`:evals/run_all.sh(仅 tag v* + manual dispatch,需 OPENAI_API_KEY secret)
+
+**偏离 spec §五:**
+- spec §五 test-full 写 `--features voice,tauri,llm,uia`,实际 trust-kernel 无 tauri feature(W12 Plan 1 已确认),拆分为两个独立 `-p` 命令
+- spec §五 build-ui 含 `npm run docs`,实际 typedoc 未配置(Plan 3 范围),跳过 + 注释标注
+- spec §五 无 eslint 细节,Plan 2 补加入 eslint 配置;因项目用 React 18 + 既有 effect 内 setState 异步加载模式合法,关闭 `react-hooks/set-state-in-effect`(React 19 优化规则)避免重构既有代码
+- `evals` job 引用的 `evals/run_all.sh` 尚未创建(W11 Plan 6 的 CI 适配,留后续),ci.yml 中的 evals job 已就位但需 run_all.sh 才能 tag 触发
+
+**验收门禁:**
+- `.github/workflows/ci.yml` 存在 + 含 5 个 job ✅
+- `.github/actions/setup-rust/action.yml` 存在(复合 action)✅
+- `.github/actions/setup-node/action.yml` 存在(复合 action)✅
+- eslint 配置存在 + `npm run lint` PASS(exit 0)✅
+- `cargo clippy --workspace --all-features -- -D warnings` PASS(ci.yml lint job 命令本地验证)✅
+- npm run build + npm test PASS(17 tests,无 regression)✅
 - 4 个 commit 全部提交到 master ✅
 
 ---
