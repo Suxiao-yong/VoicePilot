@@ -1052,7 +1052,7 @@ pub fn topological_sort(nodes: &[DagNode], edges: &[DagEdge]) -> Result<Vec<Stri
 
     let queue: VecDeque<String> = in_degree
         .iter()
-        .filter(|(_, &deg)| deg == 0)
+        .filter(|&(_, &deg)| deg == 0)
         .map(|(k, _)| k.clone())
         .collect();
 
@@ -1085,7 +1085,7 @@ pub fn topological_sort(nodes: &[DagNode], edges: &[DagEdge]) -> Result<Vec<Stri
         // 检测到环 — 找出环中的节点(in_degree > 0 的)
         let cycle_nodes: Vec<String> = in_degree
             .iter()
-            .filter(|(_, &deg)| deg > 0)
+            .filter(|&(_, &deg)| deg > 0)
             .map(|(k, _)| k.clone())
             .collect();
         return Err(KernelError::Skill(format!(

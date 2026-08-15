@@ -624,12 +624,12 @@ for line in sys.stdin:
     fn set_values_env(temp: &std::path::Path, values: &HashMap<String, String>) -> std::path::PathBuf {
         let path = temp.join(format!("values-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, serde_json::to_string(values).unwrap()).unwrap();
-        std::env::set_var("FORM_VALUES_PATH", &path);
+        unsafe { std::env::set_var("FORM_VALUES_PATH", &path); }
         path
     }
 
     fn clear_values_env() {
-        std::env::remove_var("FORM_VALUES_PATH");
+        unsafe { std::env::remove_var("FORM_VALUES_PATH"); }
     }
 
     #[test]
@@ -770,8 +770,8 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/success");
-        std::env::set_var("MOCK_HAS_SUCCESS", "false");
+        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/success"); }
+        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "false"); }
 
         let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
@@ -783,8 +783,8 @@ for line in sys.stdin:
             other => panic!("expected Strong, got {:?}", other),
         }
 
-        std::env::remove_var("MOCK_CURRENT_URL");
-        std::env::remove_var("MOCK_HAS_SUCCESS");
+        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
+        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
     }
 
     #[test]
@@ -796,8 +796,8 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
-        std::env::set_var("MOCK_HAS_SUCCESS", "true");
+        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit"); }
+        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "true"); }
 
         let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
@@ -809,8 +809,8 @@ for line in sys.stdin:
             other => panic!("expected Strong, got {:?}", other),
         }
 
-        std::env::remove_var("MOCK_CURRENT_URL");
-        std::env::remove_var("MOCK_HAS_SUCCESS");
+        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
+        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
     }
 
     #[test]
@@ -822,8 +822,8 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
-        std::env::set_var("MOCK_HAS_SUCCESS", "false");
+        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit"); }
+        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "false"); }
 
         let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
@@ -835,8 +835,8 @@ for line in sys.stdin:
             other => panic!("expected Failed, got {:?}", other),
         }
 
-        std::env::remove_var("MOCK_CURRENT_URL");
-        std::env::remove_var("MOCK_HAS_SUCCESS");
+        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
+        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
     }
 }
 

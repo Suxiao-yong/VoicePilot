@@ -251,7 +251,7 @@ fn form_prepare_via_mock_mcp_no_click_submit() {
     // SAFETY: CWD_MUTEX serializes env mutations process-wide; no other
     // test thread is reading FORM_PREPARE_CALLS_PATH while this test
     // holds the lock.
-    std::env::set_var("FORM_PREPARE_CALLS_PATH", &calls_path);
+    unsafe { std::env::set_var("FORM_PREPARE_CALLS_PATH", &calls_path); }
 
     let kernel = TrustKernel::open_in_memory().expect("kernel must construct");
     install_python_mock(&kernel, MOCK_SCRIPT);
@@ -271,7 +271,7 @@ fn form_prepare_via_mock_mcp_no_click_submit() {
     // FORM_PREPARE_VALUES_PATH 读取预存 JSON。写入与 input.fields 一致的值 → Strong。
     let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
     std::fs::write(&values_path, serde_json::to_string(&fields).unwrap()).unwrap();
-    std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+    unsafe { std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path); }
     let result = execute_form_prepare(&kernel, &input, &approver);
 
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
@@ -315,8 +315,8 @@ fn form_prepare_via_mock_mcp_no_click_submit() {
         recorded
     );
 
-    std::env::remove_var("FORM_PREPARE_CALLS_PATH");
-    std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+    unsafe { std::env::remove_var("FORM_PREPARE_CALLS_PATH"); }
+    unsafe { std::env::remove_var("FORM_PREPARE_VALUES_PATH"); }
 }
 
 // ---- Test C (#[ignore]): real Playwright MCP, manual verification ----

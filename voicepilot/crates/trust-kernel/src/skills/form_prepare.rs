@@ -425,13 +425,13 @@ for line in sys.stdin:
         std::fs::write(&path, "[]").expect("seed calls file");
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations
         // process-wide; no other test thread is reading this var.
-        std::env::set_var("FORM_PREPARE_CALLS_PATH", &path);
+        unsafe { std::env::set_var("FORM_PREPARE_CALLS_PATH", &path); }
         path
     }
 
     fn clear_calls_env() {
         // SAFETY: see set_calls_env.
-        std::env::remove_var("FORM_PREPARE_CALLS_PATH");
+        unsafe { std::env::remove_var("FORM_PREPARE_CALLS_PATH"); }
     }
 
     #[test]
@@ -456,7 +456,7 @@ for line in sys.stdin:
         let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&values_path, serde_json::to_string(&input.fields).unwrap()).unwrap();
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
-        std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+        unsafe { std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path); }
 
         let result = execute_form_prepare(&kernel, &input, &approver);
 
@@ -513,7 +513,7 @@ for line in sys.stdin:
 
         clear_calls_env();
         // SAFETY: see set_calls_env.
-        std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+        unsafe { std::env::remove_var("FORM_PREPARE_VALUES_PATH"); }
     }
 
     #[test]

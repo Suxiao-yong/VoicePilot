@@ -385,7 +385,7 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let calls_path = temp.path().join("calls.log");
-        std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+        unsafe { std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path); }
 
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
@@ -397,7 +397,7 @@ for line in sys.stdin:
         let rec = make_rec(&payload);
 
         let result = reverse_form_prepare(&kernel, &rec);
-        std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+        unsafe { std::env::remove_var("FORM_REVERSE_CALLS_PATH"); }
 
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 
@@ -433,7 +433,7 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let calls_path = temp.path().join("calls.log");
-        std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+        unsafe { std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path); }
 
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
@@ -443,7 +443,7 @@ for line in sys.stdin:
         let rec = make_rec(&payload);
 
         let result = reverse_form_prepare(&kernel, &rec);
-        std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+        unsafe { std::env::remove_var("FORM_REVERSE_CALLS_PATH"); }
 
         assert!(result.is_ok(), "expected Ok for empty fields, got {:?}", result.err());
         let calls = std::fs::read_to_string(&calls_path).unwrap_or_default();

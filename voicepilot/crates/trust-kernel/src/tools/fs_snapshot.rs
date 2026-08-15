@@ -114,7 +114,7 @@ fn file_identity(path: &Path, _meta: &fs::Metadata) -> Result<String> {
         nFileIndexLow: u32,
     }
 
-    extern "system" {
+    unsafe extern "system" {
         fn GetFileInformationByHandle(
             h_file: *mut core::ffi::c_void,
             lp_file_information: *mut ByHandleFileInformation,

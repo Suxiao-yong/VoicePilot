@@ -349,13 +349,13 @@ for line in sys.stdin:
         let path = temp_root.join(format!("calls-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, "[]").expect("seed calls file");
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
-        std::env::set_var("FORM_SUBMIT_CALLS_PATH", &path);
+        unsafe { std::env::set_var("FORM_SUBMIT_CALLS_PATH", &path); }
         path
     }
 
     fn clear_calls_env() {
         // SAFETY: see set_calls_env.
-        std::env::remove_var("FORM_SUBMIT_CALLS_PATH");
+        unsafe { std::env::remove_var("FORM_SUBMIT_CALLS_PATH"); }
     }
 
     #[test]

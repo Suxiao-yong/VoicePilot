@@ -273,7 +273,7 @@ fn form_prepare_executor_returns_strong_evidence() {
     // 写入与 input.fields 一致的 values JSON,供 mock eval 读取返回。
     let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
     std::fs::write(&values_path, serde_json::to_string(&fields).unwrap()).unwrap();
-    std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+    unsafe { std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path); }
 
     let input = FormPrepareInput {
         task_id: "t1".to_string(),
@@ -292,7 +292,7 @@ fn form_prepare_executor_returns_strong_evidence() {
         "form.prepare must return strong evidence (W10 Plan 1)"
     );
 
-    std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+    unsafe { std::env::remove_var("FORM_PREPARE_VALUES_PATH"); }
 }
 
 /// form.submit happy path → evidence_strength = "strong"。
@@ -307,8 +307,8 @@ fn form_submit_executor_returns_strong_evidence() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     install_python_mock(&kernel, FORM_SUBMIT_MOCK_SCRIPT);
     // mock 默认返回 current_url = .../success(与 input.url 不同)→ url_changed → Strong。
-    std::env::remove_var("MOCK_CURRENT_URL");
-    std::env::remove_var("MOCK_HAS_SUCCESS");
+    unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
+    unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
 
     use trust_kernel::skills::form_submit::{execute_form_submit, FormSubmitInput};
     let approver = AutoApprover;

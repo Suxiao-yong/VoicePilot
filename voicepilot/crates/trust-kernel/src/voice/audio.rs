@@ -83,44 +83,38 @@ impl AudioRecorder {
         let err_fn = |err| tracing::warn!("audio stream error: {}", err);
 
         let stream = match sample_format {
-            SampleFormat::I16 => {
-                let stream = self
-                    .device
-                    .build_input_stream(
-                        &stream_config,
-                        move |data: &[i16], _: &_| {
-                            let mut buf = samples_clone.lock().unwrap();
-                            buf.extend_from_slice(data);
-                        },
-                        err_fn,
-                        None,
-                    )
-                    .map_err(|e| {
-                        VoiceError::CaptureFailed(format!("build_input_stream failed: {}", e))
-                    })?;
-                stream
-            }
-            SampleFormat::F32 => {
-                let stream = self
-                    .device
-                    .build_input_stream(
-                        &stream_config,
-                        move |data: &[f32], _: &_| {
-                            let mut buf = samples_clone.lock().unwrap();
-                            for &s in data {
-                                // f32 [-1.0, 1.0] → i16
-                                let clamped = s.clamp(-1.0, 1.0);
-                                buf.push((clamped * 32767.0) as i16);
-                            }
-                        },
-                        err_fn,
-                        None,
-                    )
-                    .map_err(|e| {
-                        VoiceError::CaptureFailed(format!("build_input_stream failed: {}", e))
-                    })?;
-                stream
-            }
+            SampleFormat::I16 => self
+                .device
+                .build_input_stream(
+                    &stream_config,
+                    move |data: &[i16], _: &_| {
+                        let mut buf = samples_clone.lock().unwrap();
+                        buf.extend_from_slice(data);
+                    },
+                    err_fn,
+                    None,
+                )
+                .map_err(|e| {
+                    VoiceError::CaptureFailed(format!("build_input_stream failed: {}", e))
+                })?,
+            SampleFormat::F32 => self
+                .device
+                .build_input_stream(
+                    &stream_config,
+                    move |data: &[f32], _: &_| {
+                        let mut buf = samples_clone.lock().unwrap();
+                        for &s in data {
+                            // f32 [-1.0, 1.0] → i16
+                            let clamped = s.clamp(-1.0, 1.0);
+                            buf.push((clamped * 32767.0) as i16);
+                        }
+                    },
+                    err_fn,
+                    None,
+                )
+                .map_err(|e| {
+                    VoiceError::CaptureFailed(format!("build_input_stream failed: {}", e))
+                })?,
             fmt => {
                 return Err(VoiceError::CaptureFailed(format!(
                     "unsupported sample format at runtime: {:?}",
