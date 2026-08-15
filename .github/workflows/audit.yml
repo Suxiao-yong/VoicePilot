@@ -1,0 +1,41 @@
+# VoicePilot V1 周审计 (W12 Plan 6)
+# spec §九 Plan 6:cargo audit + npm audit 每周一 00:00 UTC
+#
+# 触发:
+#   schedule: 每周一 00:00 UTC
+#   workflow_dispatch: 手动重跑
+
+name: audit
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: voicepilot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: voicepilot/crates/ui/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm audit --audit-level=high
