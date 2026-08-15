@@ -1,0 +1,101 @@
+# VoicePilot V1 cargo-deny 配置(W12 Plan 1)
+# spec §10.4 工程规范:依赖供应链安全 + 许可证 + 漏洞 + 多版本冲突
+#
+# 运行:
+#   cargo deny check              # 全部 4 项(licenses / advisories / bans / sources)
+#   cargo deny check licenses     # 仅许可证
+#   cargo deny check advisories   # 仅安全公告
+#   cargo deny check bans         # 仅多版本冲突 + 禁用 crate
+#   cargo deny check sources      # 仅 crate 来源
+
+[graph]
+# VoicePilot 永久 Windows-only(spec §1.1),只检查 Windows target
+targets = [
+    "x86_64-pc-windows-msvc",
+]
+# 检查所有 feature 组合(与 CI 7 套矩阵对齐)
+all-features = true
+
+[advisories]
+# unmaintained crate:workspace 内 deny,workspace 外 warn
+unmaintained = "workspace"
+# unsound crate:全部 deny
+unsound = "all"
+# 忽略的 advisory(每个必须有 reason + expiry,过期重审)
+ignore = [
+    # RUSTSEC-2025-0141: bincode 1.3.3 unmaintained(团队因 doxxing 事件停止开发,
+    # 认为 1.3.3 已完整无需更新)。经 iota_stronghold -> tauri-plugin-stronghold
+    # 传递引入,无安全升级可用(advisory 明确 "No safe upgrade is available")。
+    # 已评估替代 wincode/postcard/bitcode/rkyv,但 iota_stronghold 硬依赖 bincode,
+    # 替换需上游配合。用 advisory-grace-period 控制重审周期。
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 unmaintained (doxxing incident); transitive via iota_stronghold, no safe upgrade available" },
+]
+
+[bans]
+# 多版本冲突:warn(仅告警,不阻塞)。spec §2.1/§2.7 定义 bans-multiple-versions 为
+# Warn 级,只有下面 deny 列表中的禁用 crate 才是 Block。多版本收敛是渐进过程,
+# 用 skip 逐个收敛,不做硬性 gate。
+multiple-versions = "warn"
+# 通配符依赖(* / ^):deny(强制精确版本)。注意 workspace = true 的依赖引用
+# 会被视为 wildcard,但它是标准做法(版本由 workspace 统一管理),通过 skip 豁免。
+wildcards = "deny"
+# 禁用 crate 列表(已知臃肿/不安全,用替代品)。
+# 注意:cmake / windows 曾在此列,但二者分别是 sherpa-rs-sys(语音子系统 build 依赖)
+# 与 tauri 2 的强依赖,无法替换,已移入下方 skip-tree 豁免(见 spec §四 偏离说明)。
+deny = [
+    { crate = "git2", use-instead = "gix" },
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
+    "libssh2-sys",
+]
+# 跳过的多版本冲突(每个必须有 reason)
+skip = [
+    { crate = "getrandom@0.2", reason = "ring / rand transitive, cannot upgrade without breaking" },
+    { crate = "hashbrown@0.14", reason = "std transitive, cannot upgrade without breaking" },
+]
+# 跳过的依赖树(整个子树跳过,避免噪音)
+skip-tree = [
+    # windows / windows-sys:tauri 2 强依赖(window 0.36/0.54/0.59/0.61 多版本并存),
+    # tauri 无法替换,跳过整棵子树。与 spec §四 偏离说明一致。
+    { crate = "windows", reason = "tauri 2 transitive, multiple versions, cannot replace" },
+    { crate = "windows-sys", reason = "foundational crate, multiple versions, bumps frequently" },
+    # cmake:经 sherpa-rs-sys(语音子系统 build 依赖)传递引入,sherpa-rs 无法替换
+    { crate = "cmake", reason = "sherpa-rs-sys build dependency, cannot replace" },
+]
+
+[bans.std-replacements]
+# std-replacements:workspace 内 deny(强制用 std 替代旧 crate)
+scope = "workspace"
+
+[sources]
+# 未知 registry:deny(仅允许 crates.io)
+unknown-registry = "deny"
+# 未知 git:deny(仅允许 allow-git 列表)
+unknown-git = "deny"
+# 允许的 git 仓库(暂无,所有依赖来自 crates.io)
+allow-git = []
+
+[licenses]
+# 许可证文本识别置信度阈值(0.93 = 高置信度)
+confidence-threshold = 0.93
+# 允许的许可证白名单(主流宽松许可证,排除 GPL/AGPL)
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+    "0BSD",
+    # webpki-roots(mozilla root CA bundle)使用 CDLA-Permissive-2.0
+    # (Community Data License Agreement Permissive 2.0),宽松许可证,允许商用/修改
+    "CDLA-Permissive-2.0",
+]
+# 单 crate 许可证例外(暂无,新增时格式:{ allow = ["Zlib"], crate = "adler32" })
+exceptions = []

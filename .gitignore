@@ -29,3 +29,6 @@ voicepilot/crates/ui/gen/
 node_modules/
 voicepilot/crates/ui/web/node_modules/
 
+# W12 Plan 1: cargo-deny 本地缓存
+advisory-dbs/
+
