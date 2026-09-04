@@ -91,6 +91,18 @@ impl RealtimeSnapshot {
         }
         truncate_chars(&s, CONTEXT_BUDGET_CHARS)
     }
+
+    /// 聊天兜底专用上下文：只要上文，不要 slot 提取 guard 前缀和语音统计行。
+    /// 空记忆返回空串，调用方直接拼用户输入即可。
+    pub fn chat_context(&self) -> String {
+        if self.memory.prev_turns.is_empty() {
+            return String::new();
+        }
+        truncate_chars(
+            &format!("- 上文：{}\n", self.memory.prev_turns.join(" ｜ ")),
+            CONTEXT_BUDGET_CHARS,
+        )
+    }
 }
 
 /// PlannerPipeline 的输入。
@@ -308,9 +320,14 @@ impl PlannerPipeline {
         }
 
         // 6. 聊天兜底：classify 与 DAG 拆解都失败时，用 LLM 直接回答用户。
-        //    带上快照上下文（含上文），回答可关联对话。仍失败才收敛到 Unmatched。
+        //    只带上文记忆，不带 slot 提取 guard；候选功能清单由 chat_answer 内部拼接。
+        //    仍失败才收敛到 Unmatched。
+        let chat_text = match snapshot {
+            Some(s) => format!("{}{}", s.chat_context(), trimmed),
+            None => trimmed.to_string(),
+        };
         let started = Instant::now();
-        let chat = llm.chat_answer(&llm_text).await;
+        let chat = llm.chat_answer(&chat_text, manifests).await;
         trace.latency_ms += started.elapsed().as_millis() as u64;
         match chat {
             Ok(answer) => Ok((PlanResult::Chat { text: answer }, trace)),
@@ -388,5 +405,16 @@ mod snapshot_tests {
         let mut snap = fresh_snapshot();
         snap.memory.prev_turns.clear();
         assert!(!snap.context_block().contains("上文"));
+    }
+
+    #[test]
+    fn chat_context_has_turns_without_guard() {
+        let ctx = fresh_snapshot().chat_context();
+        assert!(ctx.contains("上文"));
+        assert!(ctx.contains("打开记事本"));
+        assert!(!ctx.contains("禁止引用"));
+        let mut snap = fresh_snapshot();
+        snap.memory.prev_turns.clear();
+        assert!(snap.chat_context().is_empty());
     }
 }

@@ -3,7 +3,8 @@
 use crate::error::Result;
 use rusqlite::{params, Connection};
 
-/// outcome 取值：`routed:<skill_id>` | `dag` | `unmatched` | `empty` | `nospeech` | `error`。
+/// outcome 取值：`routed:<skill_id>` | `dag` | `unmatched` | `empty` | `nospeech` | `error` | `chat`。
+/// `chat` 仅为结果标签，回答正文永不持久化。
 /// transcript 截断到 500 字符后存入；privacy_mode 下调用方不得调用本模块。
 #[derive(Debug, Clone)]
 pub struct TurnRecord {
@@ -58,13 +59,17 @@ pub fn recent_turns(conn: &Connection, limit: usize) -> Result<Vec<TurnRecord>> 
             sensitive: row.get::<_, i32>(7)? != 0,
         })
     })?;
-    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 /// TTL 清理：删除早于 now_ms - days*86400*1000 的轮次，返回删除行数。
 pub fn prune_turns_older_than(conn: &Connection, days: u32, now_ms: i64) -> Result<usize> {
     let cutoff = now_ms - days as i64 * 86_400_000;
-    let deleted = conn.execute("DELETE FROM turns WHERE started_at_ms < ?1", params![cutoff])?;
+    let deleted = conn.execute(
+        "DELETE FROM turns WHERE started_at_ms < ?1",
+        params![cutoff],
+    )?;
     Ok(deleted)
 }
 

@@ -1496,3 +1496,9 @@ git commit -m "docs: record verification log for realtime snapshot memory plan"
 - 通过：`cargo build -p voicepilot-ui --features voice,custom-protocol` 成功，exe 已更新。
 - 残留（执行中发现并已处理）：① 全量多 target 并发链接偶发 rlib 缺失，改逐 target 跑即过，属环境抖动；② `cargo test` 只接受单个 filter，计划内多 filter 命令执行时已拆分；③ router_bridge 原有重复 pipeline 调用已删除（重复烧一次 LLM）；④ MainView 历史 `as unknown as` 补 SAFETY 注释。
 - 待用户手工：安静房间两句有指代的语音端到端 + privacy 对照（Task 8 Step 2）。
+
+## Review loop Round 1（parent 编排，3 reviewer 并行 + fix worker 收尾）
+
+- Round 1 结论：无 P0；7 项值得修的已全部收掉；defer：放宽 scenario_6/7 期望、缓存聊天答案、流式。
+- 修：语音流渲染回答正文、桌宠气泡展示答案、`selectSpeakText` 抽取+单测、`turns.rs` 文档补 `chat`、chat prompt 拼功能清单防幻觉、聊天改走无 guard 的 `chat_context()`、scenario_7 panic 文案改诚实。
+- 验证：`trust-kernel --lib` 286/0、`realtime_snapshot` 4/4（含兜底）、`w8_e2e_dag_smoke` 8/8、UI voice 15+12+2、`npm test` 24 passed 1 skipped（旧 ts 合并 stub）、`tsc` 零 error；clippy 仅历史 warning。

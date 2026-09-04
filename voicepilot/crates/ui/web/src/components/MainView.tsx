@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { stopTtsPlayback } from "./ttsPlayback";
+import { stopTtsPlayback, selectSpeakText } from "./ttsPlayback";
 import {
   routeText,
   organizeFiles,
@@ -224,10 +224,7 @@ export function MainView() {
       setVoiceResult(r);
       // W6b-3b Task 13:转写成功后触发 TTS 语音反馈；聊天兜底播报回答正文。
       if (r.kind === "success" && r.transcription && r.transcription.trim()) {
-        const speakText =
-          r.route_outcome.kind === "chat" && r.route_outcome.text.trim()
-            ? r.route_outcome.text
-            : `已为您${r.transcription}`;
+        const speakText = selectSpeakText(r.transcription, r.route_outcome);
         setTtsPlaying(true);
         try {
           const ttsResult = await invokeTts(speakText);
@@ -671,7 +668,11 @@ export function MainView() {
 }
 
 /** 路由结果卡片 —— 显示 Skill 命中 / 未匹配 / 空输入。 */
-function RouteOutcomeFeedback({ outcome }: { outcome: RouteTextResult }) {
+export function RouteOutcomeFeedback({
+  outcome,
+}: {
+  outcome: RouteTextResult;
+}) {
   return (
     <div className="result-sub">
       {outcome.kind === "routed" && (
@@ -689,6 +690,7 @@ function RouteOutcomeFeedback({ outcome }: { outcome: RouteTextResult }) {
       {outcome.kind === "chat" && (
         <>
           <span className="pill pill-on">AI 回答</span>
+          <span className="mono-sm">{outcome.text}</span>
         </>
       )}
       {outcome.kind === "empty" && <span className="pill">空输入</span>}

@@ -296,15 +296,36 @@ impl LlmClient {
     /// 直接问答兜底：无 Skill 命中时，用 LLM 直接回答用户（聊天 fallback）。
     ///
     /// 纯文本对话，不带 tools，temperature 0.7，max_tokens 300。
+    /// system 提示内附候选功能清单（按 id 排序），回答功能介绍类问题时
+    /// 只能引用清单内的功能 —— 空泛的“不要编造”指令无法执行，这是可落地的版本。
     /// 失败返回 LlmError，调用方收敛到 Unmatched；不写 DB、不记审计。
-    pub async fn chat_answer(&self, text: &str) -> LlmResult<String> {
+    pub async fn chat_answer(&self, text: &str, candidate_skills: &[SkillManifest]) -> LlmResult<String> {
         if !self.is_enabled() {
             return Err(LlmError::NotConfigured);
+        }
+        let mut ids: Vec<&str> = candidate_skills.iter().map(|s| s.id.as_str()).collect();
+        ids.sort_unstable();
+        let mut system = String::from(
+            "你是 VoicePilot 桌面助手，用中文简短回答用户的问题（200字以内）。\
+             用户问的是日常问题或本软件功能介绍，直接回答。",
+        );
+        if ids.is_empty() {
+            system.push_str("\n当前无可用功能，不要编造功能名称。");
+        } else {
+            system.push_str("\n本软件可用功能清单（只能介绍以下功能，不得编造清单之外的功能）:\n");
+            for id in &ids {
+                let title = candidate_skills
+                    .iter()
+                    .find(|s| &s.id == id)
+                    .map(|s| s.title.as_str())
+                    .unwrap_or("");
+                system.push_str(&format!("- {id}: {title}\n"));
+            }
         }
         let body = json!({
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "你是 VoicePilot 桌面助手，用中文简短回答用户的问题（200字以内）。用户问的是日常问题或本软件功能介绍，直接回答，不要编造不存在的功能。"},
+                {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
             "max_tokens": 300,
@@ -1133,7 +1154,7 @@ mod tests {
             .await;
 
         let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
-        let answer = client.chat_answer("你有什么功能").await.expect("chat ok");
+        let answer = client.chat_answer("你有什么功能", &[files_organize_manifest()]).await.expect("chat ok");
         assert!(answer.contains("VoicePilot"), "got {answer}");
     }
 
@@ -1152,7 +1173,7 @@ mod tests {
             .await;
 
         let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
-        let err = client.chat_answer("hi").await.expect_err("empty chat");
+        let err = client.chat_answer("hi", &[files_organize_manifest()]).await.expect_err("empty chat");
         assert!(matches!(err, LlmError::Parse(_)));
     }
 }
