@@ -12,13 +12,14 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::voice::error::VoiceResult;
 use trust_kernel::voice::listener::{AudioRecorderAdapter, ListenOutcome, VoiceListener, VoiceRecorder};
 use trust_kernel::voice::model::ModelRegistry;
-use trust_kernel::voice::router_bridge::{block_on_planner, route_text_with_dag, RouteOutcome};
+use trust_kernel::voice::router_bridge::{block_on_planner, RouteOutcome};
 use trust_kernel::voice::vad::{VadConfig, VadDetector};
 use trust_kernel::voice::listener::ListenTimings;
 use trust_kernel::planner::{RealtimeSnapshot, SnapshotMemory, SnapshotVoice};
@@ -167,6 +168,20 @@ pub struct VoiceListenImpl {
     tts_cooldown_until: Option<std::time::SystemTime>,
 }
 
+/// VAD 后端标签（silero/energy）：探测需加载 ONNX 模型，进程内只做一次，
+/// 避免每轮 listen 重复加载（M1 修复）。
+static VAD_BACKEND: OnceLock<&'static str> = OnceLock::new();
+
+fn vad_backend_label() -> &'static str {
+    VAD_BACKEND.get_or_init(|| {
+        if VadDetector::new(VadConfig::default()).is_silero() {
+            "silero"
+        } else {
+            "energy"
+        }
+    })
+}
+
 impl VoiceListenImpl {
     /// 用默认 VAD + 默认录音配置创建(cached_engine = None, partial_app = None)。
     pub fn new(
@@ -246,38 +261,6 @@ impl VoiceListenImpl {
         engine.transcribe(samples)
     }
 
-    /// 路由文本到 Skill。错误时降级为 `Empty`。
-    ///
-    /// W1 Task 1.3:voice 路径与文本输入路径共用同一 facade —— 调
-    /// `route_text_with_dag`(内部委托 PlannerPipeline,source=Voice)。
-    /// voice listen 以阻塞方式运行在 Tauri async command 内,同步上下文用
-    /// `block_on_planner`(新线程 + current-thread runtime)驱动 async 规划。
-    /// `RouteTextResult::Routed.slots` 始终为空 Vec:voice 路径的 Slot 提取由
-    /// `SlotParser::parse` 在 `listen()` 末尾完成,经 `TranscriptionFinalPayload.slots`
-    /// 单独传递(不进入 `RouteTextResult`)。
-    fn route(&self, text: &str) -> RouteTextResult {
-        let kernel = self.kernel.clone();
-        let text_for_closure = text.to_string();
-        let outcome = block_on_planner(async move {
-            route_text_with_dag(&kernel, &text_for_closure).await
-        });
-        match outcome {
-            Ok(RouteOutcome::Routed { skill_id }) => RouteTextResult::Routed {
-                skill_id,
-                slots: vec![],
-            },
-            Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
-            Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
-            // W8 Plan 4:voice pipeline 尚无 DAG 审批 UI(Plan 5 实现),
-            // DagPlan 防御性映射为 Unmatched,保持既有 voice 行为。
-            #[cfg(feature = "llm")]
-            Ok(RouteOutcome::DagPlan(_)) => RouteTextResult::Unmatched {
-                text: text.to_string(),
-            },
-            Err(_) => RouteTextResult::Empty,
-        }
-    }
-
     /// 带快照的路由（voice 路径用）。快照为 None 时等价 `route()`。
     fn route_with_snapshot(
         &self,
@@ -330,11 +313,7 @@ impl VoiceListenImpl {
                 format!("用户：{} → {}", short, t.outcome)
             })
             .collect();
-        let vad_backend = if VadDetector::new(VadConfig::default()).is_silero() {
-            "silero"
-        } else {
-            "energy"
-        };
+        let vad_backend = vad_backend_label();
         let now = std::time::SystemTime::now();
         Some(RealtimeSnapshot {
             taken_at: now,

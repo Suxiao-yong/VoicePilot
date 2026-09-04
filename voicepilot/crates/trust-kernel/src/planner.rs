@@ -236,10 +236,7 @@ impl PlannerPipeline {
             crate::llm::client::LlmClient::ROUTE_TOOL_SCHEMA_VERSION,
             &llm_text,
         );
-        let cached_hit = {
-            let conn = self.kernel.conn();
-            crate::llm_cache::lookup(&conn, &cache_key, now_ms).unwrap_or(None)
-        };
+        let cached_hit = self.kernel.lookup_route_cache(&cache_key, now_ms).unwrap_or(None);
         if let Some(hit) = cached_hit {
             if self.snapshot.resolve_candidate(&hit.skill_id).is_some() {
                 let slots = serde_json::from_str(&hit.slots_json).unwrap_or_default();
@@ -266,9 +263,7 @@ impl PlannerPipeline {
                     if self.snapshot.resolve_candidate(skill_id).is_some() {
                         let slots_json = serde_json::to_string(&resp.slots)
                             .unwrap_or_else(|_| "[]".to_string());
-                        let conn = self.kernel.conn();
-                        let _ = crate::llm_cache::store(
-                            &conn,
+                        let _ = self.kernel.record_route_cache(
                             &cache_key,
                             skill_id,
                             &slots_json,
