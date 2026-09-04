@@ -14,13 +14,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::voice::error::VoiceResult;
 use trust_kernel::voice::listener::{AudioRecorderAdapter, ListenOutcome, VoiceListener, VoiceRecorder};
 use trust_kernel::voice::model::ModelRegistry;
-use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+use trust_kernel::voice::router_bridge::{block_on_planner, route_text_with_dag, RouteOutcome};
 use trust_kernel::voice::vad::{VadConfig, VadDetector};
+use trust_kernel::voice::listener::ListenTimings;
+use trust_kernel::planner::{RealtimeSnapshot, SnapshotMemory, SnapshotVoice};
+use trust_kernel::turns::TurnRecord;
 use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 
 use crate::commands::RouteTextResult;
@@ -100,6 +102,44 @@ pub fn voice_listen(
     }
 }
 
+// ===== 批2:Siri 波形 —— RmsEmitterRecorder 装饰器 =====
+
+/// `audio-level` 事件 payload:归一化 RMS 电平(0..=1),webview 波形柱消费。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct AudioLevelPayload {
+    pub level: f32,
+}
+
+/// 计算 i16 PCM 块的 RMS 并归一化到 0..=1(除以 i16::MAX)。
+/// 静音(全 0)= 0;满幅方波 ≈ 1.0;正常语音约 0.02~0.25。
+pub fn compute_rms(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    ((sum_sq / samples.len() as f64).sqrt() / i16::MAX as f64) as f32
+}
+
+/// 装饰器(方案定稿 §4):包装任意 `VoiceRecorder`,每 chunk 录完后计算 RMS
+/// emit `audio-level` 给 webview 驱动悬浮球波形柱。trust-kernel / cpal 层零改动。
+struct RmsEmitterRecorder {
+    inner: Arc<dyn VoiceRecorder>,
+    app: AppHandle,
+}
+
+impl VoiceRecorder for RmsEmitterRecorder {
+    fn record_chunk(&self, duration: Duration) -> VoiceResult<Vec<i16>> {
+        let chunk = self.inner.record_chunk(duration)?;
+        // 语音典型 RMS 0.02~0.25,×4 增益映射到 UI 可用区间,截断到 1.0
+        let level = (compute_rms(&chunk) * 4.0).min(1.0);
+        let _ = self.app.emit(
+            "audio-level",
+            AudioLevelPayload { level },
+        );
+        Ok(chunk)
+    }
+}
+
 // ===== VoiceListenImpl: 生产实现 =====
 
 /// 生产用 `VoiceListen` 实现,编排 `VoiceListener` + `SherpaAsrEngine` + `route_text`。
@@ -118,6 +158,13 @@ pub struct VoiceListenImpl {
     kernel: Arc<TrustKernel>,
     max_duration: Duration,
     chunk_duration: Duration,
+    /// 桌宠手动模式(桌宠化改造):true 时禁用 VAD 自动停(max_silence 拉到 30s)
+    /// 并把硬顶放宽到 60s,由再次单击触发 kill_switch 结束录音 —— cancel 路径
+    /// 返回 `Timeout{samples}`,buffer 里有语音即正常转写(不丢样本)。
+    manual_stop: bool,
+    /// TTS 自激防护(Phase 1):透传给 `VoiceListener::with_tts_cooldown_until`。
+    /// 由 `voice_listen_steps` 从 `AppState::tts_cooldown_until` 快照填入。
+    tts_cooldown_until: Option<std::time::SystemTime>,
 }
 
 impl VoiceListenImpl {
@@ -135,7 +182,21 @@ impl VoiceListenImpl {
             kernel,
             max_duration: Duration::from_secs(30),
             chunk_duration: Duration::from_millis(500),
+            manual_stop: false,
+            tts_cooldown_until: None,
         }
+    }
+
+    /// 桌宠手动模式开关(桌宠化改造):见 `manual_stop` 字段文档。
+    pub fn with_manual_stop(mut self, manual_stop: bool) -> Self {
+        self.manual_stop = manual_stop;
+        self
+    }
+
+    /// TTS cooldown 快照注入(Phase 1 自激防护)。`None` = 无防护。
+    pub fn with_tts_cooldown_until(mut self, until: Option<std::time::SystemTime>) -> Self {
+        self.tts_cooldown_until = until;
+        self
     }
 
     /// 用默认模型(sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17)创建,便于 Tauri command 构造。
@@ -171,6 +232,8 @@ impl VoiceListenImpl {
             kernel,
             max_duration: Duration::from_secs(30),
             chunk_duration: Duration::from_millis(500),
+            manual_stop: false,
+            tts_cooldown_until: None,
         }
     }
 
@@ -185,13 +248,19 @@ impl VoiceListenImpl {
 
     /// 路由文本到 Skill。错误时降级为 `Empty`。
     ///
-    /// W7 注:voice pipeline 走 `router_bridge::route_text`(同步,纯 keyword 匹配),
-    /// 不调 LLM。LLM fallback 仅在 `commands::route_text`(文本输入路径)中触发。
-    /// voice 路径的 Slot 提取由 `SlotParser::parse` 在 `listen()` 末尾完成,
-    /// 通过 `TranscriptionFinalPayload.slots` 单独传递(不进入 `RouteTextResult`)。
-    /// 因此此处的 `RouteTextResult::Routed.slots` 始终为空 Vec。
+    /// W1 Task 1.3:voice 路径与文本输入路径共用同一 facade —— 调
+    /// `route_text_with_dag`(内部委托 PlannerPipeline,source=Voice)。
+    /// voice listen 以阻塞方式运行在 Tauri async command 内,同步上下文用
+    /// `block_on_planner`(新线程 + current-thread runtime)驱动 async 规划。
+    /// `RouteTextResult::Routed.slots` 始终为空 Vec:voice 路径的 Slot 提取由
+    /// `SlotParser::parse` 在 `listen()` 末尾完成,经 `TranscriptionFinalPayload.slots`
+    /// 单独传递(不进入 `RouteTextResult`)。
     fn route(&self, text: &str) -> RouteTextResult {
-        let outcome = route_text(&self.kernel, &AutoApprover, text);
+        let kernel = self.kernel.clone();
+        let text_for_closure = text.to_string();
+        let outcome = block_on_planner(async move {
+            route_text_with_dag(&kernel, &text_for_closure).await
+        });
         match outcome {
             Ok(RouteOutcome::Routed { skill_id }) => RouteTextResult::Routed {
                 skill_id,
@@ -199,10 +268,8 @@ impl VoiceListenImpl {
             },
             Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
             Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
-            // W8 Plan 4:route_text (sync) 内部已把 RouteDecision::Dag(_)
-            // 映射为 Unmatched,理论上不会到达此 arm;此处防御性 arm 保持
-            // match 穷尽。voice pipeline 不调 route_text_with_dag,DAG 审批
-            // UI 由 Plan 5 实现(届时 route() 可改调 route_text_with_dag)。
+            // W8 Plan 4:voice pipeline 尚无 DAG 审批 UI(Plan 5 实现),
+            // DagPlan 防御性映射为 Unmatched,保持既有 voice 行为。
             #[cfg(feature = "llm")]
             Ok(RouteOutcome::DagPlan(_)) => RouteTextResult::Unmatched {
                 text: text.to_string(),
@@ -210,17 +277,200 @@ impl VoiceListenImpl {
             Err(_) => RouteTextResult::Empty,
         }
     }
+
+    /// 带快照的路由（voice 路径用）。快照为 None 时等价 `route()`。
+    fn route_with_snapshot(
+        &self,
+        text: &str,
+        snapshot: Option<&RealtimeSnapshot>,
+    ) -> RouteTextResult {
+        use trust_kernel::voice::router_bridge::route_text_with_snapshot;
+        let kernel = self.kernel.clone();
+        let text_for_closure = text.to_string();
+        let snapshot = snapshot.cloned();
+        let outcome = block_on_planner(async move {
+            route_text_with_snapshot(&kernel, &text_for_closure, snapshot).await
+        });
+        match outcome {
+            Ok(RouteOutcome::Routed { skill_id }) => RouteTextResult::Routed {
+                skill_id,
+                slots: vec![],
+            },
+            Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
+            Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
+            #[cfg(feature = "llm")]
+            Ok(RouteOutcome::DagPlan(_)) => RouteTextResult::Unmatched {
+                text: text.to_string(),
+            },
+            Err(_) => RouteTextResult::Empty,
+        }
+    }
+
+    /// 现采快照：final 转写 + timings + VAD 后端探测 + 最近 3 轮回忆。
+    /// privacy_mode 下返回 None（无快照、无记忆、无注入）。
+    fn build_snapshot(
+        &self,
+        transcription: &str,
+        timings: &ListenTimings,
+        sample_count: usize,
+        outcome_kind: &'static str,
+        stopped_by_vad: bool,
+    ) -> Option<RealtimeSnapshot> {
+        if self.kernel.privacy_mode() {
+            return None;
+        }
+        let prev_turns = self
+            .kernel
+            .recent_turns(3)
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+            .map(|t| {
+                let short: String = t.transcript.chars().take(200).collect();
+                format!("用户：{} → {}", short, t.outcome)
+            })
+            .collect();
+        let vad_backend = if VadDetector::new(VadConfig::default()).is_silero() {
+            "silero"
+        } else {
+            "energy"
+        };
+        let now = std::time::SystemTime::now();
+        Some(RealtimeSnapshot {
+            taken_at: now,
+            transcript_chars: transcription.chars().count(),
+            voice: SnapshotVoice {
+                outcome_kind,
+                stopped_by_vad,
+                sample_count,
+                vad_backend,
+                voice_started_ago_ms: timings.voice_started_at.and_then(|t0| {
+                    now.duration_since(t0).ok().map(|d| d.as_millis() as u64)
+                }),
+            },
+            memory: SnapshotMemory { prev_turns },
+            privacy_mode: false,
+        })
+    }
+
+    /// 封轮：摘要落 turns 表并 piggyback 30 天 TTL。privacy 下跳过；失败只记日志不阻断返回。
+    fn seal_turn(
+        &self,
+        transcription: &str,
+        route_outcome: &RouteTextResult,
+        timings: &ListenTimings,
+        source: &str,
+    ) {
+        if self.kernel.privacy_mode() {
+            return;
+        }
+        let outcome = match route_outcome {
+            RouteTextResult::Routed { skill_id, .. } => format!("routed:{skill_id}"),
+            RouteTextResult::Unmatched { .. } => "unmatched".to_string(),
+            RouteTextResult::Empty => "empty".to_string(),
+        };
+        let latency_ms = match (timings.voice_started_at, timings.first_partial_at) {
+            (Some(a), Some(b)) => b
+                .duration_since(a)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+            _ => 0,
+        };
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let transcript: String = transcription.chars().take(500).collect();
+        let rec = TurnRecord {
+            turn_id: format!(
+                "turn-{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(now_ms * 1_000_000)
+            ),
+            started_at_ms: now_ms,
+            source: source.to_string(),
+            transcript,
+            outcome,
+            plan_id: String::new(),
+            latency_ms,
+            sensitive: false,
+        };
+        if let Err(e) = self.kernel.record_turn(&rec) {
+            eprintln!("[voice] seal_turn record failed: {e}");
+        }
+        let _ = self.kernel.prune_turns_older_than(30, now_ms);
+    }
+
+    /// 收尾：转写 → 快照 → 路由 → 封轮。NoSpeech 不封轮（无信息量）。
+    fn finish_listen(
+        &self,
+        outcome: ListenOutcome,
+        timings: ListenTimings,
+    ) -> VoiceResult<VoiceListenOutcome> {
+        match outcome {
+            ListenOutcome::SpeechEnded { samples } => {
+                let transcription = self.transcribe(&samples)?;
+                let snapshot = self.build_snapshot(
+                    &transcription,
+                    &timings,
+                    samples.len(),
+                    "speech_ended",
+                    true,
+                );
+                let route_outcome = self.route_with_snapshot(&transcription, snapshot.as_ref());
+                self.seal_turn(&transcription, &route_outcome, &timings, "voice");
+                Ok(VoiceListenOutcome::Success {
+                    transcription,
+                    route_outcome,
+                    stopped_by_vad: true,
+                })
+            }
+            ListenOutcome::NoSpeech => Ok(VoiceListenOutcome::NoSpeech),
+            ListenOutcome::Timeout { samples } => {
+                let transcription = if samples.is_empty() {
+                    None
+                } else {
+                    self.transcribe(&samples).ok()
+                };
+                let (route_outcome, sealed) = match &transcription {
+                    Some(t) => {
+                        let snapshot =
+                            self.build_snapshot(t, &timings, samples.len(), "timeout", false);
+                        let r = self.route_with_snapshot(t, snapshot.as_ref());
+                        self.seal_turn(t, &r, &timings, "voice");
+                        (r, true)
+                    }
+                    None => (RouteTextResult::Empty, false),
+                };
+                let _ = sealed;
+                Ok(VoiceListenOutcome::Timeout {
+                    transcription,
+                    route_outcome,
+                })
+            }
+        }
+    }
 }
 
 impl VoiceListen for VoiceListenImpl {
     fn listen(&self, cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome> {
-        let vad = VadDetector::new(VadConfig::default());
+        // 桌宠手动模式:max_silence 拉到 30s 等效禁用 VAD 自动停,硬顶放宽到
+        // 60s;结束完全依赖再次单击的 kill_switch(cancel → Timeout{samples} 转写)。
+        let (vad_config, max_duration) = if self.manual_stop {
+            (
+                VadConfig {
+                    max_silence_ms: 30_000,
+                    ..VadConfig::default()
+                },
+                Duration::from_secs(60),
+            )
+        } else {
+            (VadConfig::default(), self.max_duration)
+        };
+        let vad = VadDetector::new(vad_config);
         let listener = VoiceListener::new(
             self.recorder.clone(),
             vad,
-            self.max_duration,
+            max_duration,
             self.chunk_duration,
-        );
+        )
+        .with_tts_cooldown_until(self.tts_cooldown_until);
 
         // W6b-2 issue #47:若 cached_engine 和 partial_app 都有,构造 partial callback
         // 闭包,每 2s 调 engine.transcribe 并 emit `transcription-partial` 事件。
@@ -243,38 +493,15 @@ impl VoiceListen for VoiceListenImpl {
             _ => None,
         };
 
-        let outcome = match partial_cb.as_ref() {
-            Some(cb) => listener.listen_with_cancel_and_partial(cancel, Some(cb))?,
-            None => listener.listen_with_cancel(cancel)?,
+        let (outcome, timings) = match partial_cb.as_ref() {
+            Some(cb) => listener.listen_with_cancel_partial_and_timings(cancel, Some(cb))?,
+            None => {
+                let outcome = listener.listen_with_cancel(cancel)?;
+                (outcome, ListenTimings::default())
+            }
         };
 
-        match outcome {
-            ListenOutcome::SpeechEnded { samples } => {
-                let transcription = self.transcribe(&samples)?;
-                let route_outcome = self.route(&transcription);
-                Ok(VoiceListenOutcome::Success {
-                    transcription,
-                    route_outcome,
-                    stopped_by_vad: true,
-                })
-            }
-            ListenOutcome::NoSpeech => Ok(VoiceListenOutcome::NoSpeech),
-            ListenOutcome::Timeout { samples } => {
-                let transcription = if samples.is_empty() {
-                    None
-                } else {
-                    self.transcribe(&samples).ok()
-                };
-                let route_outcome = match &transcription {
-                    Some(t) => self.route(t),
-                    None => RouteTextResult::Empty,
-                };
-                Ok(VoiceListenOutcome::Timeout {
-                    transcription,
-                    route_outcome,
-                })
-            }
-        }
+        self.finish_listen(outcome, timings)
     }
 }
 
@@ -344,10 +571,59 @@ pub fn build_transcription_final_payload(
 /// 4. 用 `VoiceListenImpl::with_engine` 构造 listener
 /// 5. 调 `voice_listen(&listener, &state.kill_switch)`(透传 cancel)
 /// 6. 发射 `transcription-final` 事件(若有 transcription)
+///
+/// 桌宠化改造:
+/// - `manualStop` 参数:桌宠单击录音传 true —— 禁用 VAD 自动停(max_silence=30s)
+///   + 硬顶放宽到 60s,由再次单击的 cancel 结束;缺省 false 保持主界面 VAD 行为不变
+/// - 录音并发防护:`state.recording` compare_exchange 抢占,主界面麦克风与桌宠
+///   共用输入设备,同一时刻只允许一路 listen;结束(含任何错误早退)时复位
 #[tauri::command]
 pub async fn voice_listen_command(
     state: tauri::State<'_, crate::state::AppState>,
     app: AppHandle,
+    manual_stop: Option<bool>,
+) -> Result<VoiceListenResult, String> {
+    // 并发防护:抢占失败说明另一路录音正在进行(main 或 pet),拒绝第二路
+    if state
+        .recording
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_err()
+    {
+        return Err("另一路录音正在进行中(主界面或桌宠),请先停止".to_string());
+    }
+
+    let result = voice_listen_steps(&state, &app, manual_stop.unwrap_or(false));
+    eprintln!(
+        "[voice] listen finished manual_stop={} kind={}",
+        manual_stop.unwrap_or(false),
+        match &result {
+            Ok(r) => match r {
+                VoiceListenResult::Success { .. } => "success",
+                VoiceListenResult::NoSpeech => "no_speech",
+                VoiceListenResult::Timeout { .. } => "timeout",
+                VoiceListenResult::Error { .. } => "error",
+            },
+            Err(_) => "invoke-err",
+        }
+    );
+
+    // 无论成功失败都释放录音位(桌宠/主界面据此可再次发起录音)
+    state
+        .recording
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    result
+}
+
+/// 原 voice_listen_command 主体(步骤 1-5),拆出便于并发防护统一复位。
+fn voice_listen_steps(
+    state: &crate::state::AppState,
+    app: &AppHandle,
+    manual_stop: bool,
 ) -> Result<VoiceListenResult, String> {
     use trust_kernel::voice::audio::AudioRecorderConfig;
 
@@ -355,6 +631,14 @@ pub async fn voice_listen_command(
     state
         .kill_switch
         .store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // 1b. Phase 1 TTS 自激防护:尽早快照 cooldown 窗口。review P2-S1:asr_cache
+    // miss 时模型加载耗时秒级,若在步骤 4 才快照,窗口会被加载时间吃掉大半。
+    let tts_cooldown_until = state
+        .tts_cooldown_until
+        .lock()
+        .map(|guard| *guard)
+        .unwrap_or(None);
 
     // 2. 从 Settings 加载 voice 配置(V1.1.2 §8.3 Settings 持久化)
     let settings = load_voice_settings(&state.kernel).map_err(|e| e.to_string())?;
@@ -391,13 +675,21 @@ pub async fn voice_listen_command(
     };
 
     // 4. 构造 VoiceListenImpl(用缓存的 engine + AppHandle 用于 partial 事件)
-    let recorder = Arc::new(
-        AudioRecorderAdapter::new(AudioRecorderConfig::default())
-            .map_err(|e| e.to_string())?,
-    );
-    let listener = VoiceListenImpl::with_engine(recorder, engine, app.clone(), state.kernel.clone());
+    //    批2:真实 recorder 外包一层 RmsEmitterRecorder,listen 循环每 chunk
+    //    (500ms)emit audio-level 驱动 Siri 波形柱。
+    let recorder: Arc<dyn VoiceRecorder> = Arc::new(RmsEmitterRecorder {
+        inner: Arc::new(
+            AudioRecorderAdapter::new(AudioRecorderConfig::default())
+                .map_err(|e| e.to_string())?,
+        ),
+        app: app.clone(),
+    });
+    let listener = VoiceListenImpl::with_engine(recorder, engine, app.clone(), state.kernel.clone())
+        .with_manual_stop(manual_stop)
+        .with_tts_cooldown_until(tts_cooldown_until);
 
     // 5. 执行 listen + 发射 transcription-final
+    eprintln!("[voice] listen begin manual_stop={}", manual_stop);
     let result = voice_listen(&listener, &state.kill_switch);
     if let Some(payload) = build_transcription_final_payload(&result) {
         let _ = app.emit("transcription-final", payload);
@@ -421,7 +713,7 @@ pub async fn cancel_voice_command(
 /// 从 ConfigRepo 加载 voice 相关 settings(V1.1.2 §8.3 Settings 持久化)。
 fn load_voice_settings(
     kernel: &TrustKernel,
-) -> Result<crate::settings_commands::SettingsDto, crate::error::UiError> {
+) -> Result<crate::settings_commands::SettingsView, crate::error::UiError> {
     let conn = kernel.conn();
     let kv = kernel.config_repo().list(&conn)?;
     crate::settings_commands::merge_from_kv(&kv)
@@ -552,7 +844,20 @@ pub async fn tts_command(
 
     // 7. W6b-3b Fix 1:后端不再用 cpal 播放(此前桩实现返回 played: true 但用户听不到声音)。
     // 改为返回 WAV 路径,由前端 `<audio>` 元素通过 `convertFileSrc` 播放。
-    // `played: true` 语义改为"已合成可供播放"。前端 `MainView.tsx` 负责实际播放与中断。
+    // `played: true` 语义改为“已合成可供播放”。前端 `MainView.tsx` 负责实际播放与中断。
+    // Phase 1 TTS 自激防护:按合成音频时长估算播放结束时刻 + cooldown,供下次
+    // listen 丢弃窗口内 chunk(防音箱尾音被当成用户说话)。前端实际播放时刻与
+    // 此估算有偏差是安全的:窗口过期偏早只退化为旧行为(无防护),不引入新风险。
+    {
+        let play_secs = samples.len() as f64 / engine.actual_sample_rate() as f64;
+        let cooldown_ms =
+            trust_kernel::voice::vad::VadConfig::default().tts_cooldown_ms as f64;
+        let until = std::time::SystemTime::now()
+            + std::time::Duration::from_millis((play_secs * 1000.0) as u64 + cooldown_ms as u64);
+        if let Ok(mut guard) = state.tts_cooldown_until.lock() {
+            *guard = Some(until);
+        }
+    }
     Ok(TtsResult {
         played: true,
         interrupted: false,
@@ -563,6 +868,9 @@ pub async fn tts_command(
 }
 
 /// Tauri command:取消正在进行的 TTS 播放(VP-FR-002 可中断)。
+///
+/// review P1-F2:取消即停播,不会再有尾音 → 必须同步清除 `tts_cooldown_until`,
+/// 否则下次 listen 开头 N 秒用户说话会被当尾音丢弃(防护反伤)。
 #[tauri::command]
 pub async fn cancel_tts_command(
     state: tauri::State<'_, crate::state::AppState>,
@@ -570,12 +878,58 @@ pub async fn cancel_tts_command(
     state
         .tts_cancel
         .store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Ok(mut guard) = state.tts_cooldown_until.lock() {
+        *guard = None;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===== 批2:compute_rms 测试 =====
+
+    #[test]
+    fn compute_rms_is_zero_for_silence_and_empty() {
+        assert_eq!(compute_rms(&[]), 0.0);
+        assert_eq!(compute_rms(&vec![0i16; 8000]), 0.0);
+    }
+
+    #[test]
+    fn compute_rms_full_scale_square_wave_is_one() {
+        // 满幅方波:|x| = i16::MAX → rms = i16::MAX → 归一化 = 1.0
+        let chunk = vec![i16::MAX; 8000];
+        let rms = compute_rms(&chunk);
+        assert!((rms - 1.0).abs() < 1e-6, "expected ~1.0, got {}", rms);
+    }
+
+    #[test]
+    fn compute_rms_half_amplitude_square_wave_is_half() {
+        // 半幅方波:rms = 16384/32767 ≈ 0.5
+        let chunk = vec![16384i16; 8000];
+        let rms = compute_rms(&chunk);
+        assert!(
+            (rms - 16384.0 / i16::MAX as f32).abs() < 1e-6,
+            "expected ~0.5, got {}",
+            rms
+        );
+    }
+
+    #[test]
+    fn compute_rms_negative_samples_use_magnitude() {
+        // 负样本取平方后与正样本等价
+        let neg = vec![-16384i16; 4000];
+        let pos = vec![16384i16; 4000];
+        let mut mixed = neg;
+        mixed.extend_from_slice(&pos);
+        let rms = compute_rms(&mixed);
+        assert!(
+            (rms - 16384.0 / i16::MAX as f32).abs() < 1e-6,
+            "expected ~0.5, got {}",
+            rms
+        );
+    }
 
     #[test]
     fn voice_listen_result_success_serializes_correctly() {
