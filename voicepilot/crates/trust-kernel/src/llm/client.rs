@@ -3,15 +3,17 @@
 //! OpenAI 兼容 `/chat/completions` + function calling 强制结构化输出。
 //! 失败时返回 `LlmError`,SkillRouter 回退到关键词匹配。
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde_json::json;
 
-use crate::llm::types::{ExtractedSlot, LlmError, LlmResult, LlmRouteResponse};
+use crate::llm::types::{ExtractedSlot, LlmError, LlmResult, LlmRouteResponse, ProbeOutcome};
 use crate::skills::manifest::SkillManifest;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// 测试连接探针的独立超时（规划路径 30s 太长，不适合交互式测试）。
+const PROBE_TIMEOUT_SECS: u64 = 15;
 
 pub struct LlmClient {
     base_url: String,
@@ -118,6 +120,53 @@ impl LlmClient {
             .map_err(|e| LlmError::Parse(format!("response body parse: {e}")))?;
 
         self.parse_tool_call_response(&resp_json)
+    }
+
+    /// 最小成本连通性探针（设置页“测试连接”用）。
+    ///
+    /// 用 `max_tokens: 1` 调一次 chat completions，同时验证连通性、key、模型名。
+    /// 不读、不写任何业务状态；调用方负责不记录 key、不把探针结果当路由依据。
+    pub async fn probe(&self) -> LlmResult<ProbeOutcome> {
+        if !self.is_enabled() {
+            return Err(LlmError::NotConfigured);
+        }
+        let started = Instant::now();
+        let body = json!({
+            "model": self.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+        });
+        let url = format!("{}/chat/completions", self.base_url);
+        let http = Client::builder()
+            .timeout(Duration::from_secs(PROBE_TIMEOUT_SECS))
+            .build()
+            .unwrap_or_else(|_| self.http.clone());
+        let resp = http
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LlmError::Timeout(Duration::from_secs(PROBE_TIMEOUT_SECS))
+                } else {
+                    LlmError::Http(e.to_string())
+                }
+            })?;
+        if !resp.status().is_success() {
+            return Err(LlmError::Http(format!("HTTP {}", resp.status())));
+        }
+        // 只确认是合法 JSON 即够，不解析业务字段。
+        let _v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(format!("response body parse: {e}")))?;
+        Ok(ProbeOutcome {
+            latency_ms: started.elapsed().as_millis() as u64,
+            model: self.model.clone(),
+        })
     }
 
     fn build_system_prompt(&self, skills: &[SkillManifest]) -> String {
@@ -956,5 +1005,64 @@ mod tests {
         let p2 = client.build_system_prompt(&[first, second]);
         assert_eq!(p1, p2);
         assert!(p1.find("files.organize").unwrap() < p1.find("zzz.second").unwrap());
+    }
+
+    #[tokio::test]
+    async fn probe_returns_latency_on_success() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chatcmpl-probe",
+                "choices": [{"message": {"role": "assistant", "content": "pong"}}]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let out = client.probe().await.expect("probe ok");
+        assert_eq!(out.model, "deepseek-chat");
+    }
+
+    #[tokio::test]
+    async fn probe_maps_401_to_http_error() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-bad", "deepseek-chat");
+        let err = client.probe().await.expect_err("probe 401");
+        assert!(err.to_string().contains("401"), "got {err}");
+    }
+
+    #[tokio::test]
+    async fn probe_maps_404_to_http_error() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "no-such-model");
+        let err = client.probe().await.expect_err("probe 404");
+        assert!(err.to_string().contains("404"), "got {err}");
+    }
+
+    #[tokio::test]
+    async fn probe_rejects_disabled_client_without_network() {
+        let client = LlmClient::disabled();
+        let err = client.probe().await.expect_err("probe disabled");
+        assert!(matches!(err, LlmError::NotConfigured));
     }
 }

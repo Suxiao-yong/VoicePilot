@@ -334,6 +334,121 @@ pub fn startup_rebuild_llm(state: &AppState) {
     state.rebuild_llm_client(&view);
 }
 
+/// 测试连接输入：用表单当前值测（保存前可测）。
+/// `api_key` 为空则用 SecretStore 中已存的 key（测“已保存配置”）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmTestInput {
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+}
+
+/// 测试连接失败原因（前端据此给可操作提示，不暴露 key 与原始错误细节）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmTestFailure {
+    /// 未配置：url/key/model 任一为空，或隐私模式拦截。
+    NotConfigured,
+    /// 401：key 错了或已失效。
+    Unauthorized,
+    /// 404：base_url 路径错或模型名在该 provider 下不存在。
+    NotFound,
+    /// 15s 内无响应：网络/代理/服务商慢。
+    Timeout,
+    /// DNS/连接被拒/TLS 等传输层失败。
+    Network,
+    /// 非 JSON 响应（多为代理/网关拦截页）。
+    Parse,
+}
+
+/// 测试连接结果（绝不含 key）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LlmTestResult {
+    Ok { latency_ms: u64, model: String },
+    Failed { reason: LlmTestFailure, message: String },
+}
+
+/// 纯函数：`LlmError` → 前端可消费的失败分类（可单测，无需网络）。
+pub fn map_probe_error(e: &trust_kernel::llm::types::LlmError) -> (LlmTestFailure, String) {
+    use trust_kernel::llm::types::LlmError;
+    match e {
+        LlmError::NotConfigured | LlmError::DisabledByPrivacy => (
+            LlmTestFailure::NotConfigured,
+            "未配置：检查开关、base_url、模型名，并确认已填写 key（隐私模式下不可用）".to_string(),
+        ),
+        LlmError::Http(msg) if msg.contains("401") => (
+            LlmTestFailure::Unauthorized,
+            "401：API key 错误或已失效，请重新获取填写".to_string(),
+        ),
+        LlmError::Http(msg) if msg.contains("404") => (
+            LlmTestFailure::NotFound,
+            "404：base_url 路径或模型名不对，请对照服务商文档检查".to_string(),
+        ),
+        LlmError::Http(msg) => (
+            LlmTestFailure::Network,
+            format!("请求失败：{msg}（检查网络/代理/base_url）"),
+        ),
+        LlmError::Timeout(_) => (
+            LlmTestFailure::Timeout,
+            "15s 无响应：检查网络/代理，或稍后重试".to_string(),
+        ),
+        LlmError::Parse(_) => (
+            LlmTestFailure::Parse,
+            "响应不是合法 JSON：可能是代理/网关拦截页，检查 base_url".to_string(),
+        ),
+    }
+}
+
+/// 测试云端 LLM 连接：只读探针，不持久化任何东西，不记录 key。
+///
+/// 设计：只验证“配置能否调通”，不验证“路由好不好”；真正的路由质量
+/// 由 planner 的 classify/decompose 负责。探针失败只返回分类，不抛错，
+/// 前端据 `reason` 给可操作提示。
+#[tauri::command]
+pub async fn test_llm_command(
+    state: State<'_, AppState>,
+    input: LlmTestInput,
+) -> Result<LlmTestResult, String> {
+    #[cfg(feature = "llm")]
+    {
+        use trust_kernel::llm::client::LlmClient;
+        if state.kernel.privacy_mode() {
+            return Ok(LlmTestResult::Failed {
+                reason: LlmTestFailure::NotConfigured,
+                message: "隐私模式已启用：LLM 不可用，先关闭隐私模式再测".to_string(),
+            });
+        }
+        let key = match input.api_key.as_deref().filter(|k| !k.is_empty()) {
+            Some(k) => k.to_string(),
+            None => state
+                .kernel
+                .llm_api_key()
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default(),
+        };
+        let client = LlmClient::new(&input.base_url, &key, &input.model);
+        match client.probe().await {
+            Ok(out) => Ok(LlmTestResult::Ok {
+                latency_ms: out.latency_ms,
+                model: out.model,
+            }),
+            Err(e) => {
+                let (reason, message) = map_probe_error(&e);
+                Ok(LlmTestResult::Failed { reason, message })
+            }
+        }
+    }
+    #[cfg(not(feature = "llm"))]
+    {
+        let _ = (state, input);
+        Ok(LlmTestResult::Failed {
+            reason: LlmTestFailure::NotConfigured,
+            message: "当前构建未启用 LLM 功能".to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,6 +493,38 @@ mod tests {
         assert_eq!(dto.llm_base_url, "https://api.deepseek.com/v1");
         assert_eq!(dto.llm_model, "deepseek-chat");
         assert_eq!(dto.llm_provider_url, "https://platform.deepseek.com/api_keys");
+    }
+
+    #[test]
+    fn probe_error_mapping_covers_all_variants() {
+        use trust_kernel::llm::types::LlmError;
+        let (r, _) = map_probe_error(&LlmError::NotConfigured);
+        assert!(matches!(r, LlmTestFailure::NotConfigured));
+        let (r, _) = map_probe_error(&LlmError::DisabledByPrivacy);
+        assert!(matches!(r, LlmTestFailure::NotConfigured));
+        let (r, msg) = map_probe_error(&LlmError::Http("HTTP 401 Unauthorized".to_string()));
+        assert!(matches!(r, LlmTestFailure::Unauthorized));
+        assert!(msg.contains("401"));
+        let (r, _) = map_probe_error(&LlmError::Http("HTTP 404 Not Found".to_string()));
+        assert!(matches!(r, LlmTestFailure::NotFound));
+        let (r, _) = map_probe_error(&LlmError::Http("HTTP 500 Internal".to_string()));
+        assert!(matches!(r, LlmTestFailure::Network));
+        let (r, _) = map_probe_error(&LlmError::Timeout(std::time::Duration::from_secs(15)));
+        assert!(matches!(r, LlmTestFailure::Timeout));
+        let (r, _) = map_probe_error(&LlmError::Parse("bad json".to_string()));
+        assert!(matches!(r, LlmTestFailure::Parse));
+    }
+
+    #[test]
+    fn test_result_serializes_without_key() {
+        // 结果 DTO 绝不能携带 key：序列化后检查无敏感字段名。
+        let r = LlmTestResult::Ok {
+            latency_ms: 320,
+            model: "deepseek-chat".to_string(),
+        };
+        let s = serde_json::to_string(&r).unwrap();
+        assert!(s.contains("deepseek-chat"));
+        assert!(!s.to_lowercase().contains("api_key") && !s.to_lowercase().contains("apikey"));
     }
 
     #[test]

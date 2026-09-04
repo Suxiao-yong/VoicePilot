@@ -21,7 +21,9 @@ export interface ApprovalRequestPayload {
 }
 
 export type RouteTextResult =
-  | { kind: "routed"; skill_id: string }
+  // 桌宠化改造:补上后端一直序列化的 slots(W7 起存在;keyword 路径为空数组),
+  // PetWindow 气泡"执行"据此判断槽位是否齐全。
+  | { kind: "routed"; skill_id: string; slots: Slot[] }
   | { kind: "unmatched"; text: string }
   | { kind: "empty" };
 
@@ -86,7 +88,8 @@ export interface Settings {
   // W7:云端 LLM 配置(OpenAI 兼容,默认 DeepSeek)。
   // llm_enabled=false 或 privacy_mode=true 时,后端 LlmClient::disabled()。
   llm_enabled: boolean;
-  llm_api_key: string;
+  // Wave 3:读取接口只返回"是否已配置 key",绝不返回 key 值(SecretStore 持有)。
+  llm_api_key_present: boolean;
   llm_base_url: string;
   llm_model: string;
   llm_provider_url: string;
@@ -94,6 +97,55 @@ export interface Settings {
   // 逗号分隔输入,后端 KV 存 JSON 数组字符串。uia feature 关闭时仍可编辑(数据无害)。
   uia_allowed_apps: string[];
 }
+
+/**
+ * Wave 3:写入 DTO —— 非 secret 字段 + 显式 secret 操作。
+ * `llm_api_key` 仅在用户输入新 key 时传(空 = 保持现有);`clear_llm_api_key`
+ * 为 true 时删除已存储的 key。
+ */
+export interface SettingsUpdate {
+  voice_model_path: string;
+  voice_language: string | null;
+  voice_threads: number;
+  vad_energy_threshold: number;
+  vad_max_silence_ms: number;
+  vad_min_speech_ms: number;
+  voice_max_duration_ms: number;
+  voice_chunk_duration_ms: number;
+  privacy_mode: boolean;
+  compensation_ttl_hours: number;
+  tts_enabled: boolean;
+  tts_model_path: string;
+  llm_enabled: boolean;
+  llm_base_url: string;
+  llm_model: string;
+  llm_provider_url: string;
+  llm_api_key: string | null;
+  clear_llm_api_key: boolean;
+  uia_allowed_apps: string[];
+}
+
+/** 测试连接输入：用表单当前值测（保存前可测）；api_key 为空则测已存 key。 */
+export interface LlmTestInput {
+  base_url: string;
+  model: string;
+  api_key: string | null;
+}
+
+/** 测试连接结果（绝不含 key）。失败原因见后端 LlmTestFailure 注释。 */
+export type LlmTestResult =
+  | { kind: "ok"; latency_ms: number; model: string }
+  | {
+      kind: "failed";
+      reason:
+        | "not_configured"
+        | "unauthorized"
+        | "not_found"
+        | "timeout"
+        | "network"
+        | "parse";
+      message: string;
+    };
 
 export type View = "main" | "settings" | "audit" | "trust" | "skills" | "dag-history";
 
@@ -118,6 +170,12 @@ export interface McpServer {
   protocol_version: string | null;
   allowed_origins: string | null;
   allowed_paths: string | null;
+  /** 拉起子进程的命令(如 npx);`null` = 进程内 server。 */
+  command: string | null;
+  /** JSON 字符串数组(如 `["-y","@playwright/mcp@latest"]`)。 */
+  args: string | null;
+  /** JSON 字符串→字符串对象;值是配置机密,绝不写入审计/日志。 */
+  env: string | null;
 }
 
 export interface Skill {
@@ -129,14 +187,22 @@ export interface Skill {
   risk_label: string;
 }
 
-// ===== W7 Plan 3: 用户自定义 Skill(从 %APPDATA%\voicepilot\skills\*.md 加载) =====
+// ===== Agent Skills 开放标准(2026-08-24 统一,目录式 {name}/SKILL.md) =====
 
 export interface UserSkill {
   skill_id: string;
   title: string;
   description: string;
-  /** 源文件绝对路径(`%APPDATA%\voicepilot\skills\<filename>.md`)。 */
+  /** 是否绑定 MCP 工具可执行(标准技能无绑定 = 展示型)。 */
+  executable: boolean;
+  /** 源文件绝对路径(`%APPDATA%\voicepilot\skills\<name>\SKILL.md`)。 */
   source_path: string;
+}
+
+/** MCP 标准 JSON 导入结果(逐条报错不整体回滚)。 */
+export interface ImportMcpResult {
+  imported: number;
+  errors: { name: string; error: string }[];
 }
 
 // ===== W6b-3a Task 4: Diff Preview =====
@@ -154,7 +220,14 @@ export interface DiffResult {
 
 // ===== W6b-3a Task 8: ModelDownloadBar =====
 
-export type ModelStatus = "disabled" | "present" | "absent";
+// Wave 3 Task 3.2:模型状态机(后端 ModelStatus 对齐)。
+export type ModelStatus =
+  | "disabled"
+  | "missing"
+  | "downloading"
+  | "verifying"
+  | "ready"
+  | "failed";
 
 export interface DownloadProgressPayload {
   downloaded_bytes: number;

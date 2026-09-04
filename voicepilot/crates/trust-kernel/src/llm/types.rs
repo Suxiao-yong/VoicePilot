@@ -61,3 +61,12 @@ pub enum LlmError {
 }
 
 pub type LlmResult<T> = std::result::Result<T, LlmError>;
+
+/// 最小成本连通性探针结果（设置页“测试连接”用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeOutcome {
+    /// 从发请求到收到完整响应的毫秒数。
+    pub latency_ms: u64,
+    /// 服务端实际命中的模型名（回显请求值）。
+    pub model: String,
+}
