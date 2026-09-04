@@ -12,7 +12,6 @@
 use std::sync::Arc;
 #[cfg(feature = "llm")]
 use std::time::Instant;
-use std::time::SystemTime;
 
 use crate::error::Result;
 use crate::extensions::types::ExtensionSnapshot;
@@ -99,6 +98,8 @@ impl RealtimeSnapshot {
 pub struct PlannerInput {
     pub text: String,
     pub source: PlannerSource,
+    /// 实时快照；语音路径 Some（须新鲜），文本路径 None（行为与旧版一致）。
+    pub snapshot: Option<RealtimeSnapshot>,
 }
 
 /// 规划结果。无 Clarification 变体:低置信度 / privacy_mode / LLM disabled /
@@ -169,6 +170,14 @@ impl PlannerPipeline {
             return Ok((PlanResult::Empty, self.trace()));
         }
 
+        if let Some(snap) = &input.snapshot {
+            if !snap.is_fresh_at(std::time::SystemTime::now()) {
+                return Err(crate::error::KernelError::Skill(
+                    "stale realtime snapshot: re-sense before planning".to_string(),
+                ));
+            }
+        }
+
         // 2. 启用候选(snapshot 不可变,纯内存)。
         let manifests = self.snapshot.candidate_manifests();
 
@@ -193,7 +202,7 @@ impl PlannerPipeline {
             RouteDecision::SkillWithSlots(..) | RouteDecision::Dag(_) => {}
         }
 
-        self.plan_with_llm(trimmed, &manifests).await
+        self.plan_with_llm(trimmed, &manifests, input.snapshot.as_ref()).await
     }
 
     /// 关键词未命中后的 LLM 路径(4-6 步)。仅 `llm` feature 下编译。
@@ -202,6 +211,7 @@ impl PlannerPipeline {
         &self,
         trimmed: &str,
         manifests: &[crate::skills::manifest::SkillManifest],
+        snapshot: Option<&RealtimeSnapshot>,
     ) -> Result<(PlanResult, PlannerTrace)> {
         let mut trace = self.trace();
 
@@ -212,9 +222,15 @@ impl PlannerPipeline {
             return Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace));
         }
 
+        // 快照上下文只进 LLM（关键词路由仍用原文，避免污染匹配）。
+        let llm_text = match snapshot {
+            Some(s) => format!("{}\n{}", s.context_block(), trimmed),
+            None => trimmed.to_string(),
+        };
+
         // 4. classify_and_extract — 单 Skill 意图 + Slot 提取。
         let started = Instant::now();
-        let classify = llm.classify_and_extract(trimmed, manifests).await;
+        let classify = llm.classify_and_extract(&llm_text, manifests).await;
         trace.latency_ms = started.elapsed().as_millis() as u64;
         trace.used_llm = true;
         trace.llm_model = Some(llm.model().to_string());
@@ -242,7 +258,7 @@ impl PlannerPipeline {
         let user_slots: Vec<ExtractedSlot> = Vec::new();
         // 失败路径(HTTP / 解析 / 校验)收敛到 Unmatched。
         if let Ok((dag, stats)) = llm
-            .decompose_to_dag_traced(trimmed, manifests, &user_slots)
+            .decompose_to_dag_traced(&llm_text, manifests, &user_slots)
             .await
         {
             trace.latency_ms += started.elapsed().as_millis() as u64;
@@ -269,6 +285,7 @@ impl PlannerPipeline {
         &self,
         trimmed: &str,
         _manifests: &[crate::skills::manifest::SkillManifest],
+        _snapshot: Option<&RealtimeSnapshot>,
     ) -> Result<(PlanResult, PlannerTrace)> {
         Ok((PlanResult::Unmatched { text: trimmed.to_string() }, self.trace()))
     }
