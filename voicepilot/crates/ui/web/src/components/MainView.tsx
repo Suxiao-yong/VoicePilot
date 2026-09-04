@@ -1,7 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { routeText, organizeFiles, voiceListen, cancelVoice, onTranscriptionPartial, invokeTts, invokeCancelTts } from "../api";
+import { stopTtsPlayback } from "./ttsPlayback";
+import {
+  routeText,
+  organizeFiles,
+  voiceListen,
+  cancelVoice,
+  onTranscriptionPartial,
+  invokeTts,
+  invokeCancelTts,
+  isVoiceEnabled,
+  checkModel,
+  onPetEditText,
+} from "../api";
+
+// ponytail: preview-safe wrappers — direct Tauri events/file APIs crash in http://localhost:4173 without __TAURI_INTERNALS__
+function safeListen<T>(
+  event: string,
+  handler: (e: { payload: T }) => void,
+): Promise<() => void> {
+  try {
+    // SAFETY: Tauri 的 listen 在非 Tauri 预览环境下不存在，这里做防御性调用；
+    // 类型断言仅用于统一真实 listen 与缺失时的 no-op 签名，调用失败由下方 catch 兜底。
+    const p = (
+      listen as unknown as (
+        e: string,
+        h: (ev: { payload: T }) => void,
+      ) => Promise<() => void>
+    )(event, handler);
+    return p.catch(() => () => {});
+  } catch {
+    return Promise.resolve(() => {});
+  }
+}
+function safeConvertFileSrc(path: string): string {
+  try {
+    return convertFileSrc(path);
+  } catch {
+    return path;
+  }
+}
 import type {
   RouteTextResult,
   OrganizeResult,
@@ -11,43 +50,121 @@ import type {
 } from "../types";
 import { Chip } from "./Chip";
 import { SlotEditDialog } from "./SlotEditDialog";
+import { Icon } from "../icons";
 
 export function MainView() {
-  // ===== 语音输入状态(W6b-1) =====
+  // ===== 语音输入状态 =====
   const [listening, setListening] = useState(false);
-  const [voiceResult, setVoiceResult] = useState<VoiceListenResult | null>(null);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("voicepilot:listening", { detail: listening }),
+    );
+  }, [listening]);
+  const [voiceResult, setVoiceResult] = useState<VoiceListenResult | null>(
+    null,
+  );
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  // W6b-2 issue #47:partial transcript 实时显示
-  const [partialText, setPartialText] = useState<string>("");
+  const [partialText, setPartialText] = useState("");
+  // Wave 3 Task 3.2:voice feature 是否启用 + 模型是否就绪(Ready)。
+  // voice 未启用 → 隐藏语音按钮;启用但模型未就绪 → 按钮禁用并指向下载横幅。
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
 
-  // ===== route_text 状态(W6a) =====
+  // 启动时探测 voice 能力与模型就绪状态(Task 3.2 UI gating)。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const enabled = await isVoiceEnabled();
+        if (cancelled) return;
+        setVoiceEnabled(enabled);
+        if (!enabled) return;
+        const status = await checkModel();
+        if (cancelled) return;
+        setModelReady(status === "ready");
+      } catch {
+        /* 探测失败时按禁用处理(保守) */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Wave 3 Task 3.2:ModelDownloadBanner 下载完成后派发 `voicepilot:model-ready`
+  // DOM 事件,这里重查模型状态,让麦克风按钮从"模型未就绪"恢复可用(无需重启)。
+  useEffect(() => {
+    const handler = (): void => {
+      checkModel()
+        .then((status) => setModelReady(status === "ready"))
+        .catch(() => undefined);
+    };
+    window.addEventListener("voicepilot:model-ready", handler);
+    return () => window.removeEventListener("voicepilot:model-ready", handler);
+  }, []);
+
+  // ===== 文本路由状态 =====
   const [text, setText] = useState("");
   const [routeResult, setRouteResult] = useState<RouteTextResult | null>(null);
 
-  // ===== organize_files 状态(W6a) =====
+  // 桌宠化改造:气泡"跳转改字" —— PetWindow 在确认气泡点文字时 emit
+  // `pet-edit-text`(pet → main 广播),这里把文字填入 composer 并聚焦,
+  // 用户在主界面改完指令再执行。
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const unlisten = onPetEditText((incoming) => {
+      setText(incoming);
+      setRouteResult(null);
+      setSlots([]);
+      // 等一帧让 React 提交新 value 后再聚焦 + 全选,方便直接改字
+      requestAnimationFrame(() => {
+        composerInputRef.current?.focus();
+        composerInputRef.current?.select();
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  // ===== 文件整理状态 =====
   const [source, setSource] = useState("");
   const [filter, setFilter] = useState("*.txt");
   const [destination, setDestination] = useState("");
-  const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null);
+  const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(
+    null,
+  );
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // W6b-3b Task 13:Push-to-talk + TTS 播放状态
+  // ===== Push-to-talk + TTS =====
   const [pttActive, setPttActive] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
-  // W6b-3b Fix 1:audioRef 跟踪当前播放的 <audio> 元素,"停止语音反馈"按钮调用 pause() 中断。
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // W6b-3b Task 17:Slot Chip 修改状态(§8.4)
+  // 3-2 录音重入守卫:同步 ref 挡住 mic 按钮与 PTT 快捷键的并发触发
+  const listeningRef = useRef(false);
+
+  // 3-1 TTS 切页清理:view 卸载时停止播放并取消后端合成,避免音频残留继续响
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      invokeCancelTts().catch(() => {});
+    };
+  }, []);
+
+  // ===== Slot Chip 修改 =====
   const [slots, setSlots] = useState<Slot[]>([]);
   const [editingSlot, setEditingSlot] = useState<Slot | null>(null);
 
-  // W6b-2 issue #47:监听 partial transcript 事件,实时更新 partialText
+  // W6b-2 issue #47:监听 partial transcript 事件,实时更新 partialText + slots
   useEffect(() => {
     const unlisten = onTranscriptionPartial((payload) => {
       setPartialText(payload.partial);
-      // W6b-3b Task 17:更新 slots(§8.4 Chip 修改)
       setSlots(payload.slots || []);
     });
     return () => {
@@ -55,38 +172,48 @@ export function MainView() {
     };
   }, []);
 
-  // W6b-3b Task 17:监听 transcription-final 事件,更新 slots + 清空 partial
+  // 监听 transcription-final 事件,更新 slots + 清空 partial
   useEffect(() => {
-    const unlisten = listen<TranscriptionFinalPayload>(
+    const unlisten = safeListen<TranscriptionFinalPayload>(
       "transcription-final",
       (event) => {
         setSlots(event.payload.slots || []);
-      }
+        setPartialText("");
+      },
     );
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
-  // W6b-3b Task 13:监听全局快捷键 Push-to-talk 事件
+  // 监听全局快捷键 Push-to-talk
   useEffect(() => {
-    const unlistenStart = listen("push-to-talk-start", () => {
+    const unlistenStart = safeListen("push-to-talk-start", () => {
+      // Wave 3 Task 3.2:快捷键同样受 voice/模型 gating 约束,避免绕过 UI 禁用。
+      if (!voiceEnabled || !modelReady) return;
       setPttActive(true);
-      // 触发 voice listen
       onVoiceListen();
     });
-    const unlistenStop = listen("push-to-talk-stop", () => {
+    const unlistenStop = safeListen("push-to-talk-stop", () => {
       setPttActive(false);
-      // 取消 voice listen
       cancelVoice().catch(console.error);
     });
     return () => {
       unlistenStart.then((fn) => fn()).catch(() => {});
       unlistenStop.then((fn) => fn()).catch(() => {});
     };
-  }, []);
+  }, [voiceEnabled, modelReady]);
 
   async function onVoiceListen() {
+    // 3-2:重入守卫——PTT start 事件与 mic 按钮可能相邻触发,只放一个进后端
+    if (listeningRef.current) return;
+    listeningRef.current = true;
+    // Task 7 打断：新一轮录音开始即停掉正在播的 TTS（人一开口音箱就停）。
+    // mic 按钮与 PTT 都走本函数，单漏斗全覆盖。
+    if (audioRef.current || ttsPlaying) {
+      stopTtsPlayback(audioRef.current, setTtsPlaying, invokeCancelTts);
+      audioRef.current = null;
+    }
     setListening(true);
     setVoiceError(null);
     setVoiceResult(null);
@@ -105,11 +232,9 @@ export function MainView() {
             setTtsPlaying(false);
             return;
           }
-          // W6b-3b Fix 1:用 wav_path 通过 <audio> 元素播放(此前桩实现返回 played: true 但无声音)。
-          // convertFileSrc 把文件路径转为 WebView 可访问的 URL(Tauri 2 asset protocol)。
+          // W6b-3b Fix 1:用 wav_path 通过 <audio> 元素播放(convertFileSrc 转 WebView 可访问 URL)
           if (ttsResult.wav_path) {
-            const url = convertFileSrc(ttsResult.wav_path);
-            const audio = new Audio(url);
+            const audio = new Audio(safeConvertFileSrc(ttsResult.wav_path));
             audioRef.current = audio;
             audio.onended = () => {
               setTtsPlaying(false);
@@ -126,7 +251,6 @@ export function MainView() {
               audioRef.current = null;
             });
           } else {
-            // 无 wav_path(如 interrupted),不播放
             setTtsPlaying(false);
           }
         } catch (e) {
@@ -138,6 +262,7 @@ export function MainView() {
       setVoiceError(e instanceof Error ? e.message : String(e));
       console.error(e);
     } finally {
+      listeningRef.current = false;
       setListening(false);
     }
   }
@@ -156,36 +281,28 @@ export function MainView() {
     }
   }
 
-  // W6c P1 #2:Apply Slot 修改 — 按 slot.end 降序替换 transcription,
-  // 生成新文本后调 routeText 重新路由,最后清空所有 modified 标记。
+  // W6c P1 #2:Apply Slot 修改 — 按 slot.end 降序替换 transcription 后重新路由
   async function onApplySlotEdits() {
-    // 取当前 transcription(success / timeout-with-text)
     const transcription =
       voiceResult?.kind === "success"
         ? voiceResult.transcription
         : voiceResult?.kind === "timeout"
-          ? voiceResult.transcription ?? ""
+          ? (voiceResult.transcription ?? "")
           : "";
-    if (!transcription) {
-      return;
-    }
+    if (!transcription) return;
     setBusy(true);
     setError(null);
     try {
-      // 1. 收集 modified slots,按 end 降序(从后往前替换避免偏移)
       const modified = slots
         .filter((s) => s.modified)
         .sort((a, b) => b.end - a.end);
-      // 2. 逐段替换 [start, end) → slot.raw
       let newText = transcription;
       for (const slot of modified) {
         newText =
           newText.slice(0, slot.start) + slot.raw + newText.slice(slot.end);
       }
-      // 3. 重新路由
       const r = await routeText(newText);
       setRouteResult(r);
-      // 4. 清空所有 modified 标记(不引入 applied 状态,保持简单)
       setSlots((prev) => prev.map((s) => ({ ...s, modified: false })));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -215,126 +332,173 @@ export function MainView() {
     }
   }
 
+  const handleStopTts = (): void => {
+    stopTtsPlayback(audioRef.current, setTtsPlaying, invokeCancelTts);
+    audioRef.current = null;
+  };
+
   return (
-    <div className="panel">
-      {/* ===== §8.2 Main Chat:语音输入(W6b-1)===== */}
-      <div className="panel-header">§ 8.2 Main Chat · 语音输入</div>
-      <h1 className="panel-title">
-        Voice <em>input</em> → Skill
-      </h1>
+    <div>
+      <header className="view-head">
+        <h1 className="view-title">
+          <span className="view-kicker">Workbench</span>
+          任务工作台
+        </h1>
+        <p className="view-desc">权限感知 · Trust Kernel 审批 · 语音优先</p>
+      </header>
 
-      <div className="voice-section">
-        <button
-          className={`btn voice-button ${listening ? "listening" : ""}`}
-          onClick={onVoiceListen}
-          disabled={listening || busy}
-          aria-pressed={listening}
-        >
-          <span className="mic-icon" aria-hidden="true">{listening ? "■" : "●"}</span>
-          {listening ? "Listening..." : "Start Listening"}
-        </button>
+      {/* ===== 输入区 ===== */}
+      <div className="composer">
+        {/* 4-2:composer 补卡片头,与「文件整理」卡片同构 */}
+        <div className="card-head composer-head">
+          <div>
+            <h2 className="card-title">
+              <span className="tick" aria-hidden="true" />
+              指令
+            </h2>
+            <p className="card-desc">
+              输入指令或按住语音按钮说话,高风险操作会先经过 Trust Kernel 审批
+            </p>
+          </div>
+        </div>
 
-        <div className="ptt-status">
+        <div className="composer-row">
+          <input
+            className="composer-input"
+            type="text"
+            value={text}
+            ref={composerInputRef}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !busy && !listening) onRoute();
+            }}
+            placeholder="例如：整理下载目录，或打开记事本写 TODO…"
+            aria-label="指令输入"
+          />
+          {/* 4-1:主 CTA 提级——与输入框同排的大号 primary,不再缩在 meta 里 */}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onRoute}
+            disabled={busy || listening}
+          >
+            执行指令
+          </button>
+          {voiceEnabled && (
+            <button
+              type="button"
+              className={`mic-btn ${listening ? "listening" : ""}`}
+              onClick={onVoiceListen}
+              disabled={listening || busy || !modelReady}
+              aria-pressed={listening}
+              title={!modelReady ? "语音模型未就绪，请先下载模型" : undefined}
+            >
+              <span className="mic-icon" aria-hidden="true">
+                <Icon name="mic" />
+              </span>
+              {listening ? "录音中…" : !modelReady ? "模型未就绪" : "语音输入"}
+            </button>
+          )}
+        </div>
+
+        <div className="composer-meta">
           {pttActive && (
-            <span className="ptt-active" role="status" aria-live="polite">
+            <span className="ptt-hint" role="status" aria-live="polite">
               按住 Ctrl+Alt+Space 录音中…
             </span>
           )}
           {ttsPlaying && (
             <button
               type="button"
+              className="btn btn-sm"
+              onClick={handleStopTts}
               aria-label="停止语音反馈"
-              onClick={() => {
-                // W6b-3b Fix 1:前端 pause() 立即中断播放;同时通知后端置 cancel flag
-                // (后端 cancel flag 主要在合成阶段生效,播放阶段由前端控制)。
-                if (audioRef.current) {
-                  audioRef.current.pause();
-                  audioRef.current = null;
-                }
-                invokeCancelTts().catch(console.error);
-                setTtsPlaying(false);
-              }}
             >
               停止语音反馈
+            </button>
+          )}
+          {listening && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={() => cancelVoice().catch(console.error)}
+              aria-label="取消录音"
+            >
+              取消录音
             </button>
           )}
         </div>
 
         {listening && (
-          <button
-            type="button"
-            className="voice-cancel-btn"
-            onClick={() => cancelVoice().catch(console.error)}
-            aria-label="取消录音"
-          >
-            取消
-          </button>
-        )}
-
-        {listening && (
-          <div className="listening-indicator">
-            <span className="dots" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
+          <div className="rec-indicator" role="status" aria-live="polite">
+            <span className="rec-bars" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
             </span>
-            录音中,VAD 检测静音后自动停止
-            <div className="partial-text" aria-live="polite">{partialText || "聆听中…"}</div>
+            <span>录音中，VAD 检测静音后自动停止</span>
+            <span className="partial-text">{partialText || "聆听中…"}</span>
           </div>
         )}
 
         {voiceError && (
-          <div className="transcription-display error" role="status" aria-live="polite">
-            <div className="label">Error</div>
-            <div className="text">{voiceError}</div>
+          <div className="result-stack">
+            <div className="result-card err" role="status" aria-live="polite">
+              <div className="result-kicker">错误</div>
+              <div className="result-main">{voiceError}</div>
+            </div>
           </div>
         )}
 
+        {/* ===== 语音结果 ===== */}
         {voiceResult && (
-          <>
+          <div className="result-stack">
             {voiceResult.kind === "success" && (
-              <>
-                <div className="transcription-display" role="status" aria-live="polite">
-                  <div className="label">
-                    Transcription {voiceResult.stopped_by_vad ? "(VAD stopped)" : ""}
-                  </div>
-                  <div className="text">{voiceResult.transcription}</div>
+              <div className="result-card ok" role="status" aria-live="polite">
+                <div className="result-kicker">
+                  转写{voiceResult.stopped_by_vad ? " · VAD 自动停止" : ""}
                 </div>
-                <RouteOutcomeFeedback
-                  outcome={voiceResult.route_outcome}
-                />
-              </>
+                <div className="result-main">{voiceResult.transcription}</div>
+                <RouteOutcomeFeedback outcome={voiceResult.route_outcome} />
+              </div>
             )}
             {voiceResult.kind === "no_speech" && (
-              <div className="transcription-display no-speech" role="status" aria-live="polite">
-                <div className="label">Result</div>
-                <div className="text">未检测到语音</div>
+              <div
+                className="result-card warn"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="result-kicker">结果</div>
+                <div className="result-main">未检测到语音</div>
               </div>
             )}
             {voiceResult.kind === "timeout" && (
-              <>
-                <div className="transcription-display" role="status" aria-live="polite">
-                  <div className="label">Transcription (timeout)</div>
-                  <div className="text">
-                    {voiceResult.transcription || "(无转写结果)"}
-                  </div>
+              <div
+                className="result-card warn"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="result-kicker">转写 · 超时</div>
+                <div className="result-main">
+                  {voiceResult.transcription || "（无转写结果）"}
                 </div>
-                <RouteOutcomeFeedback
-                  outcome={voiceResult.route_outcome}
-                />
-              </>
-            )}
-            {voiceResult.kind === "error" && (
-              <div className="transcription-display error" role="status" aria-live="polite">
-                <div className="label">Error</div>
-                <div className="text">{voiceResult.message}</div>
+                <RouteOutcomeFeedback outcome={voiceResult.route_outcome} />
               </div>
             )}
-          </>
+            {voiceResult.kind === "error" && (
+              <div className="result-card err" role="status" aria-live="polite">
+                <div className="result-kicker">错误</div>
+                <div className="result-main">{voiceResult.message}</div>
+              </div>
+            )}
+          </div>
         )}
 
+        {/* ===== Slot Chips ===== */}
         {slots.length > 0 && (
-          <div className="chips-container" aria-label="可修改参数">
+          <div className="chips" aria-label="可修改参数">
             {slots.map((slot, idx) => (
               <Chip
                 key={`${slot.kind}-${slot.start}-${idx}`}
@@ -344,28 +508,27 @@ export function MainView() {
             ))}
           </div>
         )}
-        {/* W6c P1 #2:Apply 修改按钮 — 有 modified slot 时显示,触发重新路由 */}
         {slots.some((s) => s.modified) && (
-          <div className="slot-apply-row">
+          <div className="composer-meta">
             <button
               type="button"
-              className="btn btn-primary slot-apply-btn"
+              className="btn btn-primary btn-sm"
               onClick={onApplySlotEdits}
               disabled={busy || listening}
               aria-label="Apply 修改并重新路由"
             >
-              Apply 修改
+              应用修改并重新路由
             </button>
           </div>
         )}
         <SlotEditDialog
           slot={editingSlot}
           onSubmit={(slot, newValue) => {
-            // W6c P1 #2:更新本地 slots 列表的 raw 值 + 标记 modified: true
-            // (transcription 显示不变,Apply 时按 [start, end) 区间替换生成新文本)
             setSlots((prev) =>
               prev.map((s) =>
-                s.kind === slot.kind && s.start === slot.start && s.end === slot.end
+                s.kind === slot.kind &&
+                s.start === slot.start &&
+                s.end === slot.end
                   ? { ...s, raw: newValue, modified: true }
                   : s,
               ),
@@ -374,140 +537,175 @@ export function MainView() {
           }}
           onClose={() => setEditingSlot(null)}
         />
-      </div>
 
-      {/* ===== §5.1 Skill Router(键盘输入 fallback,W6a)===== */}
-      <div className="panel-header" style={{ marginTop: 48 }}>
-        § 5.1 Skill Router · 文本输入
-      </div>
-      <h1 className="panel-title">
-        Route <em>intent</em> → Skill
-      </h1>
-
-      <div className="form-row">
-        <label htmlFor="route-text">Text</label>
-        <input
-          id="route-text"
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="整理下载目录"
-        />
-      </div>
-      <div style={{ marginBottom: 32 }}>
-        <button className="btn btn-primary" onClick={onRoute} disabled={busy || listening}>
-          Route
-        </button>
-      </div>
-
-      {routeResult && (
-        <div
-          className={`route-result ${
-            routeResult.kind === "routed" ? "routed" : "unmatched"
-          }`}
-        >
-          {routeResult.kind === "routed" && (
-            <>✓ Routed to skill: <strong>{routeResult.skill_id}</strong></>
-          )}
-          {routeResult.kind === "unmatched" && (
-            <>? No skill matched: <strong>{routeResult.text}</strong></>
-          )}
-          {routeResult.kind === "empty" && <>∅ Empty input</>}
-        </div>
-      )}
-
-      {/* ===== §5.2 Files Organize(W6a)===== */}
-      <div className="panel-header" style={{ marginTop: 48 }}>§ 5.2 Files Organize</div>
-      <h1 className="panel-title">
-        Run <em>files.organize</em>
-      </h1>
-
-      <div className="form-row">
-        <label htmlFor="organize-source">Source</label>
-        <input
-          id="organize-source"
-          type="text"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          placeholder="D:/Downloads"
-        />
-      </div>
-      <div className="form-row">
-        <label htmlFor="organize-filter">Filter</label>
-        <input
-          id="organize-filter"
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="*.pdf"
-        />
-      </div>
-      <div className="form-row">
-        <label htmlFor="organize-destination">Destination</label>
-        <input
-          id="organize-destination"
-          type="text"
-          value={destination}
-          onChange={(e) => setDestination(e.target.value)}
-          placeholder="D:/Documents/Papers"
-        />
-      </div>
-      <div style={{ marginBottom: 32 }}>
-        <button className="btn btn-primary" onClick={onOrganize} disabled={busy || listening}>
-          Organize
-        </button>
-      </div>
-
-      {error && (
-        <div className="route-result unmatched" style={{ borderLeftColor: "var(--danger)" }}>
-          ⨯ Error: <strong>{error}</strong>
-        </div>
-      )}
-
-      {organizeResult && (
-        <div className="route-result routed">
-          <div>
-            committed: <strong>{String(organizeResult.committed)}</strong>
-          </div>
-          <div>
-            moved: <strong>{organizeResult.moved_paths.length}</strong> file(s)
-          </div>
-          <div>
-            evidence: <strong>{organizeResult.evidence_strength}</strong>
-          </div>
-          {organizeResult.compensation_ref && (
-            <div>
-              compensation_ref: <strong>{organizeResult.compensation_ref}</strong>
+        {/* 4-3:无结果时的引导空状态(点击填入 composer) */}
+        {!busy &&
+          !voiceResult &&
+          !routeResult &&
+          !error &&
+          slots.length === 0 && (
+            <div className="empty-state">
+              <p className="empty-state-title">试试这样说</p>
+              <div className="suggest-list">
+                {[
+                  "整理下载目录里的 PDF 到文档文件夹",
+                  "打开记事本写一条 TODO",
+                  "把 D:/A 目录和 D:/B 目录做个对比",
+                ].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="suggest-chip"
+                    onClick={() => setText(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
+
+        {/* ===== 文本路由结果 ===== */}
+        {routeResult && <RouteResultCard result={routeResult} />}
+        {error && (
+          <div className="alert alert-error" role="alert">
+            <span className="alert-icon">⨯</span>
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ===== 文件整理 ===== */}
+      <div className="card card-gap">
+        <div className="card-head">
+          <div>
+            <h2 className="card-title">
+              <span className="tick" aria-hidden="true" />
+              文件整理
+            </h2>
+            <p className="card-desc">
+              调用 files.organize，按规则移动文件到目标目录
+            </p>
+          </div>
         </div>
-      )}
+        <div className="field-row">
+          <div className="field">
+            <label className="field-label" htmlFor="organize-source">
+              源目录
+            </label>
+            <input
+              id="organize-source"
+              className="field-input mono"
+              type="text"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="D:/Downloads"
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="organize-filter">
+              文件规则
+            </label>
+            <input
+              id="organize-filter"
+              className="field-input mono"
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="*.pdf"
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="organize-destination">
+              目标目录
+            </label>
+            <input
+              id="organize-destination"
+              className="field-input mono"
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              placeholder="D:/Documents/Papers"
+            />
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={onOrganize}
+            disabled={busy || listening}
+          >
+            开始整理
+          </button>
+        </div>
+
+        {organizeResult && (
+          <div className="org-summary">
+            <div className="org-stat">
+              <div className="k">已提交</div>
+              <div className="v">{String(organizeResult.committed)}</div>
+            </div>
+            <div className="org-stat">
+              <div className="k">移动文件</div>
+              <div className="v">{organizeResult.moved_paths.length}</div>
+            </div>
+            <div className="org-stat">
+              <div className="k">证据强度</div>
+              <div className="v">{organizeResult.evidence_strength}</div>
+            </div>
+            {organizeResult.compensation_ref && (
+              <div className="org-stat">
+                <div className="k">补偿引用</div>
+                <div className="v mono-sm">
+                  {organizeResult.compensation_ref}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Route outcome 反馈组件 —— 显示 Skill 命中 / 未匹配 / 空输入。 */
-function RouteOutcomeFeedback({
-  outcome,
-}: {
-  outcome: RouteTextResult;
-}) {
+/** 路由结果卡片 —— 显示 Skill 命中 / 未匹配 / 空输入。 */
+function RouteOutcomeFeedback({ outcome }: { outcome: RouteTextResult }) {
   return (
-    <div className="route-outcome-feedback">
-      <span className="key">Route outcome:</span>
+    <div className="result-sub">
       {outcome.kind === "routed" && (
-        <span className="val success">
-          ✓ Skill 命中: <strong>{outcome.skill_id}</strong>
-        </span>
+        <>
+          <span className="pill pill-on">Skill 命中</span>
+          <span className="mono-sm">{outcome.skill_id}</span>
+        </>
       )}
       {outcome.kind === "unmatched" && (
-        <span className="val warning">
-          ? Planner 路径(未命中 Skill): <strong>{outcome.text}</strong>
-        </span>
+        <>
+          <span className="pill pill-warn">Planner 路径</span>
+          <span className="mono-sm">{outcome.text}</span>
+        </>
       )}
-      {outcome.kind === "empty" && (
-        <span className="val">∅ 空输入</span>
-      )}
+      {outcome.kind === "empty" && <span className="pill">空输入</span>}
+    </div>
+  );
+}
+
+function RouteResultCard({ result }: { result: RouteTextResult }) {
+  return (
+    <div className="result-stack">
+      <div
+        className={`result-card ${
+          result.kind === "routed"
+            ? "ok"
+            : result.kind === "empty"
+              ? ""
+              : "warn"
+        }`}
+      >
+        <div className="result-kicker">路由结果</div>
+        <div className="result-main">
+          {result.kind === "routed" && <>已路由到 Skill：{result.skill_id}</>}
+          {result.kind === "unmatched" && <>未匹配到 Skill：{result.text}</>}
+          {result.kind === "empty" && <>输入为空</>}
+        </div>
+      </div>
     </div>
   );
 }
