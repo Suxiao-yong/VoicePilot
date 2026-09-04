@@ -36,6 +36,9 @@ pub mod voice_latency;
 // Task 4: turns 情景记忆表读写（纯 DB 操作，default-gated，与 voice_latency 同级）。
 pub mod turns;
 
+// Task 6: llm_route_cache 表读写（纯 DB 操作，default-gated）。
+pub mod llm_cache;
+
 // W10 Plan 5: 审计事件覆盖率检查器(spec §7.2)。
 // default-gated(纯 DB 操作,不依赖 voice/stronghold feature)。
 // AuditCoverageChecker 查 audit_logs 表 DISTINCT event_type,与

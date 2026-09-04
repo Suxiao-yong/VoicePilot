@@ -124,7 +124,11 @@ impl LlmClient {
         let mut s = String::from(
             "你是 VoicePilot 的意图分类器,从用户语音转写文本中识别要执行的 Skill。\n\n候选 Skill 列表:\n",
         );
-        for skill in skills {
+        // Task 6:候选按 id 排序后再拼 prompt —— 同一候选集无论注册顺序如何，
+        // prompt 前缀字节一致，provider 侧前缀缓存才能命中。
+        let mut ordered: Vec<&SkillManifest> = skills.iter().collect();
+        ordered.sort_by(|a, b| a.id.cmp(&b.id));
+        for skill in ordered {
             let input_keys: Vec<&String> = skill.inputs.keys().collect();
             s.push_str(&format!(
                 "- id: {}\n  title: {}\n  description: {}\n  intent_examples: {:?}\n  inputs: {:?}\n\n",
@@ -136,6 +140,9 @@ impl LlmClient {
         );
         s
     }
+
+    /// classify 工具 schema 版本：改 `build_tool_schema` 必 bump，否则 `llm_route_cache` 串味。
+    pub const ROUTE_TOOL_SCHEMA_VERSION: u32 = 1;
 
     fn build_tool_schema(&self) -> serde_json::Value {
         json!([{
@@ -386,7 +393,10 @@ impl LlmClient {
             "你是 VoicePilot 的 DAG 拆解器,从用户语音转写文本中识别要执行的多步 Skill 编排。\n\n\
              候选 Skill 列表:\n",
         );
-        for skill in skills {
+        // Task 6:同上，按 id 排序保前缀稳定。
+        let mut ordered: Vec<&SkillManifest> = skills.iter().collect();
+        ordered.sort_by(|a, b| a.id.cmp(&b.id));
+        for skill in ordered {
             let input_keys: Vec<&String> = skill.inputs.keys().collect();
             s.push_str(&format!(
                 "- id: {}\n  title: {}\n  description: {}\n  intent_examples: {:?}\n  inputs: {:?}\n\n",
@@ -934,5 +944,17 @@ mod tests {
         let skills = vec![];
         let result = client.classify_and_extract("test", &skills).await;
         assert!(matches!(result, Err(LlmError::Parse(_))));
+    }
+
+    #[test]
+    fn system_prompts_are_stable_regardless_of_manifest_order() {
+        let mut second = files_organize_manifest();
+        second.id = "zzz.second".to_string();
+        let first = files_organize_manifest();
+        let client = LlmClient::new("https://x", "sk-test", "m");
+        let p1 = client.build_system_prompt(&[second.clone(), first.clone()]);
+        let p2 = client.build_system_prompt(&[first, second]);
+        assert_eq!(p1, p2);
+        assert!(p1.find("files.organize").unwrap() < p1.find("zzz.second").unwrap());
     }
 }

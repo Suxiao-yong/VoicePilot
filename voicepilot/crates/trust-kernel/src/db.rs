@@ -28,6 +28,7 @@ const MIGRATION_008: &str = include_str!("migrations/008_voice_latency_samples.s
 // Task 4: turns 情景记忆表 + idx_turns_started 索引。
 // CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
 const MIGRATION_009: &str = include_str!("migrations/009_turns.sql");
+const MIGRATION_010: &str = include_str!("migrations/010_llm_route_cache.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -115,6 +116,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(MIGRATION_008)?;
     // Task 4: 009 创建 turns 表 + idx_turns_started 索引。幂等,单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_009)?;
+    // Task 6: 010 创建 llm_route_cache 表 + idx_route_cache_expiry 索引。幂等，单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_010)?;
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -225,16 +228,16 @@ mod tests {
 
     /// Task 4: migration 009 必须创建 turns 表。
     #[test]
-    fn migration_009_creates_turns_table() {
+    fn migration_010_creates_llm_route_cache_table() {
         let conn = open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='turns'",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='llm_route_cache'",
                 [],
                 |row| row.get(0),
             )
-            .expect("turns table must exist after migration 009");
+            .expect("llm_route_cache table must exist after migration 010");
         assert_eq!(count, 1);
     }
 }

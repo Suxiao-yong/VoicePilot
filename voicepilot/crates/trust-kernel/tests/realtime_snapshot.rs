@@ -111,3 +111,23 @@ async fn stale_snapshot_is_rejected_without_llm_call() {
         "stale snapshot must not call the LLM"
     );
 }
+
+#[tokio::test]
+async fn repeated_query_hits_classify_cache() {
+    let server = MockServer::start().await;
+    mock_classify_hit().mount(&server).await;
+    let (_kernel, pipeline) = pipeline_with_mock_llm(&server).await;
+    for _ in 0..2 {
+        let (plan, _) = pipeline
+            .plan(PlannerInput {
+                text: "月球上的紫色大象跳了几支舞".to_string(),
+                source: PlannerSource::Voice,
+                snapshot: None,
+            })
+            .await
+            .expect("cached plan");
+        assert!(matches!(plan, PlanResult::Skill { .. }));
+    }
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 1, "second identical query must hit cache, got {}", requests.len());
+}

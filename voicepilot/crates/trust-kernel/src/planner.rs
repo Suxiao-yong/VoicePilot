@@ -229,6 +229,30 @@ impl PlannerPipeline {
         };
 
         // 4. classify_and_extract — 单 Skill 意图 + Slot 提取。
+        // Task 6: classify 缓存。命中且候选仍有效 → 零 LLM 开销直接返回。
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let cache_key = crate::llm_cache::route_cache_key(
+            llm.model(),
+            crate::llm::client::LlmClient::ROUTE_TOOL_SCHEMA_VERSION,
+            &llm_text,
+        );
+        let cached_hit = {
+            let conn = self.kernel.conn();
+            crate::llm_cache::lookup(&conn, &cache_key, now_ms).unwrap_or(None)
+        };
+        if let Some(hit) = cached_hit {
+            if self.snapshot.resolve_candidate(&hit.skill_id).is_some() {
+                let slots = serde_json::from_str(&hit.slots_json).unwrap_or_default();
+                return Ok((
+                    PlanResult::Skill {
+                        extension_id: hit.skill_id,
+                        slots,
+                    },
+                    trace,
+                ));
+            }
+            // 候选已变（如 skill 下线）：当 miss 继续走 LLM。
+        }
         let started = Instant::now();
         let classify = llm.classify_and_extract(&llm_text, manifests).await;
         trace.latency_ms = started.elapsed().as_millis() as u64;
@@ -240,6 +264,17 @@ impl PlannerPipeline {
                 if let Some(skill_id) = &resp.matched_skill_id {
                     // 只接受候选内(启用 + 有执行 target)的 skill_id。
                     if self.snapshot.resolve_candidate(skill_id).is_some() {
+                        let slots_json = serde_json::to_string(&resp.slots)
+                            .unwrap_or_else(|_| "[]".to_string());
+                        let conn = self.kernel.conn();
+                        let _ = crate::llm_cache::store(
+                            &conn,
+                            &cache_key,
+                            skill_id,
+                            &slots_json,
+                            resp.confidence,
+                            now_ms,
+                        );
                         return Ok((
                             PlanResult::Skill {
                                 extension_id: skill_id.clone(),

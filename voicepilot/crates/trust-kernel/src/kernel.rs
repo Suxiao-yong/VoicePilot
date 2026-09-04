@@ -328,6 +328,24 @@ impl TrustKernel {
         crate::turns::prune_turns_older_than(&conn, days, now_ms)
     }
 
+    /// classify 缓存查询（Task 6）。key 含模型+schema版本+归一化文本；过期由 lookup 过滤。
+    pub fn lookup_route_cache(&self, key: &str, now_ms: i64) -> Result<Option<crate::llm_cache::CachedRoute>> {
+        let conn = self.conn();
+        crate::llm_cache::lookup(&conn, key, now_ms)
+    }
+
+    /// 存一次高置信 Skill 命中（Task 6）。只在 planner 命中路径调用。
+    pub fn record_route_cache(&self, key: &str, skill_id: &str, slots_json: &str, confidence: f32, now_ms: i64) -> Result<()> {
+        let conn = self.conn();
+        crate::llm_cache::store(&conn, key, skill_id, slots_json, confidence, now_ms)
+    }
+
+    /// 清理过期缓存行（封轮/命中路径 piggyback 调用，失败不阻断）。
+    pub fn prune_route_cache_expired(&self, now_ms: i64) -> Result<usize> {
+        let conn = self.conn();
+        crate::llm_cache::prune_expired(&conn, now_ms)
+    }
+
     // ===== Wave 3 Task 3.1: SecretStore accessors + legacy migration =====
 
     /// 暴露 SecretStore(供 settings 流程 / 未来调用方读 key,不泄露值本身)。
