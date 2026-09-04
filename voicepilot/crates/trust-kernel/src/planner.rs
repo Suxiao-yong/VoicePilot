@@ -103,7 +103,7 @@ pub struct PlannerInput {
 }
 
 /// 规划结果。无 Clarification 变体:低置信度 / privacy_mode / LLM disabled /
-/// HTTP 或解析失败一律落到 `Unmatched`,由任务运行层决定 UI 反馈。
+/// HTTP 或解析失败一律先走聊天兜底,兜底也失败才落到 `Unmatched`,由任务运行层决定 UI 反馈。
 #[derive(Debug, Clone)]
 pub enum PlanResult {
     /// 空 / 纯空白输入。
@@ -115,6 +115,8 @@ pub enum PlanResult {
     },
     /// LLM 拆解出的多步 DAG 计划(已通过双层校验)。
     Dag(crate::skills::dag_types::DagPlan),
+    /// 无 Skill 命中时的 LLM 直接回答（聊天兜底，无执行、无副作用）。
+    Chat { text: String },
     /// 未匹配任何 Skill / DAG。
     Unmatched { text: String },
 }
@@ -305,8 +307,15 @@ impl PlannerPipeline {
             }
         }
 
-        // 6. 全部失败路径收敛到 Unmatched。
-        Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace))
+        // 6. 聊天兜底：classify 与 DAG 拆解都失败时，用 LLM 直接回答用户。
+        //    带上快照上下文（含上文），回答可关联对话。仍失败才收敛到 Unmatched。
+        let started = Instant::now();
+        let chat = llm.chat_answer(&llm_text).await;
+        trace.latency_ms += started.elapsed().as_millis() as u64;
+        match chat {
+            Ok(answer) => Ok((PlanResult::Chat { text: answer }, trace)),
+            Err(_) => Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace)),
+        }
     }
 
     /// 无 `llm` feature 时的回退:关键词未命中直接 Unmatched(不调 LLM)。

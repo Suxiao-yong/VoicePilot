@@ -827,6 +827,9 @@ async fn scenario_7_llm_returns_invalid_skill_id_falls_back_to_single_skill_rout
         trust_kernel::voice::router_bridge::RouteOutcome::Unmatched { .. } => {
             // 期望路径
         }
+        trust_kernel::voice::router_bridge::RouteOutcome::Chat { .. } => {
+            panic!("Chat fallback must not trigger: mock has no message.content");
+        }
         trust_kernel::voice::router_bridge::RouteOutcome::Routed { .. } => {
             // 关键词命中场景也合法(spec §2.8:回退后若关键词命中则 Routed)
         }

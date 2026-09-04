@@ -280,6 +280,7 @@ impl VoiceListenImpl {
                 slots: vec![],
             },
             Ok(RouteOutcome::Unmatched { text }) => RouteTextResult::Unmatched { text },
+            Ok(RouteOutcome::Chat { text }) => RouteTextResult::Chat { text },
             Ok(RouteOutcome::Empty) => RouteTextResult::Empty,
             #[cfg(feature = "llm")]
             Ok(RouteOutcome::DagPlan(_)) => RouteTextResult::Unmatched {
@@ -346,6 +347,7 @@ impl VoiceListenImpl {
         let outcome = match route_outcome {
             RouteTextResult::Routed { skill_id, .. } => format!("routed:{skill_id}"),
             RouteTextResult::Unmatched { .. } => "unmatched".to_string(),
+            RouteTextResult::Chat { .. } => "chat".to_string(),
             RouteTextResult::Empty => "empty".to_string(),
         };
         let latency_ms = match (timings.voice_started_at, timings.first_partial_at) {

@@ -24,6 +24,8 @@ pub enum RouteTextResult {
     },
     Unmatched { text: String },
     Empty,
+    /// 无 Skill 命中时的 LLM 直接回答（聊天兜底）。前端直接展示 (+TTS)。
+    Chat { text: String },
 }
 
 /// 通过 PlannerPipeline 统一规划入口路由文本(或任意文本输入)。
@@ -77,6 +79,8 @@ pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResul
         PlanResult::Dag(_) => RouteTextResult::Unmatched {
             text: trimmed.to_string(),
         },
+        // 聊天兜底：透传展示。
+        PlanResult::Chat { text } => RouteTextResult::Chat { text },
         PlanResult::Unmatched { text } => RouteTextResult::Unmatched { text },
     })
 }

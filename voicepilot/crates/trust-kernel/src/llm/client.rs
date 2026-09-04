@@ -293,6 +293,58 @@ impl LlmClient {
         }
     }
 
+    /// 直接问答兜底：无 Skill 命中时，用 LLM 直接回答用户（聊天 fallback）。
+    ///
+    /// 纯文本对话，不带 tools，temperature 0.7，max_tokens 300。
+    /// 失败返回 LlmError，调用方收敛到 Unmatched；不写 DB、不记审计。
+    pub async fn chat_answer(&self, text: &str) -> LlmResult<String> {
+        if !self.is_enabled() {
+            return Err(LlmError::NotConfigured);
+        }
+        let body = json!({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "你是 VoicePilot 桌面助手，用中文简短回答用户的问题（200字以内）。用户问的是日常问题或本软件功能介绍，直接回答，不要编造不存在的功能。"},
+                {"role": "user", "content": text},
+            ],
+            "max_tokens": 300,
+            "temperature": 0.7,
+        });
+        let url = format!("{}/chat/completions", self.base_url);
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LlmError::Timeout(self.timeout)
+                } else {
+                    LlmError::Http(e.to_string())
+                }
+            })?;
+        if !resp.status().is_success() {
+            return Err(LlmError::Http(format!("HTTP {}", resp.status())));
+        }
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(format!("response body parse: {e}")))?;
+        let answer = v
+            .pointer("/choices/0/message/content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if answer.is_empty() {
+            Err(LlmError::Parse("empty chat answer".to_string()))
+        } else {
+            Ok(answer)
+        }
+    }
+
     /// W8 Plan 2:语音 → 完整 DAG plan。
     ///
     /// 复用 W7 的 OpenAI 兼容 `/chat/completions` + function calling。
@@ -1064,5 +1116,43 @@ mod tests {
         let client = LlmClient::disabled();
         let err = client.probe().await.expect_err("probe disabled");
         assert!(matches!(err, LlmError::NotConfigured));
+    }
+
+    #[tokio::test]
+    async fn chat_answer_returns_content() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{"message": {"role": "assistant", "content": "我是 VoicePilot，可以整理文件、打开应用。"}}]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let answer = client.chat_answer("你有什么功能").await.expect("chat ok");
+        assert!(answer.contains("VoicePilot"), "got {answer}");
+    }
+
+    #[tokio::test]
+    async fn chat_answer_rejects_empty_content() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{"message": {"role": "assistant", "content": "   "}}]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let err = client.chat_answer("hi").await.expect_err("empty chat");
+        assert!(matches!(err, LlmError::Parse(_)));
     }
 }

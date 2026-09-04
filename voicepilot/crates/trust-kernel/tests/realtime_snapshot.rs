@@ -131,3 +131,31 @@ async fn repeated_query_hits_classify_cache() {
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(requests.len(), 1, "second identical query must hit cache, got {}", requests.len());
 }
+
+#[tokio::test]
+async fn chat_fallback_answers_when_no_skill_matches() {
+    // mock 对所有请求返回纯文本（无 tool_calls）：classify 与 decompose
+    // 均解析失败，只能走聊天兜底。
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{"message": {"role": "assistant", "content": "我是 VoicePilot，可以帮你整理文件、打开应用。"}}]
+        })))
+        .mount(&server)
+        .await;
+    let (_kernel, pipeline) = pipeline_with_mock_llm(&server).await;
+    let (plan, trace) = pipeline
+        .plan(PlannerInput {
+            text: "月球上的紫色大象跳了几支舞".to_string(),
+            source: PlannerSource::Voice,
+            snapshot: None,
+        })
+        .await
+        .expect("chat plan");
+    match plan {
+        PlanResult::Chat { text } => assert!(text.contains("VoicePilot"), "got {text}"),
+        other => panic!("expected Chat fallback, got {other:?}"),
+    }
+    assert!(trace.used_llm);
+}

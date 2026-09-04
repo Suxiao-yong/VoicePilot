@@ -222,11 +222,15 @@ export function MainView() {
     try {
       const r = await voiceListen();
       setVoiceResult(r);
-      // W6b-3b Task 13:转写成功后触发 TTS 语音反馈
+      // W6b-3b Task 13:转写成功后触发 TTS 语音反馈；聊天兜底播报回答正文。
       if (r.kind === "success" && r.transcription && r.transcription.trim()) {
+        const speakText =
+          r.route_outcome.kind === "chat" && r.route_outcome.text.trim()
+            ? r.route_outcome.text
+            : `已为您${r.transcription}`;
         setTtsPlaying(true);
         try {
-          const ttsResult = await invokeTts(`已为您${r.transcription}`);
+          const ttsResult = await invokeTts(speakText);
           if (ttsResult.error) {
             console.warn("TTS error:", ttsResult.error);
             setTtsPlaying(false);
@@ -682,6 +686,11 @@ function RouteOutcomeFeedback({ outcome }: { outcome: RouteTextResult }) {
           <span className="mono-sm">{outcome.text}</span>
         </>
       )}
+      {outcome.kind === "chat" && (
+        <>
+          <span className="pill pill-on">AI 回答</span>
+        </>
+      )}
       {outcome.kind === "empty" && <span className="pill">空输入</span>}
     </div>
   );
@@ -702,6 +711,7 @@ function RouteResultCard({ result }: { result: RouteTextResult }) {
         <div className="result-kicker">路由结果</div>
         <div className="result-main">
           {result.kind === "routed" && <>已路由到 Skill：{result.skill_id}</>}
+          {result.kind === "chat" && <>{result.text}</>}
           {result.kind === "unmatched" && <>未匹配到 Skill：{result.text}</>}
           {result.kind === "empty" && <>输入为空</>}
         </div>

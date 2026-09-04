@@ -116,7 +116,7 @@ fn main() -> Result<()> {
     println!("  organize <root> <filter> <dest>  run files.organize Skill (W3b)");
     println!("  mcp-serve       start MCP server on stdio (W4)");
     #[cfg(feature = "voice")]
-    println!("  voice list-models         List available Whisper models + download URLs");
+    println!("  voice list-models         List available SenseVoice models + download URLs");
     #[cfg(feature = "voice")]
     println!("  voice transcribe <file>   Transcribe a WAV file (mono 16-bit) to text");
     #[cfg(feature = "voice")]
@@ -460,10 +460,12 @@ fn handle_voice_list_models_command() {
     let registry = ModelRegistry::new();
     let models = registry.all_known_models();
 
-    println!("Available Whisper models:");
+    println!("Available SenseVoice models (sherpa-onnx):");
     println!();
     for m in &models {
-        let present = if m.path.is_file() { "[installed]" } else { "[missing]  " };
+        // SenseVoice 是目录模型(sherpa-onnx),以 model.onnx + tokens.txt 判定完整性。
+        let complete = m.path.join("model.onnx").is_file() && m.path.join("tokens.txt").is_file();
+        let present = if complete { "[installed]" } else { "[missing]  " };
         println!("  {} {} ({} MB)", present, m.name, m.size_hint_mb);
         println!("       path: {}", m.path.display());
         println!("       url:  {}", m.download_url);
@@ -471,7 +473,10 @@ fn handle_voice_list_models_command() {
     }
     println!("Default model: {}", registry.default_model().name);
     println!();
-    println!("To install: download the .bin file from the URL above and place it at the path shown.");
+    println!(
+        "To install: download the .tar.bz2 archive from the URL above, verify the pinned SHA-256 \
+         digest, then extract it into the path shown (must contain model.onnx + tokens.txt)."
+    );
 }
 
 #[cfg(feature = "voice")]
@@ -556,6 +561,10 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
             println!("(DAG plan not handled by `voice route` — use `voice-dag <text>` for DAG routing)");
             Ok(())
         }
+        RouteOutcome::Chat { text } => {
+            println!("Chat: {}", text);
+            Ok(())
+        }
         RouteOutcome::Unmatched { text } => {
             println!("No skill matched for: {:?}", text);
             println!("(W7 LLM Planner fallback not yet implemented)");
@@ -622,6 +631,9 @@ async fn handle_voice_dag_command(kernel: &TrustKernel, text: &str) -> anyhow::R
             } else {
                 println!("Denied — DAG not executed.");
             }
+        }
+        RouteOutcome::Chat { text } => {
+            println!("Chat → {}", text);
         }
         RouteOutcome::Unmatched { text } => {
             println!("Unmatched → text: {}", text);
@@ -696,6 +708,9 @@ fn handle_voice_listen_command() -> anyhow::Result<()> {
         #[cfg(feature = "llm")]
         RouteOutcome::DagPlan(_) => {
             println!("(DAG plan not handled in voice listen pipeline — use `voice-dag <text>` for DAG routing)");
+        }
+        RouteOutcome::Chat { text } => {
+            println!("Chat: {}", text);
         }
         RouteOutcome::Unmatched { text } => {
             println!("No skill matched for: {:?}", text);

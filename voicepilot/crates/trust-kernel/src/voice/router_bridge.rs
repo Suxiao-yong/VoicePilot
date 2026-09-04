@@ -25,6 +25,8 @@ pub enum RouteOutcome {
     Routed {
         skill_id: String,
     },
+    /// 无 Skill 命中时的 LLM 直接回答（聊天兜底）。调用方直接展示，不执行。
+    Chat { text: String },
     /// W8 Plan 4 新增:LLM 拆解为多步 DAG。Caller 应弹 DAG 骨架审批 UI
     /// (Plan 5 实现),Allow 后调 `DagExecutor::run` 执行。
     #[cfg(feature = "llm")]
@@ -161,6 +163,8 @@ async fn route_via_pipeline(
         PlanResult::Skill { extension_id, .. } => Ok(RouteOutcome::Routed {
             skill_id: extension_id,
         }),
+        // 聊天兜底：无副作用透传（不建 task、不记审计，与 keyword 命中路径一致）。
+        PlanResult::Chat { text } => Ok(RouteOutcome::Chat { text }),
         PlanResult::Dag(dag) => {
             #[cfg(feature = "llm")]
             {
