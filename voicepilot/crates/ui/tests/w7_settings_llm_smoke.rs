@@ -1,39 +1,73 @@
-//! W7 Plan 6 Task 2: Settings LLM UI E2E 冒烟测试。
+//! W7 Plan 6 Task 2 (Wave 3 修订): Settings LLM UI 冒烟测试。
 //!
-//! 覆盖 4 个场景:DTO LLM 字段 flatten/merge 往返 / update_settings 持久化 + rebuild_llm_client /
-//! privacy_mode=true 强制 disabled / api_key 空 or llm_enabled=false 强制 disabled。
+//! Wave 3 Task 3.1:LLM API key 不再通过 KV 往返 —— 它只存在于
+//! SecretStore(keyring)。读取 DTO 为 `SettingsView`(`llm_api_key_present`,
+//! 无 key 值);写入 DTO 为 `SettingsUpdate`(`llm_api_key: Option<String>` +
+//! `clear_llm_api_key`)。
 //!
-//! 与 settings_commands_unit.rs 的区别:本测试覆盖 LLM 5 字段(roundtrip)+ AppState.rebuild_llm_client
-//! 真实调用(验证 LlmClient::is_enabled() 布尔结果,而非仅 KV 序列化)。
+//! 覆盖场景:非 secret LLM 字段 KV 往返 / update_settings 持久化 + key 入
+//! SecretStore + rebuild_llm_client / privacy_mode=true 强制 disabled /
+//! llm_enabled=false 或无 key 强制 disabled。
 //!
-//! 注意:纯逻辑函数 `update_settings` 只持久化 KV,不重建 LlmClient 缓存
-//! (见 settings_commands.rs:164-171)。Tauri command 包装 `update_settings_command`
-//! 才调 `rebuild_llm_client` + 写缓存。本测试镜像 command 函数体
-//! (与 settings_commands_unit.rs::update_settings_syncs_allowed_apps_to_kernel 同模式),
-//! 以便在 unit test 中验证端到端契约(无法构造 `tauri::State<'_, AppState>`)。
+//! 注意:测试用 `AppState::new_in_memory_with_secret_store` 注入内存 store,
+//! 避免把测试 key 写入真实 Windows Credential Manager。
 
 #![cfg(all(feature = "tauri", feature = "llm"))]
 
+use std::sync::Arc;
+
+use trust_kernel::secrets::{InMemorySecretStore, SecretStore};
 use voicepilot_ui::settings_commands::{
-    flatten_to_kv, get_settings, merge_from_kv, update_settings, SettingsDto,
+    flatten_to_kv, get_settings, merge_from_kv, update_settings, SettingsUpdate, SettingsView,
 };
 use voicepilot_ui::state::AppState;
 
-/// 镜像 `update_settings_command` 函数体:纯 `update_settings` 只持久化 KV,
-/// command 包装额外刷新 serving-applied LlmClient 缓存。unit test 无法构造
-/// `tauri::State`,故手动调 `rebuild_llm_client` + 写缓存。
-fn update_settings_and_rebuild_llm(state: &AppState, settings: &SettingsDto) {
-    update_settings(state, settings).expect("update_settings");
-    let new_llm = state.rebuild_llm_client(settings);
-    *state.llm_client.lock().unwrap() = Some(new_llm);
+fn new_test_state() -> anyhow::Result<AppState> {
+    let store: Arc<dyn SecretStore> = Arc::new(InMemorySecretStore::default());
+    AppState::new_in_memory_with_secret_store(store)
 }
 
-/// Test 1: SettingsDto LLM 5 字段 + privacy_mode 通过 flatten_to_kv → merge_from_kv 往返一致。
+/// 镜像 `update_settings_command` 函数体:纯 `update_settings` 持久化 KV +
+/// SecretStore 操作,command 包装额外刷新 serving-applied LlmClient。
+fn update_settings_and_rebuild_llm(state: &AppState, update: &SettingsUpdate) {
+    update_settings(state, update).expect("update_settings");
+    let view = SettingsView::from(update);
+    state.rebuild_llm_client(&view);
+}
+
+/// 一个默认 SettingsUpdate(secret 字段显式)。
+fn default_update() -> SettingsUpdate {
+    let view = SettingsView::default();
+    SettingsUpdate {
+        voice_model_path: view.voice_model_path,
+        voice_language: view.voice_language,
+        voice_threads: view.voice_threads,
+        vad_energy_threshold: view.vad_energy_threshold,
+        vad_max_silence_ms: view.vad_max_silence_ms,
+        vad_min_speech_ms: view.vad_min_speech_ms,
+        voice_max_duration_ms: view.voice_max_duration_ms,
+        voice_chunk_duration_ms: view.voice_chunk_duration_ms,
+        privacy_mode: view.privacy_mode,
+        compensation_ttl_hours: view.compensation_ttl_hours,
+        tts_enabled: view.tts_enabled,
+        tts_model_path: view.tts_model_path,
+        llm_enabled: view.llm_enabled,
+        llm_base_url: view.llm_base_url,
+        llm_model: view.llm_model,
+        llm_provider_url: view.llm_provider_url,
+        llm_api_key: None,
+        clear_llm_api_key: false,
+        uia_allowed_apps: view.uia_allowed_apps,
+    }
+}
+
+/// Test 1: 非 secret LLM 字段通过 flatten_to_kv → merge_from_kv 往返一致;
+/// `llm.api_key` 绝不出现在 KV 中。
 #[test]
-fn settings_dto_llm_fields_flatten_merge_roundtrip() {
-    let dto = SettingsDto {
+fn settings_llm_fields_flatten_merge_roundtrip_no_key_in_kv() {
+    let dto = SettingsView {
         llm_enabled: true,
-        llm_api_key: "sk-test123".to_string(),
+        llm_api_key_present: true,
         llm_base_url: "https://api.deepseek.com/v1".to_string(),
         llm_model: "deepseek-chat".to_string(),
         llm_provider_url: "https://platform.deepseek.com/api_keys".to_string(),
@@ -45,111 +79,149 @@ fn settings_dto_llm_fields_flatten_merge_roundtrip() {
     let got = merge_from_kv(&kv).expect("merge_from_kv should succeed for valid LLM KV");
 
     assert_eq!(got.llm_enabled, dto.llm_enabled);
-    assert_eq!(got.llm_api_key, dto.llm_api_key);
     assert_eq!(got.llm_base_url, dto.llm_base_url);
     assert_eq!(got.llm_model, dto.llm_model);
     assert_eq!(got.llm_provider_url, dto.llm_provider_url);
     assert_eq!(got.privacy_mode, dto.privacy_mode);
+    assert!(
+        !kv.iter().any(|(k, _)| k == "llm.api_key"),
+        "llm.api_key must never be persisted in KV"
+    );
 }
 
-/// Test 2: update_settings 持久化 KV + rebuild_llm_client 使 state.llm_client() 反映新配置。
+/// Test 2: update_settings 持久化 KV + 把 key 写入 SecretStore + rebuild_llm_client
+/// 使 state.llm_client() 反映新配置;get_settings 只报告 key 存在,不回读值。
 #[test]
 fn update_settings_persists_and_rebuilds_llm_client() {
-    let state = AppState::new_in_memory().expect("AppState::new_in_memory");
+    let state = new_test_state().expect("new test state");
 
-    // 初始状态:llm_client 缓存为 None → llm_client() 返回 disabled()。
     assert!(
         !state.llm_client().is_enabled(),
         "fresh AppState should have disabled LlmClient"
     );
 
-    let dto = SettingsDto {
-        llm_enabled: true,
-        llm_api_key: "sk-persisted".to_string(),
-        privacy_mode: false,
-        ..Default::default()
-    };
+    let mut update = default_update();
+    update.llm_enabled = true;
+    update.llm_api_key = Some("sk-persisted".to_string());
 
-    // 镜像 update_settings_command 函数体:持久化 KV + 重建并缓存 LlmClient。
-    update_settings_and_rebuild_llm(&state, &dto);
+    update_settings_and_rebuild_llm(&state, &update);
 
-    // serving-applied LlmClient 应为 enabled(api_key + base_url 均非空)。
-    let llm_client = state.llm_client();
+    let kernel_llm = state
+        .kernel
+        .llm_client()
+        .expect("kernel should own the rebuilt LlmClient");
     assert!(
-        llm_client.is_enabled(),
-        "llm_client should be enabled after update_settings with valid config"
+        kernel_llm.is_enabled(),
+        "kernel llm_client should be enabled after update_settings with a stored key"
+    );
+    assert!(
+        state.llm_client().is_enabled(),
+        "AppState::llm_client() should delegate to kernel"
     );
 
-    // accepted/persisted KV 应能通过 get_settings 读回相同值。
+    // get_settings 报告 key 存在,但绝不返回 key 值。
     let retrieved = get_settings(&state).expect("get_settings");
-    assert_eq!(retrieved.llm_api_key, "sk-persisted");
+    assert!(retrieved.llm_api_key_present, "key present flag must be true");
     assert!(retrieved.llm_enabled);
 
-    // 验证 KV 确实落盘(而非 get_settings 返回 Default)。
-    let kv = flatten_to_kv(&retrieved);
-    let api_key_kv = kv
-        .iter()
-        .find(|(k, _)| k == "llm.api_key")
-        .map(|(_, v)| v.clone())
-        .expect("llm.api_key should be in KV");
-    assert_eq!(api_key_kv, "sk-persisted");
+    // key 在 SecretStore,不在 SQLite。
+    assert_eq!(
+        state.kernel.llm_api_key().expect("read store").as_deref(),
+        Some("sk-persisted")
+    );
+    {
+        let conn = state.kernel.conn();
+        assert!(
+            state
+                .kernel
+                .config_repo()
+                .get(&conn, "llm.api_key")
+                .expect("query legacy key")
+                .is_none(),
+            "SQLite must not hold the API key plaintext"
+        );
+        assert_eq!(
+            state
+                .kernel
+                .config_repo()
+                .get(&conn, "llm.api_key_present")
+                .expect("query presence flag")
+                .as_deref(),
+            Some("true")
+        );
+    }
 }
 
-/// Test 3: privacy_mode=true 强制 rebuild_llm_client 返回 disabled(覆盖 llm_enabled+api_key)。
+/// Test 3: privacy_mode=true 强制 rebuild_llm_client 返回 disabled(覆盖 llm_enabled+key)。
 #[test]
 fn privacy_mode_true_returns_disabled_llm_client() {
-    let state = AppState::new_in_memory().expect("AppState::new_in_memory");
+    let state = new_test_state().expect("new test state");
 
-    let dto = SettingsDto {
-        llm_enabled: true,
-        llm_api_key: "sk-should-be-ignored".to_string(),
-        privacy_mode: true,
-        ..Default::default()
-    };
+    let mut update = default_update();
+    update.llm_enabled = true;
+    update.llm_api_key = Some("sk-should-be-ignored".to_string());
+    update.privacy_mode = true;
 
-    // 直接调 rebuild_llm_client:privacy_mode 胜过 llm_enabled + api_key。
-    let new_client = state.rebuild_llm_client(&dto);
+    let view = SettingsView::from(&update);
+    let new_client = state.rebuild_llm_client(&view);
     assert!(
         !new_client.is_enabled(),
-        "privacy_mode=true must force disabled LlmClient even with valid api_key"
+        "privacy_mode=true must force disabled LlmClient even with a stored key"
     );
 
-    // 通过 update_settings + cache 刷新镜像 command body,验证缓存态一致。
-    update_settings_and_rebuild_llm(&state, &dto);
+    update_settings_and_rebuild_llm(&state, &update);
     assert!(
         !state.llm_client().is_enabled(),
-        "cached llm_client must be disabled under privacy_mode=true"
+        "kernel llm_client must be disabled under privacy_mode=true"
     );
 }
 
-/// Test 4: llm_enabled=false OR llm_api_key 空 → rebuild_llm_client 返回 disabled。
+/// Test 4: llm_enabled=false 或无 key → rebuild_llm_client 返回 disabled。
 #[test]
-fn disabled_llm_when_api_key_empty_or_llm_enabled_false() {
-    let state = AppState::new_in_memory().expect("AppState::new_in_memory");
+fn disabled_llm_when_api_key_missing_or_llm_enabled_false() {
+    let state = new_test_state().expect("new test state");
 
-    // Case A: llm_enabled=false → disabled(即使 api_key 非空)。
-    let dto_a = SettingsDto {
-        llm_enabled: false,
-        llm_api_key: "sk-test".to_string(),
-        privacy_mode: false,
-        ..Default::default()
-    };
-    let client_a = state.rebuild_llm_client(&dto_a);
-    assert!(
-        !client_a.is_enabled(),
-        "llm_enabled=false must yield disabled LlmClient even with non-empty api_key"
-    );
+    // Case A: llm_enabled=false → disabled(即使 store 中有 key)。
+    {
+        let mut update = default_update();
+        update.llm_enabled = false;
+        update.llm_api_key = Some("sk-test".to_string());
+        update_settings_and_rebuild_llm(&state, &update);
+        assert!(
+            !state.llm_client().is_enabled(),
+            "llm_enabled=false must yield disabled LlmClient even with a stored key"
+        );
+    }
 
-    // Case B: llm_api_key 空 → disabled(即使 llm_enabled=true)。
-    let dto_b = SettingsDto {
-        llm_enabled: true,
-        llm_api_key: String::new(),
-        privacy_mode: false,
-        ..Default::default()
-    };
-    let client_b = state.rebuild_llm_client(&dto_b);
-    assert!(
-        !client_b.is_enabled(),
-        "empty llm_api_key must yield disabled LlmClient even with llm_enabled=true"
-    );
+    // Case B: store 无 key → disabled(即使 llm_enabled=true)。
+    {
+        let mut update = default_update();
+        update.llm_enabled = true;
+        update.clear_llm_api_key = true;
+        update_settings_and_rebuild_llm(&state, &update);
+        assert!(
+            !state.llm_client().is_enabled(),
+            "no stored key must yield disabled LlmClient even with llm_enabled=true"
+        );
+        assert!(
+            state.kernel.llm_api_key().expect("read store").is_none(),
+            "clear_llm_api_key must remove the stored key"
+        );
+    }
+}
+
+/// 启动路径等价物：只持久化不 rebuild（模拟“配置过但重启后”），
+/// 启动重建入口必须让路由重新可用。
+#[test]
+fn startup_rebuild_from_persisted_settings_enables_llm() {
+    use voicepilot_ui::settings_commands::startup_rebuild_llm;
+    let state = new_test_state().expect("state");
+    let mut update = default_update();
+    update.llm_enabled = true;
+    update.llm_api_key = Some("sk-test-startup".to_string());
+    update_settings(&state, &update).expect("persist");
+    assert!(state.kernel.llm_client().is_none());
+    startup_rebuild_llm(&state);
+    let client = state.kernel.llm_client().expect("client after startup rebuild");
+    assert!(client.is_enabled());
 }
