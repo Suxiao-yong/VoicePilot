@@ -26,122 +26,59 @@ pub enum RouteTextResult {
     Empty,
 }
 
-/// 通过 SkillRouter 路由转写文本(或任意文本输入)。
+/// 通过 PlannerPipeline 统一规划入口路由文本(或任意文本输入)。
 ///
-/// W7:keyword 优先,LLM fallback。
-/// - `llm` feature 开启:`SkillRouter::with_llm(state.llm_client())` + `route_with_llm().await`
-///   - LLM disabled(privacy_mode / llm_enabled=false / api_key 空):route_with_llm 跳过 LLM 分支
-///   - LLM 启用且 keyword 未命中:调 LLM,confidence ≥ 0.7 返回 `SkillWithSlots`
-/// - `llm` feature 关闭:`SkillRouter::new()` + 同步 `route()`(纯 keyword,永不返回 SkillWithSlots)
+/// W1 Task 1.3:不再自建 SkillRouter(消除 manifest 注册重复),规划完全委托给
+/// `PlannerPipeline`(keyword → LLM classify → LLM DAG 拆解,纯规划、无 DB 副作用)。
+/// - `Skill{extension_id, slots}` → `Routed{skill_id, slots}`,slots 由 UI 层
+///   `convert_extracted_slots` 转为 UI Slot DTO(keyword 命中时为空 Vec)
+/// - `Dag` → `Unmatched`(UI 尚无 DAG 审批弹窗,W8 Plan 5 实现;与既有行为一致)
+/// - `Unmatched` → `Unmatched`;`Empty` → `Empty`
+///
+/// 用户自定义 Skill 覆盖语义由 extension catalog 保证(registry 加载 user skills
+/// 时同 id 覆盖 built-in,与 SkillRouter::register 语义一致),UI 不再单独注册。
 ///
 /// 路由阶段不执行 Skill;Skill 执行需要用户在 UI 上确认 Slot 后由 `organize_files_command` 触发。
 pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
-    use trust_kernel::skills::manifest::{
-        files_organize_manifest, form_prepare_manifest, research_save_manifest,
-        task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
-    };
-    use trust_kernel::skills::router::{RouteDecision, SkillRouter};
+    use trust_kernel::planner::{PlannerInput, PlannerPipeline, PlannerSource, PlanResult};
 
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(RouteTextResult::Empty);
     }
 
-    #[cfg(feature = "llm")]
-    {
-        let llm = state.llm_client();
-        let mut router = SkillRouter::with_llm(llm);
-        router.register(files_organize_manifest());
-        router.register(task_repeat_verified_manifest());
-        // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
-        // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
-        router.register(task_compensate_manifest());
-        router.register(task_explain_manifest());
-        // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-        #[cfg(all(windows, feature = "uia"))]
-        {
-            use trust_kernel::skills::manifest::{app_control_manifest, note_capture_manifest};
-            router.register(app_control_manifest());
-            router.register(note_capture_manifest());
-        }
-        // W7 Plan 5: register Playwright MCP browser skills (cross-platform).
-        router.register(research_save_manifest());
-        router.register(form_prepare_manifest());
+    let pipeline = PlannerPipeline::new(state.kernel.clone(), state.kernel.extension_snapshot());
+    let (plan, _trace) = pipeline
+        .plan(PlannerInput {
+            text: trimmed.to_string(),
+            source: PlannerSource::Text,
+            // 文本路径无麦克风快照：传 None，行为与旧版一致。
+            snapshot: None,
+        })
+        .await?;
 
-        // W7 Plan 3: 注册用户自定义 Skill。Task 3 覆盖语义保证同 id 时
-        // 用户版本覆盖 built-in(用户 > built-in 优先级)。
-        if let Ok(user_manifests) = state.kernel.list_user_skill_manifests() {
-            for m in user_manifests {
-                router.register(m);
-            }
-        }
-
-        let decision = router.route_with_llm(trimmed).await;
-        match decision {
-            RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
-                skill_id: manifest.id,
-                slots: vec![],
-            }),
-            RouteDecision::SkillWithSlots(manifest, slots) => {
-                // LLM ExtractedSlot → UI Slot(LLM 不返回字符位置,start=0/end=raw.len())
-                let slot_dtos = crate::slot_parser::convert_extracted_slots(&slots);
-                Ok(RouteTextResult::Routed {
-                    skill_id: manifest.id,
-                    slots: slot_dtos,
-                })
-            }
-            // W8 Plan 4:route_with_llm 不返回 Dag(它调 classify_and_extract
-            // 不是 decompose_to_dag);此处防御性 arm 保持 match 穷尽。Plan 5
-            // 实现 UI DAG 审批弹窗时会改用 route_text_with_dag,届时此处
-            // 可移除并改用 RouteTextResult::DagPlan 变体。
-            #[cfg(feature = "llm")]
-            RouteDecision::Dag(_) => Ok(RouteTextResult::Unmatched {
-                text: trimmed.to_string(),
-            }),
-            RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
-                text: trimmed.to_string(),
-            }),
-        }
-    }
-
-    #[cfg(not(feature = "llm"))]
-    {
-        let mut router = SkillRouter::new();
-        router.register(files_organize_manifest());
-        router.register(task_repeat_verified_manifest());
-        // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
-        // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
-        router.register(task_compensate_manifest());
-        router.register(task_explain_manifest());
-        // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-        #[cfg(all(windows, feature = "uia"))]
-        {
-            use trust_kernel::skills::manifest::{app_control_manifest, note_capture_manifest};
-            router.register(app_control_manifest());
-            router.register(note_capture_manifest());
-        }
-        // W7 Plan 5: register Playwright MCP browser skills (cross-platform).
-        router.register(research_save_manifest());
-        router.register(form_prepare_manifest());
-
-        // W7 Plan 3: 注册用户自定义 Skill(覆盖语义同 llm 分支)。
-        if let Ok(user_manifests) = state.kernel.list_user_skill_manifests() {
-            for m in user_manifests {
-                router.register(m);
-            }
-        }
-
-        match router.route(trimmed) {
-            RouteDecision::Skill(manifest) => Ok(RouteTextResult::Routed {
-                skill_id: manifest.id,
-                slots: vec![],
-            }),
-            // 无 LLM feature 时 `RouteDecision` 不含 SkillWithSlots 变体,无需匹配。
-            RouteDecision::Planner => Ok(RouteTextResult::Unmatched {
-                text: trimmed.to_string(),
-            }),
-        }
-    }
+    Ok(match plan {
+        PlanResult::Empty => RouteTextResult::Empty,
+        #[cfg(feature = "llm")]
+        PlanResult::Skill {
+            extension_id,
+            slots,
+        } => RouteTextResult::Routed {
+            skill_id: extension_id,
+            slots: crate::slot_parser::convert_extracted_slots(&slots),
+        },
+        // 非 llm 构建:keyword 路径不提取 Slot,保持空 Vec(与 W7 keyword 行为一致)。
+        #[cfg(not(feature = "llm"))]
+        PlanResult::Skill { extension_id, .. } => RouteTextResult::Routed {
+            skill_id: extension_id,
+            slots: Vec::new(),
+        },
+        // UI 尚无 DAG 审批弹窗:与既有行为一致,防御性映射为 Unmatched。
+        PlanResult::Dag(_) => RouteTextResult::Unmatched {
+            text: trimmed.to_string(),
+        },
+        PlanResult::Unmatched { text } => RouteTextResult::Unmatched { text },
+    })
 }
 
 #[cfg(feature = "tauri")]
@@ -273,6 +210,10 @@ pub fn register_handlers(
         crate::audit_commands::list_audit_for_task_command,
         crate::trust_center_commands::list_mcp_servers_command,
         crate::trust_center_commands::toggle_mcp_server_command,
+        crate::trust_center_commands::register_mcp_server_command,
+        crate::trust_center_commands::remove_mcp_server_command,
+        crate::trust_center_commands::import_mcp_servers_command,
+        crate::trust_center_commands::export_mcp_servers_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
         crate::skills_commands::reload_skills_command,
@@ -287,6 +228,12 @@ pub fn register_handlers(
         crate::dag_commands::list_dag_history_command,
         crate::dag_commands::get_dag_plan_command,
         crate::dag_commands::get_task_explanation_command,
+        // 桌宠化改造:窗口显隐 / 唯一退出路径 / 气泡可见性同步
+        crate::pet_commands::show_main_window,
+        crate::pet_commands::hide_main_window,
+        crate::pet_commands::exit_app,
+        crate::pet_commands::pet_set_bubble_visible,
+        crate::pet_commands::pet_probe,
     ])
 }
 
@@ -308,6 +255,10 @@ pub fn register_handlers_with_voice(
         crate::audit_commands::list_audit_for_task_command,
         crate::trust_center_commands::list_mcp_servers_command,
         crate::trust_center_commands::toggle_mcp_server_command,
+        crate::trust_center_commands::register_mcp_server_command,
+        crate::trust_center_commands::remove_mcp_server_command,
+        crate::trust_center_commands::import_mcp_servers_command,
+        crate::trust_center_commands::export_mcp_servers_command,
         crate::skills_commands::list_skills_command,
         crate::skills_commands::toggle_skill_command,
         crate::skills_commands::reload_skills_command,
@@ -326,6 +277,12 @@ pub fn register_handlers_with_voice(
         crate::dag_commands::list_dag_history_command,
         crate::dag_commands::get_dag_plan_command,
         crate::dag_commands::get_task_explanation_command,
+        // 桌宠化改造:窗口显隐 / 唯一退出路径 / 气泡可见性同步
+        crate::pet_commands::show_main_window,
+        crate::pet_commands::hide_main_window,
+        crate::pet_commands::exit_app,
+        crate::pet_commands::pet_set_bubble_visible,
+        crate::pet_commands::pet_probe,
     ])
 }
 

@@ -1,16 +1,22 @@
-//! RouterBridge — wires transcribed text → SkillRouter → Skill execution.
+//! RouterBridge — wires transcribed text → PlannerPipeline → Skill execution.
 //!
 //! V1.1 §2.1 + §5.1: voice input pipeline terminal stage.
 //! Returns RouteOutcome so caller (CLI) can decide UI feedback.
+//!
+//! W1 Task 1.3: 三个真实路由入口(router_bridge / UI commands / UI voice)统一
+//! 委托给 `PlannerPipeline` 纯规划层。本模块只保留 facade 职责:
+//!   1. `RouteOutcome` / `RouteTextResult` 映射(等价于既有行为)
+//!   2. DAG 成功路径的副作用(仅当 LLM 实际产出并通过校验的 DAG):
+//!      `task-llm-{uuid}` 占位 task + `llm_decompose_called` 审计(仅一次,
+//!      硬约束 plan_id / llm_model / latency_ms / token_count)+
+//!      `llm_output` taint 标记 —— 全部在 facade 层,不在 planner 内。
+
+use std::sync::Arc;
 
 use crate::approval::approver::Approver;
 use crate::error::Result;
 use crate::kernel::TrustKernel;
-use crate::skills::manifest::{
-    files_organize_manifest, form_prepare_manifest, research_save_manifest,
-    task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
-};
-use crate::skills::router::{RouteDecision, SkillRouter};
+use crate::planner::{PlannerInput, PlannerPipeline, PlannerSource, PlanResult, PlannerTrace};
 
 #[derive(Debug)]
 pub enum RouteOutcome {
@@ -29,7 +35,28 @@ pub enum RouteOutcome {
     Empty,
 }
 
-/// Route transcribed text through SkillRouter.
+/// 在同步上下文驱动 async 规划(route_text / UI voice 路径用)。
+///
+/// 新线程 + current-thread runtime:在已有 tokio runtime 上下文(如 Tauri
+/// async command)内外调用都安全 —— 直接 `Runtime::new().block_on` 在 runtime
+/// 内会 panic("Cannot start a runtime from within a runtime")。
+pub fn block_on_planner<F, T>(future: F) -> crate::error::Result<T>
+where
+    F: std::future::Future<Output = crate::error::Result<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| crate::error::KernelError::Skill(format!("planner runtime: {e}")))?;
+        runtime.block_on(future)
+    })
+    .join()
+    .map_err(|_| crate::error::KernelError::Skill("planner thread panicked".to_string()))?
+}
+
+/// Route transcribed text through PlannerPipeline.
 ///
 /// If a Skill is matched, this fn does NOT execute the Skill — execution
 /// requires user-supplied arguments (source, filter, destination) that
@@ -37,11 +64,11 @@ pub enum RouteOutcome {
 /// prompts user for missing args. W7 LLM Planner will extract args from
 /// text automatically.
 ///
-/// The `_kernel` and `_approver` params are unused in W5 (routing only);
-/// they exist so W7 can extend this fn to invoke the Skill executor
-/// directly without changing the call signature.
+/// The `_approver` param is unused in W5 (routing only); it exists so W7 can
+/// extend this fn to invoke the Skill executor directly without changing the
+/// call signature.
 pub fn route_text(
-    _kernel: &TrustKernel,
+    kernel: &TrustKernel,
     _approver: &dyn Approver,
     text: &str,
 ) -> Result<RouteOutcome> {
@@ -50,58 +77,20 @@ pub fn route_text(
         return Ok(RouteOutcome::Empty);
     }
 
-    let mut router = SkillRouter::new();
-    router.register(files_organize_manifest());
-    router.register(task_repeat_verified_manifest());
-    // 注册顺序: task_compensate 必须在 task_explain 之前,否则 task_explain 的
-    // keyword "上一步" 会先匹配 "撤销上一步" / "补偿上一步" 等 compensate 查询。
-    router.register(task_compensate_manifest());
-    router.register(task_explain_manifest());
-    // W7 Plan 4: register UIA skills (Windows-only, opt-in via `uia` feature).
-    #[cfg(all(windows, feature = "uia"))]
-    {
-        use crate::skills::manifest::{app_control_manifest, note_capture_manifest};
-        router.register(app_control_manifest());
-        router.register(note_capture_manifest());
-    }
-    // W7 Plan 5: register Playwright MCP browser skills (cross-platform,
-    // no `uia` gate — they depend only on the MCP client, which runs on
-    // any OS that can spawn `npx @playwright/mcp`).
-    router.register(research_save_manifest());
-    router.register(form_prepare_manifest());
-
-    match router.route(trimmed) {
-        RouteDecision::Skill(manifest) => Ok(RouteOutcome::Routed {
-            skill_id: manifest.id,
-        }),
-        // 同步 `route()` 不调用 LLM,不会产生 SkillWithSlots;若上游契约被破坏,
-        // 退化为 Planner 而非 panic,保持 voice pipeline 鲁棒性。
-        #[cfg(feature = "llm")]
-        RouteDecision::SkillWithSlots(manifest, _slots) => Ok(RouteOutcome::Routed {
-            skill_id: manifest.id,
-        }),
-        // 同步 `route()` 不返回 Dag;此处 unreachable,保持 match 穷尽。
-        #[cfg(feature = "llm")]
-        RouteDecision::Dag(_) => Ok(RouteOutcome::Unmatched {
-            text: trimmed.to_string(),
-        }),
-        RouteDecision::Planner => Ok(RouteOutcome::Unmatched {
-            text: trimmed.to_string(),
-        }),
-    }
+    // W1 Task 1.3: 委托 PlannerPipeline(纯规划),同步上下文经 block_on_planner
+    // 驱动。keyword 命中路径不产生任何 task / audit / taint(既有行为)。
+    let kernel = kernel.clone_arc();
+    let text = trimmed.to_string();
+    block_on_planner(async move { route_via_pipeline(kernel, text, PlannerSource::Text, None).await })
 }
 
-/// W8 Plan 4: 三级路由策略(spec §2.8)。
+/// W8 Plan 4: 三级路由策略(spec §2.8)的 facade 入口。
 ///
-/// 1. **关键词优先**:`SkillRouter::route(text)` 同步命中 → 直接返回 `Routed`,
-///    不调 LLM。匹配 W7 §2.2 算法:keyword / intent_example 命中即返回。
-/// 2. **LLM 拆解**(W8 新):关键词未命中且 LLM 启用 + `!privacy_mode` 时,
-///    调 `LlmClient::decompose_to_dag_traced` → `SlotTemplateEngine::validate_dag`
-///    双层防御(spec §2.1 / §6)→ 返回 `DagPlan`。
-///    任何错误(HTTP / 解析 / 校验)catch 后回退到第 3 级。
-///    LLM 成功路径通过 `record_llm_decompose_called` 记录审计事件
-///    (硬约束:`plan_id / llm_model / latency_ms / token_count` 4 字段)。
-/// 3. **W7 回退**:调 `route_with_llm` 走 W7 关键词 + LLM 单 Skill fallback。
+/// 规划本身(关键词优先 → LLM classify → LLM DAG 拆解 → 双层防御校验)全部
+/// 在 `PlannerPipeline` 内完成(spec §2.8 语义不变);本函数只做:
+///   1. `PlanResult` → `RouteOutcome` 映射
+///   2. DAG 成功路径的副作用(task-llm-{uuid} 占位 task + `llm_decompose_called`
+///      审计 + `llm_output` taint,仅当 LLM 实际产出并通过校验的 DAG,仅一次)
 ///
 /// 与 W7 `route_text` 的区别:
 /// - async(LLM 调用是 async)
@@ -110,8 +99,8 @@ pub fn route_text(
 ///
 /// # Errors
 /// - `KernelError::Db` 当 KV 读取 privacy_mode 失败时(保守策略:返回 Err 让上层处理)
-/// - `KernelError::Db` 当 `create_task` 失败时(LLM 调用前需预创建 task 满足审计 FK)
-/// - 其他错误均被 catch,回退到 W7 单 Skill 路由(返回 `route_with_llm` 结果)
+/// - `KernelError::Db` 当 `create_task` 失败时(LLM 成功路径需预创建 task 满足审计 FK)
+/// - 规划错误均由 pipeline catch 并收敛到 `Unmatched`(回退语义与 W8 一致)
 #[cfg(feature = "voice")]
 pub async fn route_text_with_dag(
     kernel: &TrustKernel,
@@ -122,191 +111,114 @@ pub async fn route_text_with_dag(
         return Ok(RouteOutcome::Empty);
     }
 
-    // 构建 SkillRouter,注册 W7 全部 built-in Skills(与 route_text 一致)。
-    let mut router = SkillRouter::new();
-    router.register(files_organize_manifest());
-    router.register(task_repeat_verified_manifest());
-    // 注册顺序:task_compensate 必须在 task_explain 之前(与 route_text 一致)。
-    router.register(task_compensate_manifest());
-    router.register(task_explain_manifest());
-    #[cfg(all(windows, feature = "uia"))]
-    {
-        use crate::skills::manifest::{app_control_manifest, note_capture_manifest};
-        router.register(app_control_manifest());
-        router.register(note_capture_manifest());
-    }
-    router.register(research_save_manifest());
-    router.register(form_prepare_manifest());
+    route_via_pipeline(kernel.clone_arc(), trimmed.to_string(), PlannerSource::Voice, None).await
+}
 
-    // ===== 第 1 级:关键词优先(spec §2.8)=====
-    // SkillRouter::route 是同步方法,只做 keyword + intent_example 匹配,不调 LLM。
-    // 命中 Skill / SkillWithSlots → 直接返回 Routed,跳过 LLM 拆解。
-    let keyword_decision = router.route(trimmed);
-    match keyword_decision {
-        RouteDecision::Skill(manifest) => {
-            return Ok(RouteOutcome::Routed {
-                skill_id: manifest.id,
-            });
-        }
-        #[cfg(feature = "llm")]
-        RouteDecision::SkillWithSlots(manifest, _slots) => {
-            return Ok(RouteOutcome::Routed {
-                skill_id: manifest.id,
-            });
-        }
-        #[cfg(feature = "llm")]
-        RouteDecision::Dag(_) => {
-            // route() 是同步方法,从不返回 Dag;此处 unreachable,保持防御
-        }
-        RouteDecision::Planner => { /* 落到第 2 级 */ }
+/// 带实时快照的语音路由入口（UI voice 路径用）。
+/// 快照由调用方现采现传；`None` 时行为等价 `route_text_with_dag`。
+#[cfg(feature = "voice")]
+pub async fn route_text_with_snapshot(
+    kernel: &TrustKernel,
+    text: &str,
+    snapshot: Option<crate::planner::RealtimeSnapshot>,
+) -> crate::error::Result<RouteOutcome> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(RouteOutcome::Empty);
     }
 
-    // ===== 第 2 级:LLM 拆解(spec §2.8)=====
-    // 关键词未命中且 LLM 启用 + !privacy_mode 时,尝试拆解为多步 DAG。
-    // 任何错误(HTTP / 解析 / 校验)catch 后回退到第 3 级 route_with_llm。
-    #[cfg(feature = "llm")]
-    {
-        if let Some(llm) = kernel.llm_client() {
-            if llm.is_enabled() && !kernel.privacy_mode() {
-                // spec §6.1 审计事件:llm_decompose_called(硬约束 4 字段:
-                // plan_id / llm_model / latency_ms / token_count)。
-                // audit_logs.task_id NOT NULL + FK 约束要求先创建 task。
-                // LLM 成功 / 失败均保留 task-llm-{uuid} 作为审计回溯依据
-                // (DagExecutor::run 创建自己的 root_task_id,不复用此临时 task)。
-                let llm_task_id = format!("task-llm-{}", uuid::Uuid::new_v4());
-                kernel.create_task(&llm_task_id, &format!("LLM decompose for: {}", trimmed))?;
+    route_via_pipeline(
+        kernel.clone_arc(),
+        trimmed.to_string(),
+        PlannerSource::Voice,
+        snapshot,
+    )
+    .await
+}
 
-                // spec §2.2:decompose_to_dag_traced(text, candidate_skills, user_slots)
-                // user_slots 暂传空 slice(W7 route_with_llm 也是 LLM 内部提取 slots,
-                // 不预先 regex 解析);Plan 5+ 视需要补 slot_parser 模块。
-                // 用 _traced 版本拿 DecomposeStats,再调 record_llm_decompose_called
-                // 满足硬约束(plan_id / llm_model / latency_ms / token_count 全字段)。
-                let user_slots: Vec<crate::llm::types::ExtractedSlot> = Vec::new();
-                match llm
-                    .decompose_to_dag_traced(trimmed, router.skills(), &user_slots)
-                    .await
-                {
-                    Ok((dag, stats)) => {
-                        // 审计 — llm_decompose_called(成功路径,spec §6.1)
-                        let _ = crate::llm::client::record_llm_decompose_called(
-                            kernel,
-                            &llm_task_id,
-                            &dag.plan_id,
-                            &stats,
-                        );
+/// PlannerPipeline facade 的共享实现(route_text / route_text_with_dag 共用)。
+///
+/// 纯规划由 pipeline 完成;facade 层负责 `RouteOutcome` 映射与 DAG 副作用
+/// (task-llm-{uuid} 占位 task + llm_decompose_called 审计 + llm_output taint)。
+/// keyword / classify 命中路径无任何 DB 副作用(既有行为)。
+async fn route_via_pipeline(
+    kernel: Arc<TrustKernel>,
+    text: String,
+    source: PlannerSource,
+    snapshot: Option<crate::planner::RealtimeSnapshot>,
+) -> Result<RouteOutcome> {
+    let pipeline = PlannerPipeline::new(kernel.clone(), kernel.extension_snapshot());
+    let (plan, trace) = pipeline
+        .plan(PlannerInput {
+            text: text.clone(),
+            source,
+            snapshot,
+        })
+        .await?;
 
-                        // 双层防御 #1(spec §2.1 / §6):LLM 返回后立即校验。
-                        // validate_dag 检查:node_id 引用 / slot kind / iter 仅在循环节点 /
-                        // filter predicate 支持。decompose_to_dag_traced 内部已校验,
-                        // 此处二次校验作为 defense-in-depth(防止 Plan 2 实现遗漏)。
-                        match crate::skills::template::SlotTemplateEngine::validate_dag(&dag) {
-                            Ok(()) => {
-                                // W9 Plan 3: 为 DagPlan 中所有 Literal 值标 llm_output taint。
-                                // 在 validate_dag 通过后标 taint(校验失败的 plan 会被丢弃,
-                                // 无需标 taint,避免孤儿记录)。taint 标记失败不阻断流程
-                                // (taint 是安全增强,非硬约束;warn 记录即可)。
-                                if let Err(e) = crate::llm::client::tag_dag_plan_literals(
-                                    kernel,
-                                    &llm_task_id,
-                                    &dag,
-                                ) {
-                                    tracing::warn!(
-                                        error = %e,
-                                        "tag_dag_plan_literals failed; continuing without llm_output taints"
-                                    );
-                                }
-                                return Ok(RouteOutcome::DagPlan(dag));
-                            }
-                            Err(e) => {
-                                // 校验失败:回退到 W7 route_with_llm(spec §2.8 错误处理)。
-                                tracing::warn!(
-                                    error = %e,
-                                    "validate_dag failed; falling back to W7 route_with_llm"
-                                );
-                                // 落到第 3 级(下方 route_with_llm 调用)
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        // decompose_to_dag 失败(HTTP / 解析 / 超时):回退到 W7 route_with_llm。
-                        // 不发 llm_decompose_called 审计事件(LLM 调用未成功,
-                        // tracing::warn! 已记录错误;审计链路在 DagExecutor::run 内
-                        // 通过 dag_plan_created → dag_completed 闭合,LLM 失败路径
-                        // 不进入 DagExecutor,无审计缺口)。
-                        tracing::warn!(
-                            error = ?e,
-                            "decompose_to_dag failed; falling back to W7 route_with_llm"
-                        );
-                        // 落到第 3 级
-                    }
+    match plan {
+        PlanResult::Empty => Ok(RouteOutcome::Empty),
+        PlanResult::Skill { extension_id, .. } => Ok(RouteOutcome::Routed {
+            skill_id: extension_id,
+        }),
+        PlanResult::Dag(dag) => {
+            #[cfg(feature = "llm")]
+            {
+                // 仅 LLM 实际产出并通过校验的 DAG 才落副作用(不重复记录:
+                // classify-only 计划走 Skill 分支,不产生 llm_decompose_called)。
+                if trace.used_llm {
+                    apply_dag_side_effects(&kernel, &text, &dag, &trace)?;
                 }
+                Ok(RouteOutcome::DagPlan(dag))
+            }
+            #[cfg(not(feature = "llm"))]
+            {
+                // 无 llm feature 时 pipeline 从不返回 Dag;防御性映射为 Unmatched。
+                let _ = (dag, trace);
+                Ok(RouteOutcome::Unmatched { text })
             }
         }
+        PlanResult::Unmatched { text } => Ok(RouteOutcome::Unmatched { text }),
     }
-
-    // ===== 第 3 级:W7 route_with_llm 回退(spec §2.8)=====
-    // LLM 拆解失败 / 校验失败 / LLM disabled / privacy_mode=true 时,走 W7 单 Skill 路由。
-    // route_with_llm 内部:keyword 匹配(已在第 1 级做过,此处冗余但 W7 逻辑保持)→
-    // LLM classify_and_extract → Planner。
-    //
-    // 需要 LLM 启用的 router:若 kernel.llm_client() 为 Some,用 with_llm 构造新 router;
-    // 否则用第 1 级的 keyword-only router(此时 route_with_llm 退化为 route,返回 Planner)。
-    #[cfg(feature = "llm")]
-    {
-        let llm_router = build_router_with_llm(kernel, &router);
-        let decision = llm_router.route_with_llm(trimmed).await;
-        return Ok(decision_to_outcome(decision, trimmed));
-    }
-
-    // 无 llm feature 时:第 1 级 keyword 未命中 → 直接 Unmatched
-    #[allow(unreachable_code)]
-    Ok(RouteOutcome::Unmatched {
-        text: trimmed.to_string(),
-    })
 }
 
-/// 用 kernel.llm_client() 构造带 LLM 的 SkillRouter(若 LLM 不可用则用原 router)。
-/// route_with_llm 是 SkillRouter 方法,需 router 持有 LlmClient。
-#[cfg(all(feature = "voice", feature = "llm"))]
-fn build_router_with_llm(
+/// DAG 成功路径的 facade 级副作用(spec §6.1)。
+///
+/// - `task-llm-{uuid}` 占位 task:audit_logs.task_id NOT NULL + FK 约束要求
+///   task 先存在(DagExecutor::run 创建自己的 root_task_id,不复用此临时 task)。
+/// - `record_llm_decompose_called` 审计(硬约束 4 字段:plan_id / llm_model /
+///   latency_ms / token_count,全部来自 PlannerTrace)。
+/// - `tag_dag_plan_literals`:`llm_output` taint(仅校验通过的 DAG 才标记;
+///   校验失败的计划已被 pipeline 丢弃,无孤儿记录)。taint 失败不阻断流程。
+#[cfg(feature = "llm")]
+fn apply_dag_side_effects(
     kernel: &TrustKernel,
-    keyword_router: &SkillRouter,
-) -> SkillRouter {
-    if let Some(llm) = kernel.llm_client() {
-        // 用 with_llm 构造新 router,重新注册全部 Skills(与 keyword_router 一致)。
-        let mut new_router = SkillRouter::with_llm(llm);
-        for skill in keyword_router.skills() {
-            new_router.register(skill.clone());
-        }
-        new_router
-    } else {
-        // LLM 不可用:用原 keyword-only router 的 clone(SkillRouter 是 Clone)。
-        // route_with_llm 在 LLM=None 时退化为 keyword 匹配,行为与 route() 一致。
-        keyword_router.clone()
-    }
-}
+    trimmed: &str,
+    dag: &crate::skills::dag_types::DagPlan,
+    trace: &PlannerTrace,
+) -> Result<()> {
+    let llm_task_id = format!("task-llm-{}", uuid::Uuid::new_v4());
+    kernel.create_task(&llm_task_id, &format!("LLM decompose for: {}", trimmed))?;
 
-/// RouteDecision → RouteOutcome 转换。
-#[cfg(feature = "voice")]
-fn decision_to_outcome(decision: RouteDecision, text: &str) -> RouteOutcome {
-    match decision {
-        RouteDecision::Skill(manifest) => RouteOutcome::Routed {
-            skill_id: manifest.id,
-        },
-        #[cfg(feature = "llm")]
-        RouteDecision::SkillWithSlots(manifest, _slots) => RouteOutcome::Routed {
-            skill_id: manifest.id,
-        },
-        #[cfg(feature = "llm")]
-        RouteDecision::Dag(plan) => {
-            // route_with_llm 不返回 Dag(它调 classify_and_extract 不是 decompose_to_dag);
-            // 此 arm 防御性:若上游契约被破坏,把 Dag 转为 DagPlan 暴露给调用方。
-            RouteOutcome::DagPlan(plan)
-        }
-        RouteDecision::Planner => RouteOutcome::Unmatched {
-            text: text.to_string(),
-        },
+    let stats = crate::llm::types::DecomposeStats {
+        llm_model: trace.llm_model.clone().unwrap_or_default(),
+        latency_ms: trace.latency_ms,
+        token_count: trace.token_count.unwrap_or(0) as u32,
+    };
+    let _ = crate::llm::client::record_llm_decompose_called(
+        kernel,
+        &llm_task_id,
+        &dag.plan_id,
+        &stats,
+    );
+
+    if let Err(e) = crate::llm::client::tag_dag_plan_literals(kernel, &llm_task_id, dag) {
+        tracing::warn!(
+            error = %e,
+            "tag_dag_plan_literals failed; continuing without llm_output taints"
+        );
     }
+    Ok(())
 }
 
 #[cfg(test)]
