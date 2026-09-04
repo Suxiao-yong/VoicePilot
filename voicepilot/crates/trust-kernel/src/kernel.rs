@@ -4,7 +4,7 @@
 
 use crate::approval::repo::ApprovalRepo;
 use crate::approval::types::{ApprovalRecord, ApprovalScope};
-use crate::audit::{AuditEvent, AuditLogger, SqliteAuditLogger};
+use crate::audit::{AuditEvent, SqliteAuditLogger};
 use crate::compensation::types::CompensationRecord;
 use crate::db;
 use crate::error::{KernelError, Result};
@@ -13,11 +13,15 @@ use crate::repo::task_repo::{TaskRecord, TaskRepo};
 use crate::state::TaskState;
 use chrono::Utc;
 use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 use uuid::Uuid;
 
 pub struct TrustKernel {
     conn: Arc<Mutex<Connection>>,
+    extension_catalog: Arc<RwLock<crate::extensions::registry::ExtensionCatalog>>,
+    extension_reload_lock: Mutex<()>,
+    user_skills_dir_override: Option<PathBuf>,
     task_repo: TaskRepo,
     audit: Arc<SqliteAuditLogger>,
     gateway: Arc<crate::gateway::ActionGateway>,
@@ -48,34 +52,109 @@ pub struct TrustKernel {
     // `stronghold_enabled` / `ensure_stronghold_ready_for_privacy` 不门控(用内部 #[cfg] 分支)。
     #[cfg(feature = "stronghold")]
     stronghold_vault: std::sync::Mutex<Option<Arc<crate::crypto::stronghold::StrongholdVault>>>,
+    // Wave 2 Task 2.3: session schema-hash baseline for User-Skill MCP tool
+    // targets. Keyed by "{server_id}\0{tool_name}"; the dispatch pre-check
+    // records the tools/list schema hash on first call and rejects later
+    // calls whose hash differs (the tool schema changed under an approved
+    // Skill binding — the user must re-plan/re-approve). In-process only:
+    // a kernel restart re-records the baseline.
+    mcp_tool_schema_hashes: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    // Wave 3 Task 3.1: SecretStore(Windows Credential Manager via keyring)。
+    // LLM API key 等机密经此存取,永不写入 SQLite 明文。生产构造用 keyring;
+    // 测试用 `open_*_with_secret_store` 注入内存实现。
+    secret_store: Arc<dyn crate::secrets::SecretStore>,
+}
+
+/// Wave 3 Task 3.1: 旧明文 LLM key 迁移结果(供启动日志 / 测试断言)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretMigrationOutcome {
+    /// 无旧明文,无需迁移。
+    NoLegacyKey,
+    /// 成功迁移:密钥已入 SecretStore,SQLite 明文已删除。
+    Migrated,
+    /// 迁移失败:旧明文保留,LLM 已禁用(fail-closed)。
+    Failed,
 }
 
 impl TrustKernel {
     pub fn open_in_memory() -> Result<Self> {
         let conn = db::open_in_memory()?;
         db::run_migrations(&conn)?;
-        Ok(Self::with_conn(conn))
+        Ok(Self::with_conn_full(conn, None, Self::default_secret_store()))
+    }
+
+    pub fn open_in_memory_with_user_skills_dir(path: PathBuf) -> Result<Self> {
+        let conn = db::open_in_memory()?;
+        db::run_migrations(&conn)?;
+        Ok(Self::with_conn_full(
+            conn,
+            Some(path),
+            Self::default_secret_store(),
+        ))
     }
 
     pub fn open_file(path: &str) -> Result<Self> {
         let conn = db::open_file(path)?;
         db::run_migrations(&conn)?;
-        Ok(Self::with_conn(conn))
+        Ok(Self::with_conn_full(conn, None, Self::default_secret_store()))
     }
 
-    fn with_conn(conn: Connection) -> Self {
+    /// Wave 3 Task 3.1: 注入 SecretStore 的测试构造器(内存实现),与
+    /// 生产构造器行为一致,但机密只落在注入的 store 中。
+    pub fn open_in_memory_with_secret_store(
+        store: Arc<dyn crate::secrets::SecretStore>,
+    ) -> Result<Self> {
+        let conn = db::open_in_memory()?;
+        db::run_migrations(&conn)?;
+        Ok(Self::with_conn_full(conn, None, store))
+    }
+
+    /// Wave 3 Task 3.1: 注入 SecretStore 的文件版测试构造器。
+    pub fn open_file_with_secret_store(
+        path: &str,
+        store: Arc<dyn crate::secrets::SecretStore>,
+    ) -> Result<Self> {
+        let conn = db::open_file(path)?;
+        db::run_migrations(&conn)?;
+        Ok(Self::with_conn_full(conn, None, store))
+    }
+
+    /// 生产默认 SecretStore:Windows 上为 Windows Credential Manager(keyring),
+    /// 其他平台回退为内存实现(项目 Windows-only,回退仅供编译 / 跨平台测试)。
+    fn default_secret_store() -> Arc<dyn crate::secrets::SecretStore> {
+        #[cfg(windows)]
+        {
+            Arc::new(crate::secrets::KeyringSecretStore::default())
+        }
+        #[cfg(not(windows))]
+        {
+            Arc::new(crate::secrets::InMemorySecretStore::default())
+        }
+    }
+
+    fn with_conn_full(
+        conn: Connection,
+        user_skills_dir_override: Option<PathBuf>,
+        secret_store: Arc<dyn crate::secrets::SecretStore>,
+    ) -> Self {
         let shared = Arc::new(Mutex::new(conn));
         let cedar_src = include_str!("policies/default.cedar");
         let gateway = Arc::new(
-            crate::gateway::ActionGateway::new(cedar_src)
-                .expect("default cedar policy must parse"),
+            crate::gateway::ActionGateway::new(cedar_src).expect("default cedar policy must parse"),
         );
         let kernel = Self {
             conn: shared.clone(),
+            extension_catalog: Arc::new(RwLock::new(
+                crate::extensions::registry::ExtensionCatalog::new(),
+            )),
+            extension_reload_lock: Mutex::new(()),
+            user_skills_dir_override,
             task_repo: TaskRepo::new(),
             audit: Arc::new(SqliteAuditLogger::new(shared)),
             gateway,
-            fs: Arc::new(std::sync::Mutex::new(crate::tools::fs::FilesystemTool::new())),
+            fs: Arc::new(std::sync::Mutex::new(
+                crate::tools::fs::FilesystemTool::new(),
+            )),
             comp_repo: Arc::new(crate::compensation::repo::CompensationRepo::new()),
             approval_repo: Arc::new(ApprovalRepo::new()),
             txn_mgr: Arc::new(crate::policy::transaction::TransactionManager::new()),
@@ -94,6 +173,13 @@ impl TrustKernel {
             // 在用户输入密码后调 `set_stronghold_vault(Some(Arc::new(StrongholdVault::create(...))))` 注入。
             #[cfg(feature = "stronghold")]
             stronghold_vault: std::sync::Mutex::new(None),
+            // Wave 2 Task 2.3: session-scoped schema-hash baseline, empty at
+            // boot (first dispatch per (server_id, tool_name) records it).
+            mcp_tool_schema_hashes: Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            // Wave 3 Task 3.1: SecretStore(生产 keyring / 测试注入)。
+            secret_store,
         };
         // W7 Plan 4: 从 KV 加载 allowed_apps(Settings 持久化值)覆盖默认值。
         // 缺失 / 空串 / 反序列化失败时保持默认 ["notepad", "explorer", "calc"]。
@@ -140,8 +226,8 @@ impl TrustKernel {
         // (UI can trigger research.save_markdown / form.prepare).
         {
             let conn_guard = kernel.conn.lock().unwrap();
-            if let Err(e) = crate::mcp::repo::McpServerRepo::new()
-                .insert_default_servers(&conn_guard)
+            if let Err(e) =
+                crate::mcp::repo::McpServerRepo::new().insert_default_servers(&conn_guard)
             {
                 tracing::warn!(
                     error = ?e,
@@ -149,6 +235,14 @@ impl TrustKernel {
                 );
             }
         }
+        // ExtensionCatalog is a runtime cache; seed the existing Skill and MCP
+        // sources first, then publish one best-effort catalog snapshot.
+        if let Err(e) = kernel.reload_extensions() {
+            tracing::warn!(error = ?e, "reload_extensions failed at boot");
+        }
+        // Wave 3 Task 3.1: 启动迁移旧 `llm.api_key` 明文 → SecretStore。
+        // fail-closed:失败时禁用 LLM 并禁止远程调用,但绝不让 kernel 构造失败。
+        let _migration_outcome = kernel.migrate_legacy_llm_key();
         kernel
     }
 
@@ -169,7 +263,10 @@ impl TrustKernel {
     /// AllowedPaths whitelist. Used by the CLI mcp-serve command to
     /// inject the whitelist loaded from mcp_servers.allowed_paths.
     /// V1.1 §4.4 + §8.1 — resolves spec issue #31.
-    pub fn replace_filesystem_with_allowed_paths(&self, allowed: crate::allowed_paths::AllowedPaths) {
+    pub fn replace_filesystem_with_allowed_paths(
+        &self,
+        allowed: crate::allowed_paths::AllowedPaths,
+    ) {
         let new_tool = crate::tools::fs::FilesystemTool::new_with_allowed_paths(allowed);
         *self.fs.lock().unwrap() = new_tool;
     }
@@ -211,6 +308,203 @@ impl TrustKernel {
     pub fn set_llm_client(&self, client: Option<Arc<crate::llm::client::LlmClient>>) {
         let mut guard = self.llm_client.lock().unwrap();
         *guard = client;
+    }
+
+    /// 记录一轮封轮摘要（turns 情景记忆）。privacy_mode 下调用方不得调用。
+    pub fn record_turn(&self, rec: &crate::turns::TurnRecord) -> Result<()> {
+        let conn = self.conn();
+        crate::turns::record_turn(&conn, rec)
+    }
+
+    /// 取最近 N 轮（时间倒序），供快照回忆渲染。
+    pub fn recent_turns(&self, limit: usize) -> Result<Vec<crate::turns::TurnRecord>> {
+        let conn = self.conn();
+        crate::turns::recent_turns(&conn, limit)
+    }
+
+    /// 按天数清理过期轮次，返回删除行数（封轮时 piggyback 调用，默认 30 天）。
+    pub fn prune_turns_older_than(&self, days: u32, now_ms: i64) -> Result<usize> {
+        let conn = self.conn();
+        crate::turns::prune_turns_older_than(&conn, days, now_ms)
+    }
+
+    // ===== Wave 3 Task 3.1: SecretStore accessors + legacy migration =====
+
+    /// 暴露 SecretStore(供 settings 流程 / 未来调用方读 key,不泄露值本身)。
+    pub fn secret_store(&self) -> Arc<dyn crate::secrets::SecretStore> {
+        Arc::clone(&self.secret_store)
+    }
+
+    /// 从 SecretStore 读取 LLM API key(缺省 None)。
+    pub fn llm_api_key(&self) -> Result<Option<String>> {
+        self.secret_store
+            .get_secret(crate::secrets::LLM_API_KEY_NAME)
+    }
+
+    /// 把 LLM API key 写入 SecretStore,并持久化 `llm.api_key_present`。
+    pub fn set_llm_api_key(&self, key: &str) -> Result<()> {
+        self.secret_store
+            .set_secret(crate::secrets::LLM_API_KEY_NAME, key)?;
+        // 信息性 KV 标志(读取接口以 SecretStore 实时为准);写失败不影响
+        // secret 本身,按非致命处理(与迁移一致)。
+        {
+            let conn = self.conn();
+            let _ = self.config_repo().set(&conn, "llm.api_key_present", "true");
+        }
+        Ok(())
+    }
+
+    /// 从 SecretStore 删除 LLM API key,并持久化 `llm.api_key_present = false`。
+    pub fn clear_llm_api_key(&self) -> Result<()> {
+        self.secret_store
+            .delete_secret(crate::secrets::LLM_API_KEY_NAME)?;
+        {
+            let conn = self.conn();
+            let _ = self.config_repo().set(&conn, "llm.api_key_present", "false");
+        }
+        Ok(())
+    }
+
+    /// Wave 3 Task 3.1: 启动迁移旧 `app_config.llm.api_key` 明文 → SecretStore。
+    ///
+    /// 顺序固定:检测旧明文 → 写 SecretStore → 成功后删除 SQLite 值 → 写审计。
+    /// 任一步失败都不删除旧值,但必须禁用 LLM 并禁止发起远程调用(fail-closed);
+    /// 迁移本身不使 kernel 构造失败(错误经 tracing 记录)。
+    ///
+    /// 审计 details 只含 provider / key_name / success,绝不含 key 值。
+    pub fn migrate_legacy_llm_key(&self) -> SecretMigrationOutcome {
+        let legacy_key = {
+            let conn = self.conn();
+            match self.config_repo().get(&conn, "llm.api_key") {
+                Ok(Some(key)) if !key.is_empty() => key,
+                _ => return SecretMigrationOutcome::NoLegacyKey,
+            }
+        };
+
+        let provider = {
+            let conn = self.conn();
+            self.config_repo()
+                .get(&conn, "llm.base_url")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "unknown".to_string())
+        };
+
+        if let Err(e) = self
+            .secret_store
+            .set_secret(crate::secrets::LLM_API_KEY_NAME, &legacy_key)
+        {
+            tracing::error!(
+                error = ?e,
+                "secret migration: failed to write SecretStore; keeping legacy plaintext and disabling LLM"
+            );
+            self.disable_llm_for_secret_failure();
+            self.secret_migration_audit(&provider, false);
+            return SecretMigrationOutcome::Failed;
+        }
+
+        if let Err(e) = {
+            let conn = self.conn();
+            self.config_repo().delete(&conn, "llm.api_key")
+        } {
+            tracing::error!(
+                error = ?e,
+                "secret migration: failed to delete legacy plaintext; keeping it and disabling LLM"
+            );
+            self.disable_llm_for_secret_failure();
+            self.secret_migration_audit(&provider, false);
+            return SecretMigrationOutcome::Failed;
+        }
+
+        {
+            let conn = self.conn();
+            let _ = self
+                .config_repo()
+                .set(&conn, "llm.api_key_present", "true");
+        }
+        self.secret_migration_audit(&provider, true);
+        SecretMigrationOutcome::Migrated
+    }
+
+    /// fail-closed:迁移失败时禁用 LLM,禁止任何远程调用。
+    fn disable_llm_for_secret_failure(&self) {
+        #[cfg(feature = "llm")]
+        {
+            self.set_llm_client(None);
+        }
+    }
+
+    /// 写 `secret_migration` 审计事件(需占位 task 满足 FK)。
+    fn secret_migration_audit(&self, provider: &str, success: bool) {
+        let placeholder_task_id = format!("secret-migration-{}", Uuid::new_v4());
+        {
+            let conn = self.conn();
+            let placeholder =
+                TaskRecord::new(&placeholder_task_id, "secret migration placeholder");
+            if let Err(e) = self.task_repo.create(&conn, &placeholder) {
+                tracing::warn!(
+                    error = ?e,
+                    "secret migration: failed to create placeholder task for audit"
+                );
+                return;
+            }
+        }
+        let details = serde_json::json!({
+            "provider": provider,
+            "key_name": crate::secrets::LLM_API_KEY_NAME,
+            "success": success,
+        });
+        if let Err(e) = self.audit_append_external(
+            &placeholder_task_id,
+            None,
+            "secret_migration",
+            details,
+        ) {
+            tracing::warn!(
+                error = ?e,
+                "secret migration: failed to append audit event"
+            );
+        }
+    }
+
+    /// W1 Task 1.3: 返回共享同一底层状态的 `Arc<Self>`。
+    ///
+    /// TrustKernel 内部全部是 `Arc` / `Mutex` 共享句柄,clone_arc 只复制句柄
+    /// (不深拷贝 DB / catalog / LLM 客户端)。`PlannerPipeline::new` 需要
+    /// `Arc<TrustKernel>`,而公开 API 面(router_bridge / CLI / UI)持有
+    /// `&TrustKernel`;safe Rust 无法从 `&T` 重建 `Arc<T>`,此方法是唯一
+    /// sound 的升级路径。
+    pub fn clone_arc(&self) -> Arc<Self> {
+        Arc::new(TrustKernel {
+            conn: self.conn.clone(),
+            extension_catalog: self.extension_catalog.clone(),
+            extension_reload_lock: Mutex::new(()),
+            user_skills_dir_override: self.user_skills_dir_override.clone(),
+            task_repo: TaskRepo,
+            audit: self.audit.clone(),
+            gateway: self.gateway.clone(),
+            fs: self.fs.clone(),
+            comp_repo: self.comp_repo.clone(),
+            approval_repo: self.approval_repo.clone(),
+            txn_mgr: self.txn_mgr.clone(),
+            allowed_apps: self.allowed_apps.clone(),
+            #[cfg(feature = "llm")]
+            llm_client: Mutex::new(
+                self.llm_client
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone(),
+            ),
+            #[cfg(feature = "stronghold")]
+            stronghold_vault: Mutex::new(
+                self.stronghold_vault
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone(),
+            ),
+            mcp_tool_schema_hashes: self.mcp_tool_schema_hashes.clone(),
+            secret_store: self.secret_store.clone(),
+        })
     }
 
     // ===== W9 Plan 1: Stronghold vault accessors =====
@@ -282,7 +576,9 @@ impl TrustKernel {
         }
         #[cfg(feature = "stronghold")]
         {
-            let vault = self.stronghold_vault().ok_or(KernelError::StrongholdRequired)?;
+            let vault = self
+                .stronghold_vault()
+                .ok_or(KernelError::StrongholdRequired)?;
             if !vault.is_unlocked() {
                 return Err(KernelError::StrongholdRequired);
             }
@@ -319,9 +615,14 @@ impl TrustKernel {
             let conn = self.conn.lock().unwrap();
             self.task_repo.create(&conn, &task)?;
         }
-        self.audit_append(&task.task_id, None, "task_created", serde_json::json!({
-            "user_goal": task.user_goal,
-        }))?;
+        self.audit_append(
+            &task.task_id,
+            None,
+            "task_created",
+            serde_json::json!({
+                "user_goal": task.user_goal,
+            }),
+        )?;
         Ok(task)
     }
 
@@ -346,10 +647,15 @@ impl TrustKernel {
             let conn = self.conn.lock().unwrap();
             self.task_repo.update_status(&conn, task_id, target)?;
         }
-        self.audit_append(task_id, None, "state_transition", serde_json::json!({
-            "from": current.status,
-            "to": target,
-        }))?;
+        self.audit_append(
+            task_id,
+            None,
+            "state_transition",
+            serde_json::json!({
+                "from": current.status,
+                "to": target,
+            }),
+        )?;
         Ok(())
     }
 
@@ -405,10 +711,8 @@ impl TrustKernel {
         let placeholder_task_id = format!("stronghold-degraded-{}", Uuid::new_v4());
         {
             let conn = self.conn();
-            let placeholder = TaskRecord::new(
-                &placeholder_task_id,
-                "stronghold degraded mode placeholder",
-            );
+            let placeholder =
+                TaskRecord::new(&placeholder_task_id, "stronghold degraded mode placeholder");
             self.task_repo.create(&conn, &placeholder)?;
         }
         self.audit_append(
@@ -596,7 +900,11 @@ impl TrustKernel {
             let conn = self.conn.lock().unwrap();
             let repo = crate::repo::step_repo::StepRepo::new();
             repo.update_prepare_state(
-                &conn, step_id, prepare_token, preconditions_hash, effect_manifest,
+                &conn,
+                step_id,
+                prepare_token,
+                preconditions_hash,
+                effect_manifest,
             )?;
         }
         let task_id = self
@@ -671,6 +979,60 @@ impl TrustKernel {
         self.conn.lock().unwrap()
     }
 
+    pub(crate) fn user_skills_dir(&self) -> Result<PathBuf> {
+        match self.user_skills_dir_override.as_deref() {
+            Some(dir) => {
+                std::fs::create_dir_all(dir)?;
+                Ok(std::fs::canonicalize(dir)?)
+            }
+            None => crate::skills::user_loader::user_skills_dir(),
+        }
+    }
+
+    /// Capture an immutable catalog snapshot for a task or planner.
+    pub fn extension_snapshot(&self) -> crate::extensions::types::ExtensionSnapshot {
+        self.extension_catalog.read().unwrap().snapshot()
+    }
+
+    /// Wave 2 Task 2.3: expose the shared session schema-hash baseline so a
+    /// dispatch worker thread can verify the hash in the SAME subprocess that
+    /// will execute tools/call (the baseline is derived from that process's
+    /// own tools/list, not from a different spawn).
+    ///
+    /// The worker performs the first-record / match / reject logic via
+    /// `skills::dispatcher::verify_tool_schema_baseline` on this shared map.
+    pub(crate) fn mcp_tool_schema_baseline(
+        &self,
+    ) -> Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> {
+        Arc::clone(&self.mcp_tool_schema_hashes)
+    }
+
+    /// Wave 2 Task 2.3: drop the session schema-hash baseline for `server_id`.
+    /// Called when a server is removed or toggled — an explicit configuration
+    /// change is a re-approval boundary, so the next dispatch for that server
+    /// re-records the baseline instead of staying permanently rejected after
+    /// a schema change.
+    pub(crate) fn clear_mcp_tool_schema_baseline(&self, server_id: &str) {
+        let prefix = format!("{server_id}\u{0}");
+        let mut hashes = self.mcp_tool_schema_hashes.lock().unwrap();
+        hashes.retain(|key, _| !key.starts_with(&prefix));
+    }
+
+    /// Rebuild and publish the catalog while the extension transition lock is held.
+    fn reload_extensions_locked(&self) -> Result<()> {
+        let catalog = crate::extensions::registry::ExtensionCatalog::load(self)?;
+        let mut current = self.extension_catalog.write().unwrap();
+        *current = catalog;
+        Ok(())
+    }
+
+    /// Rebuild the catalog without holding its write lock, then publish it in
+    /// one short swap section.
+    pub fn reload_extensions(&self) -> Result<()> {
+        let _extension_transition_guard = self.extension_reload_lock.lock().unwrap();
+        self.reload_extensions_locked()
+    }
+
     /// 获取 ConfigRepo(W6b-2 Settings 持久化)。
     /// 与 McpServerRepo 模式一致:ConfigRepo 无状态,每次返回新实例。
     /// 调用方用 `let conn = kernel.conn(); kernel.config_repo().set(&conn, ...)`。
@@ -680,14 +1042,171 @@ impl TrustKernel {
 
     /// 切换 MCP Server 启用状态(V1.1.2 §8.3 Trust Center)。
     pub fn toggle_mcp_server(&self, server_id: &str, enabled: bool) -> Result<()> {
-        let conn = self.conn();
-        crate::mcp::repo::McpServerRepo::new().toggle_enabled(&conn, server_id, enabled)
+        let _extension_transition_guard = self.extension_reload_lock.lock().unwrap();
+        let previous = {
+            let conn = self.conn();
+            let repo = crate::mcp::repo::McpServerRepo::new();
+            let previous = repo.get(&conn, server_id)?;
+            repo.toggle_enabled(&conn, server_id, enabled)?;
+            previous
+        };
+        // Wave 2 Task 2.3: an explicit toggle is a re-approval boundary —
+        // drop the session schema baseline so the next dispatch re-records.
+        self.clear_mcp_tool_schema_baseline(server_id);
+
+        match self.reload_extensions_locked() {
+            Ok(()) => Ok(()),
+            Err(reload_error) => {
+                if let Some(previous) = previous {
+                    let rollback = {
+                        let conn = self.conn();
+                        crate::mcp::repo::McpServerRepo::new().update(&conn, &previous)
+                    };
+                    if let Err(rollback_error) = rollback {
+                        {
+                            let mut current = self.extension_catalog.write().unwrap();
+                            *current = crate::extensions::registry::ExtensionCatalog::new();
+                        }
+                        return Err(KernelError::Skill(format!(
+                            "extension reload failed: {reload_error}; rollback failed: {rollback_error}"
+                        )));
+                    }
+                }
+                Err(reload_error)
+            }
+        }
     }
 
     /// 列出所有 MCP Server(V1.1.2 §8.3 Trust Center)。
     pub fn list_mcp_servers(&self) -> Result<Vec<crate::mcp::repo::McpServerRecord>> {
         let conn = self.conn();
         crate::mcp::repo::McpServerRepo::new().list(&conn)
+    }
+
+    /// Wave 2 Task 2.2: register a new MCP plugin through the validated entry
+    /// point (real configuration entry, plan Task 2.2).
+    ///
+    /// Validation happens before any write — invalid records fail with the
+    /// DB and the runtime catalog untouched. A duplicate `server_id` is
+    /// rejected (explicit safety, no upsert semantics). On success the
+    /// extension catalog is rebuilt (`reload_extensions`); if the reload
+    /// fails the inserted row is rolled back.
+    ///
+    /// Security: env values are configuration secrets and are never emitted
+    /// into audit or log output — this method writes no audit event and never
+    /// logs the record.
+    pub fn register_mcp_server(&self, rec: crate::mcp::repo::McpServerRecord) -> Result<()> {
+        crate::mcp::repo::validate_mcp_server_record(&rec)?;
+        let _extension_transition_guard = self.extension_reload_lock.lock().unwrap();
+        {
+            let conn = self.conn();
+            let repo = crate::mcp::repo::McpServerRepo::new();
+            if repo.get(&conn, &rec.server_id)?.is_some() {
+                return Err(KernelError::Mcp(format!(
+                    "MCP server '{}' already exists",
+                    rec.server_id
+                )));
+            }
+            repo.create(&conn, &rec)?;
+        }
+        match self.reload_extensions_locked() {
+            Ok(()) => Ok(()),
+            Err(reload_error) => {
+                let rollback = {
+                    let conn = self.conn();
+                    crate::mcp::repo::McpServerRepo::new().delete(&conn, &rec.server_id)
+                };
+                if let Err(rollback_error) = rollback {
+                    {
+                        let mut current = self.extension_catalog.write().unwrap();
+                        *current = crate::extensions::registry::ExtensionCatalog::new();
+                    }
+                    return Err(KernelError::Mcp(format!(
+                        "extension reload failed: {reload_error}; rollback failed: {rollback_error}"
+                    )));
+                }
+                Err(reload_error)
+            }
+        }
+    }
+
+    /// Wave 2 Task 2.2: remove an MCP plugin.
+    ///
+    /// A server still referenced by a User Skill execution target
+    /// (`manifest.execution.server_id`) cannot be removed — the removal fails
+    /// and returns the referencing Skill IDs. On success the row is deleted
+    /// and the extension catalog rebuilt; a reload failure rolls the row back.
+    ///
+    /// Note (running-task limitation): rejecting removal of a server used by
+    /// a currently running task would require per-task snapshot tracking that
+    /// the schema does not persist today. That check is intentionally not
+    /// implemented — see plan Task 2.2 note; the User Skill reference check
+    /// above is the enforced protection.
+    pub fn remove_mcp_server(&self, server_id: &str) -> Result<()> {
+        let referencing = self.mcp_server_referencing_skills(server_id)?;
+        if !referencing.is_empty() {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{server_id}' is referenced by User Skill execution target(s): {}",
+                referencing.join(", ")
+            )));
+        }
+        let _extension_transition_guard = self.extension_reload_lock.lock().unwrap();
+        let previous = {
+            let conn = self.conn();
+            let repo = crate::mcp::repo::McpServerRepo::new();
+            let previous = repo
+                .get(&conn, server_id)?
+                .ok_or_else(|| KernelError::Mcp(format!("MCP server '{server_id}' does not exist")))?;
+            repo.delete(&conn, server_id)?;
+            previous
+        };
+        // Wave 2 Task 2.3: the server no longer exists — drop its session
+        // schema baseline so a future re-registration starts fresh.
+        self.clear_mcp_tool_schema_baseline(server_id);
+        match self.reload_extensions_locked() {
+            Ok(()) => Ok(()),
+            Err(reload_error) => {
+                let rollback = {
+                    let conn = self.conn();
+                    crate::mcp::repo::McpServerRepo::new().create(&conn, &previous)
+                };
+                if let Err(rollback_error) = rollback {
+                    {
+                        let mut current = self.extension_catalog.write().unwrap();
+                        *current = crate::extensions::registry::ExtensionCatalog::new();
+                    }
+                    return Err(KernelError::Mcp(format!(
+                        "extension reload failed: {reload_error}; rollback failed: {rollback_error}"
+                    )));
+                }
+                Err(reload_error)
+            }
+        }
+    }
+
+    /// Find User Skills whose manifest execution target references
+    /// `server_id`. Reads the `skills` table (upserted from user Skill files)
+    /// and matches structurally on `manifest.execution.server_id` — only the
+    /// JSON pointer is inspected, so a malformed manifest simply doesn't
+    /// match instead of failing the removal.
+    fn mcp_server_referencing_skills(&self, server_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let records = crate::skills::repo::SkillRepo::new().list(&conn)?;
+        let mut referencing = Vec::new();
+        for record in records {
+            let execution_server_id = serde_json::from_str::<serde_json::Value>(&record.manifest_json)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer("/execution/server_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                });
+            if execution_server_id.as_deref() == Some(server_id) {
+                referencing.push(record.skill_id);
+            }
+        }
+        Ok(referencing)
     }
 
     /// Stateless `SkillRepo` 访问器(V1.1.2 §8.3 Skills Manager)。
@@ -703,8 +1222,40 @@ impl TrustKernel {
 
     /// 切换 Skill 启用状态(V1.1.2 §8.3 Skills Manager)。
     pub fn toggle_skill(&self, skill_id: &str, enabled: bool) -> Result<()> {
-        let conn = self.conn();
-        crate::skills::repo::SkillRepo::new().toggle(&conn, skill_id, enabled)
+        let _extension_transition_guard = self.extension_reload_lock.lock().unwrap();
+        let previous = {
+            let conn = self.conn();
+            let repo = crate::skills::repo::SkillRepo::new();
+            let previous = repo.get(&conn, skill_id)?;
+            repo.toggle(&conn, skill_id, enabled)?;
+            previous
+        };
+
+        match self.reload_extensions_locked() {
+            Ok(()) => Ok(()),
+            Err(reload_error) => {
+                if let Some(previous) = previous {
+                    let rollback = {
+                        let conn = self.conn();
+                        crate::skills::repo::SkillRepo::new().toggle(
+                            &conn,
+                            skill_id,
+                            previous.enabled,
+                        )
+                    };
+                    if let Err(rollback_error) = rollback {
+                        {
+                            let mut current = self.extension_catalog.write().unwrap();
+                            *current = crate::extensions::registry::ExtensionCatalog::new();
+                        }
+                        return Err(KernelError::Skill(format!(
+                            "extension reload failed: {reload_error}; rollback failed: {rollback_error}"
+                        )));
+                    }
+                }
+                Err(reload_error)
+            }
+        }
     }
 
     /// W7 Plan 3: 扫描 `%APPDATA%\voicepilot\skills\*.md`,upsert 到
@@ -712,7 +1263,7 @@ impl TrustKernel {
     /// (一个损坏的用户文件不能让 kernel 构造失败)。返回成功加载的
     /// 用户 Skill 数量。
     pub fn load_user_skills(&self) -> Result<usize> {
-        let dir = match crate::skills::user_loader::user_skills_dir() {
+        let dir = match self.user_skills_dir() {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(error = ?e, "user_skills_dir() failed; skipping user skill load");
@@ -724,33 +1275,42 @@ impl TrustKernel {
         {
             let conn = self.conn();
             for m in &manifests {
+                let existing = repo.get(&conn, &m.id)?;
                 let rec = crate::skills::repo::SkillRecord {
                     skill_id: m.id.clone(),
                     // DB row version 是计数器(SkillRecord.version: i64);
                     // manifest version 字符串保留在 manifest_json 内。
-                    version: 1,
-                    manifest_json: serde_json::to_string(m).map_err(|e| {
-                        KernelError::Skill(format!("serde_json failed: {}", e))
-                    })?,
-                    enabled: true,
-                    success_count: 0,
-                    avg_latency_ms: 0.0,
+                    version: existing.as_ref().map(|record| record.version).unwrap_or(1),
+                    manifest_json: serde_json::to_string(m)
+                        .map_err(|e| KernelError::Skill(format!("serde_json failed: {}", e)))?,
+                    // Reloading a file must not reset user controls or stats.
+                    enabled: existing
+                        .as_ref()
+                        .map(|record| record.enabled)
+                        .unwrap_or(true),
+                    success_count: existing
+                        .as_ref()
+                        .map(|record| record.success_count)
+                        .unwrap_or(0),
+                    avg_latency_ms: existing
+                        .as_ref()
+                        .map(|record| record.avg_latency_ms)
+                        .unwrap_or(0.0),
                 };
                 if let Err(e) = repo.upsert(&conn, &rec) {
                     tracing::warn!(skill_id = %m.id, error = ?e, "failed to upsert user skill");
                 }
             }
         }
+        self.reload_extensions()?;
         Ok(manifests.len())
     }
 
     /// W7 Plan 3:重新扫描 skills 目录,返回用户自定义 Skill manifests。
     /// `route_text` 调用此方法把用户 Skill 注册到 fresh SkillRouter
     /// (Task 3 覆盖语义保证用户 > built-in 优先级)。
-    pub fn list_user_skill_manifests(
-        &self,
-    ) -> Result<Vec<crate::skills::manifest::SkillManifest>> {
-        let dir = crate::skills::user_loader::user_skills_dir()?;
+    pub fn list_user_skill_manifests(&self) -> Result<Vec<crate::skills::manifest::SkillManifest>> {
+        let dir = self.user_skills_dir()?;
         Ok(crate::skills::user_loader::scan_user_skills(&dir))
     }
 
@@ -778,7 +1338,8 @@ impl TrustKernel {
         let placeholder_task_id = format!("voice-latency-{}", Uuid::new_v4());
         {
             let conn = self.conn();
-            let placeholder = TaskRecord::new(&placeholder_task_id, "voice latency sample placeholder");
+            let placeholder =
+                TaskRecord::new(&placeholder_task_id, "voice latency sample placeholder");
             self.task_repo.create(&conn, &placeholder)?;
         }
         // 2. emit voice_started audit event
@@ -955,7 +1516,7 @@ impl TrustKernel {
             event_type: event_type.to_string(),
             details,
             timestamp: Utc::now(),
-            prev_hash: None, // auto-chained by logger
+            prev_hash: None,     // auto-chained by logger
             hash: String::new(), // computed by logger
         };
         self.audit.append(&event)
@@ -982,10 +1543,7 @@ mod tests {
 
         kernel.set_allowed_apps(vec!["code".to_string(), "terminal".to_string()]);
         let apps2 = kernel.allowed_apps();
-        assert_eq!(
-            *apps2,
-            vec!["code".to_string(), "terminal".to_string()]
-        );
+        assert_eq!(*apps2, vec!["code".to_string(), "terminal".to_string()]);
     }
 
     /// W7 Plan 4: boot load —— Settings 持久化的 allowed_apps 必须在
@@ -1002,11 +1560,7 @@ mod tests {
             let conn = kernel.conn();
             kernel
                 .config_repo()
-                .set(
-                    &conn,
-                    "uia.allowed_apps",
-                    r#"["code","terminal","vim"]"#,
-                )
+                .set(&conn, "uia.allowed_apps", r#"["code","terminal","vim"]"#)
                 .expect("set uia.allowed_apps");
         }
 
@@ -1081,7 +1635,10 @@ mod tests {
     #[test]
     fn llm_client_default_is_none() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        assert!(kernel.llm_client().is_none(), "default llm_client must be None");
+        assert!(
+            kernel.llm_client().is_none(),
+            "default llm_client must be None"
+        );
     }
 
     #[cfg(feature = "llm")]
@@ -1098,7 +1655,10 @@ mod tests {
         let got = kernel.llm_client();
         assert!(got.is_some());
         assert!(got.as_ref().unwrap().is_enabled());
-        assert_eq!(got.as_ref().unwrap().base_url(), "https://api.deepseek.com/v1");
+        assert_eq!(
+            got.as_ref().unwrap().base_url(),
+            "https://api.deepseek.com/v1"
+        );
     }
 
     #[cfg(feature = "llm")]
@@ -1132,7 +1692,10 @@ mod tests {
                 .unwrap();
         }
         let kernel = TrustKernel::open_file(path).unwrap();
-        assert!(kernel.privacy_mode(), "privacy_mode=true must be read from KV");
+        assert!(
+            kernel.privacy_mode(),
+            "privacy_mode=true must be read from KV"
+        );
     }
 
     #[test]
@@ -1164,7 +1727,10 @@ mod tests {
                 .unwrap();
         }
         let kernel = TrustKernel::open_file(path).unwrap();
-        assert!(!kernel.privacy_mode(), "invalid privacy.mode value must default to false");
+        assert!(
+            !kernel.privacy_mode(),
+            "invalid privacy.mode value must default to false"
+        );
     }
 
     // ===== W10 Plan 3: voice latency sample recording =====
@@ -1219,11 +1785,9 @@ mod tests {
 
         let conn = kernel.conn();
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM voice_latency_samples",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM voice_latency_samples", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(count, 3, "3 samples should be recorded");
         drop(conn);
@@ -1260,12 +1824,7 @@ mod tests {
         let now_ms: i64 = 10_000_000_000;
         // 60 天前样本(应删除)+ 当前样本(应保留)
         kernel
-            .record_voice_latency_sample(
-                now_ms - 60 * 86_400 * 1000,
-                100,
-                "m",
-                false,
-            )
+            .record_voice_latency_sample(now_ms - 60 * 86_400 * 1000, 100, "m", false)
             .unwrap();
         kernel
             .record_voice_latency_sample(now_ms, 200, "m", false)

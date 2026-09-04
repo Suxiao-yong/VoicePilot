@@ -20,6 +20,10 @@ pub mod allowed_paths;
 pub mod mcp;
 pub mod skills;
 pub mod llm;
+pub mod extensions;
+// Wave 1 Task 1.2: 统一 PlannerPipeline(纯规划层,无 DB 副作用)。
+// 文本 / 语音 / CLI 共用;trace 持久化由任务运行层完成。
+pub mod planner;
 // W9 Plan 1: 加密原语模块(stronghold 子模块内部 #[cfg(feature = "stronghold")] 门控)
 pub mod crypto;
 // W10 Plan 3: voice_latency_samples 表的统计 + 清理 + 记录器。
@@ -29,6 +33,9 @@ pub mod crypto;
 // (default-gated)也能访问 prune_older_than 验证函数存在。
 pub mod voice_latency;
 
+// Task 4: turns 情景记忆表读写（纯 DB 操作，default-gated，与 voice_latency 同级）。
+pub mod turns;
+
 // W10 Plan 5: 审计事件覆盖率检查器(spec §7.2)。
 // default-gated(纯 DB 操作,不依赖 voice/stronghold feature)。
 // AuditCoverageChecker 查 audit_logs 表 DISTINCT event_type,与
@@ -36,6 +43,10 @@ pub mod voice_latency;
 // audit_coverage_default_full(default-gated)用 with_expected 传入
 // 25 种 default-reachable 子集断言 100% 覆盖。
 pub mod audit_coverage;
+
+// Wave 3 Task 3.1: SecretStore(Windows Credential Manager via keyring)。
+// 核心类型无条件;keyring-backed 实现 Windows-only。
+pub mod secrets;
 
 #[cfg(feature = "voice")]
 pub mod voice;

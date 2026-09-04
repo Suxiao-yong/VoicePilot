@@ -25,6 +25,9 @@ const MIGRATION_007: &str = include_str!("migrations/007_audit_logs_event_type_l
 // W10 Plan 3: voice_latency_samples 表 + idx_voice_latency_started 索引。
 // CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
 const MIGRATION_008: &str = include_str!("migrations/008_voice_latency_samples.sql");
+// Task 4: turns 情景记忆表 + idx_turns_started 索引。
+// CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
+const MIGRATION_009: &str = include_str!("migrations/009_turns.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -110,6 +113,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // W10 Plan 3: 008 创建 voice_latency_samples 表 + idx_voice_latency_started
     // 索引。CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_008)?;
+    // Task 4: 009 创建 turns 表 + idx_turns_started 索引。幂等,单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_009)?;
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -216,5 +221,20 @@ mod tests {
             "table must have privacy_mode column: {}",
             sql
         );
+    }
+
+    /// Task 4: migration 009 必须创建 turns 表。
+    #[test]
+    fn migration_009_creates_turns_table() {
+        let conn = open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='turns'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("turns table must exist after migration 009");
+        assert_eq!(count, 1);
     }
 }
