@@ -184,6 +184,7 @@ mod common {
 mod smoke {
     use super::common::{MockAdapter, with_temp_cwd};
     use trust_kernel::approval::approver::AutoApprover;
+    use trust_kernel::compensation::types::CompensationLevel;
     use trust_kernel::kernel::TrustKernel;
     use trust_kernel::policy::types::ELevel;
     use trust_kernel::repo::step_repo::StepStatus;
@@ -305,7 +306,17 @@ mod smoke {
                 .expect("step must exist");
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
-            assert!(step.compensation_ref.is_none());
+            // W10 Plan 2: note.capture 成功必须注册 note.reverse_capture 补偿
+            // （旧断言 is_none() 是 Plan 2 之前的残留，已过期）。
+            let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+            let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
+            assert_eq!(comp.compensate_fn, "note.reverse_capture");
+            assert_eq!(comp.level, CompensationLevel::Strong);
+            let payload: serde_json::Value = serde_json::from_str(&comp.reverse_payload).unwrap();
+            assert_eq!(
+                payload.get("save_path").and_then(|v| v.as_str()),
+                Some("Documents/test.txt")
+            );
 
             // Approval was recorded (PerStep, E2).
             let approvals = kernel
