@@ -29,7 +29,7 @@ impl ConfigRepo {
         conn.execute(
             "INSERT INTO app_config (key, value, updated_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            params![key, value, now_iso()],
+            params![key, value, chrono::Utc::now().to_rfc3339()],
         )?;
         Ok(())
     }
@@ -52,8 +52,4 @@ impl ConfigRepo {
         conn.execute("DELETE FROM app_config WHERE key = ?1", params![key])?;
         Ok(())
     }
-}
-
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339()
 }

@@ -1,0 +1,45 @@
+---
+id: "example.readonly"
+version: "1.0.0"
+title: "示例只读扩展"
+description: "绑定到 example-readonly MCP server 的只读工具(read_item),不提供任何写入能力"
+execution:
+  type: mcp_tool
+  server_id: "example-readonly"
+  tool_name: "read_item"
+intent_examples:
+  - "运行示例只读扩展"
+  - "读取示例只读条目"
+keywords:
+  - "示例"
+  - "readonly"
+inputs: {}
+risk_ceiling: E2
+data_class_ceiling: D2
+egress: local_only
+max_steps: 1
+tools:
+  - "read_item"
+approval:
+  mode: none
+  required_for: commit
+  show_effect_manifest: false
+  max_approval_scope: 0
+compensation:
+  level: none
+  ttl_seconds: 0
+  conflict_policy: auto_reverse
+verifier:
+  strategy: weak
+  recheck_after_seconds: 0
+failure_policy:
+  max_retries: 0
+  allow_replan: false
+  on_fail: stop
+---
+
+# 示例只读扩展
+
+本 Skill 绑定到 `docs/examples/mcp-plugin.json` 定义的只读 MCP server，调用 `read_item`
+只读工具。它**不会写入任何文件或发起副作用**；显式的 `allowed_paths` 白名单与
+`egress: local_only` 在规划层约束其行为。

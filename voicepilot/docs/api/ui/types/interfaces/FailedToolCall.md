@@ -6,7 +6,7 @@
 
 # Interface: FailedToolCall
 
-Defined in: types.ts:289
+Defined in: types.ts:330
 
 W8 §2.5:失败工具调用摘要(后端 task.explain 输出的一部分)。
 
@@ -16,7 +16,7 @@ W8 §2.5:失败工具调用摘要(后端 task.explain 输出的一部分)。
 
 > **error\_message**: `string`
 
-Defined in: types.ts:291
+Defined in: types.ts:332
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:291
 
 > **timestamp**: `string` \| `null`
 
-Defined in: types.ts:292
+Defined in: types.ts:333
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: types.ts:292
 
 > **tool\_name**: `string`
 
-Defined in: types.ts:290
+Defined in: types.ts:331

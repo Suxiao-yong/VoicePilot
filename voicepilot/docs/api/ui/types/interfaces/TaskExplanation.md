@@ -6,7 +6,7 @@
 
 # Interface: TaskExplanation
 
-Defined in: types.ts:246
+Defined in: types.ts:287
 
 W8 §2.5:task.explain LLM 归因。
 
@@ -16,7 +16,7 @@ W8 §2.5:task.explain LLM 归因。
 
 > **category**: `string`
 
-Defined in: types.ts:250
+Defined in: types.ts:291
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:250
 
 > **confidence**: `number`
 
-Defined in: types.ts:252
+Defined in: types.ts:293
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:252
 
 > **created\_at**: `string`
 
-Defined in: types.ts:254
+Defined in: types.ts:295
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:254
 
 > **explanation\_id**: `string`
 
-Defined in: types.ts:247
+Defined in: types.ts:288
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:247
 
 > **llm\_model**: `string` \| `null`
 
-Defined in: types.ts:253
+Defined in: types.ts:294
 
 ***
 
@@ -56,7 +56,7 @@ Defined in: types.ts:253
 
 > **root\_cause\_zh**: `string`
 
-Defined in: types.ts:249
+Defined in: types.ts:290
 
 ***
 
@@ -64,7 +64,7 @@ Defined in: types.ts:249
 
 > **step\_id**: `string`
 
-Defined in: types.ts:248
+Defined in: types.ts:289
 
 ***
 
@@ -72,4 +72,4 @@ Defined in: types.ts:248
 
 > **suggested\_fix**: `string` \| `null`
 
-Defined in: types.ts:251
+Defined in: types.ts:292

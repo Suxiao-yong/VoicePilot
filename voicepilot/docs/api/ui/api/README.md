@@ -37,6 +37,8 @@
 - [onTranscriptionFinal](functions/onTranscriptionFinal.md)
 - [onTranscriptionPartial](functions/onTranscriptionPartial.md)
 - [organizeFiles](functions/organizeFiles.md)
+- [registerMcpServer](functions/registerMcpServer.md)
+- [removeMcpServer](functions/removeMcpServer.md)
 - [routeText](functions/routeText.md)
 - [submitApproval](functions/submitApproval.md)
 - [toggleMcpServer](functions/toggleMcpServer.md)

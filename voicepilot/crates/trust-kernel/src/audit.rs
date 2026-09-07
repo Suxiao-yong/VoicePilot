@@ -26,16 +26,6 @@ pub struct AuditEvent {
     pub hash: String,
 }
 
-pub trait AuditLogger: Send + Sync {
-    fn append(&self, event: &AuditEvent) -> Result<()>;
-
-    /// 列出最近的 N 条审计事件(按 timestamp 降序)。
-    fn list_recent(&self, limit: usize) -> Result<Vec<AuditEvent>>;
-
-    /// 列出某任务的所有审计事件(按 timestamp 升序)。
-    fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>>;
-}
-
 /// SQLite-backed audit logger. Shares its connection with the kernel via
 /// `Arc<Mutex<Connection>>` so audit writes are visible to subsequent reads
 /// in the same transaction sequence.
@@ -85,11 +75,7 @@ impl SqliteAuditLogger {
     }
 
     /// Test helper: query (hash, prev_hash) rows for a task.
-    pub fn query_rows(
-        &self,
-        sql: &str,
-        task_id: &str,
-    ) -> Result<Vec<(String, Option<String>)>> {
+    pub fn query_rows(&self, sql: &str, task_id: &str) -> Result<Vec<(String, Option<String>)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![task_id], |r| {
@@ -105,18 +91,18 @@ impl SqliteAuditLogger {
     /// Test helper: run a query that returns a single `Optional<String>` column.
     pub fn query_single(&self, sql: &str, param: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
-        let value: Option<String> = conn
-            .query_row(sql, params![param], |r| r.get(0))
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })?;
+        let value: Option<String> =
+            conn.query_row(sql, params![param], |r| r.get(0))
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
         Ok(value)
     }
 }
 
-impl AuditLogger for SqliteAuditLogger {
-    fn append(&self, event: &AuditEvent) -> Result<()> {
+impl SqliteAuditLogger {
+    pub fn append(&self, event: &AuditEvent) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         // Resolve prev_hash if caller didn't supply one (auto-chain).
         let prev_hash = match &event.prev_hash {
@@ -145,7 +131,7 @@ impl AuditLogger for SqliteAuditLogger {
         Ok(())
     }
 
-    fn list_recent(&self, limit: usize) -> Result<Vec<AuditEvent>> {
+    pub fn list_recent(&self, limit: usize) -> Result<Vec<AuditEvent>> {
         let conn = self.conn.lock().expect("conn poisoned");
         let mut stmt = conn.prepare(
             "SELECT log_id, task_id, step_id, event_type, details, timestamp, prev_hash, hash
@@ -174,7 +160,7 @@ impl AuditLogger for SqliteAuditLogger {
         Ok(out)
     }
 
-    fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>> {
+    pub fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>> {
         let conn = self.conn.lock().expect("conn poisoned");
         let mut stmt = conn.prepare(
             "SELECT log_id, task_id, step_id, event_type, details, timestamp, prev_hash, hash
@@ -214,9 +200,11 @@ impl AuditLogger for SqliteAuditLogger {
 /// - W8 DAG + LLM(dag_executor.rs, llm/client.rs, task_explain.rs):10 种
 /// - W9 Stronghold / Taint(kernel.rs, common.rs, task_compensate.rs, gateway.rs, dispatcher.rs, mcp/server.rs):5 种
 /// - W10 新增(Plan 3 voice_started + Plan 4 kill_switch_triggered / task_cancelled):3 种
+/// - Wave 3 Task 3.1(secret_migration):1 种
 ///
 /// **v2 修订 #11 修正:** spec §7.1 列出 27 种,但遗漏了 W8 Plan 3 在
-/// `task_explain.rs:219` 新增的 `llm_explain_called`。本 registry 补入,共 28 种。
+/// `task_explain.rs:219` 新增的 `llm_explain_called`。本 registry 补入,共 28 种;
+/// Wave 3 再补 `secret_migration`,现共 30 种。
 ///
 /// 运行时校验:`kernel.rs::audit_append` 调用 `is_valid_event_type` 校验,
 /// 若无效则 `tracing::warn!` 但继续写入(不阻塞,spec §7.2 v2 修订 #3)。
@@ -257,6 +245,11 @@ pub const AUDIT_EVENT_TYPE_REGISTRY: &[&str] = &[
     "voice_started",
     "kill_switch_triggered",
     "task_cancelled",
+    // Wave 3 Task 3.1: 旧 SQLite 明文 LLM key 迁移到 SecretStore 的审计。
+    // details 只含 provider / key_name / success,绝不含 key 值。
+    "secret_migration",
+    // Phase B: 本次规划向 LLM 注入了长期记忆事实（details 只含 fact ids）。
+    "memory_injected",
 ];
 
 /// W10 Plan 5: 校验 event_type 是否在 AUDIT_EVENT_TYPE_REGISTRY 中(spec §7.2)。
@@ -272,11 +265,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_contains_28_event_types() {
+    fn registry_contains_31_event_types() {
         assert_eq!(
             AUDIT_EVENT_TYPE_REGISTRY.len(),
-            29,
-            "registry must contain exactly 29 event types (spec §7.1 + llm_explain_called + malicious_server_detected)"
+            31,
+            "registry must contain exactly 31 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + Phase B memory_injected)"
         );
     }
 

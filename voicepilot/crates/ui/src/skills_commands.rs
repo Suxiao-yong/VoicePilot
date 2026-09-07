@@ -43,8 +43,14 @@ pub struct UserSkillDto {
     pub skill_id: String,
     pub title: String,
     pub description: String,
+    /// 是否绑定 MCP 工具可执行(metadata.voicepilot.execution 或 builtin)。
+    pub executable: bool,
     /// 源文件绝对路径(`%APPDATA%\voicepilot\skills\<filename>.md`)。
     pub source_path: String,
+    /// Phase A 密钥收编：导入时从伴随 .env 收编进 keyring 的凭据 key 名
+    /// （仅名称；值已进 SecretStore，源文件未动）。空 = 无 .env 或无凭据。
+    #[serde(default)]
+    pub migrated_env_keys: Vec<String>,
 }
 
 impl UserSkillDto {
@@ -53,7 +59,9 @@ impl UserSkillDto {
             skill_id: m.id.clone(),
             title: m.title.clone(),
             description: m.description.clone(),
+            executable: m.execution.is_some(),
             source_path: source_path.to_string_lossy().into_owned(),
+            migrated_env_keys: Vec::new(),
         }
     }
 }
@@ -129,14 +137,26 @@ pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDt
         ));
     }
 
-    // ===== Destination path confinement =====
+    // ===== 先解析源内容获取标准 id(决定目标目录名,防路径穿越) =====
+    // parse 已校验 name(^[a-z][a-z0-9._-]{0,63}$),不含路径分隔符。
+    let content = std::fs::read_to_string(&canonical_src).map_err(|e| {
+        crate::error::UiError::Tauri(format!("read source failed: {}", e))
+    })?;
+    let (manifest, _) = user_loader::parse_skill_md(&content).map_err(|e| {
+        crate::error::UiError::InvalidConfig(format!(
+            "source is not a valid standard SKILL.md: {}",
+            e
+        ))
+    })?;
+
+    // ===== Destination path confinement(标准目录式:{id}/SKILL.md) =====
     let skills_dir = user_loader::user_skills_dir()
         .map_err(|e| crate::error::UiError::Tauri(e.to_string()))?;
-    let file_name = canonical_src
-        .file_name()
-        .ok_or_else(|| crate::error::UiError::InvalidConfig("source_path has no file name".into()))?;
-    let dest = skills_dir.join(file_name);
-    // Defense-in-depth:虽然 file_name() 不应包含路径分隔符,仍验证 dest 在 skills_dir 内。
+    let dest_dir = skills_dir.join(&manifest.id);
+    std::fs::create_dir_all(&dest_dir)
+        .map_err(|e| crate::error::UiError::Tauri(format!("create skill dir failed: {}", e)))?;
+    let dest = dest_dir.join("SKILL.md");
+    // Defense-in-depth:目标必须在 skills_dir 内
     if !dest.starts_with(&skills_dir) {
         return Err(crate::error::UiError::InvalidConfig(
             "destination escapes skills dir".into(),
@@ -147,20 +167,21 @@ pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDt
     std::fs::copy(&canonical_src, &dest)
         .map_err(|e| crate::error::UiError::Tauri(format!("copy failed: {}", e)))?;
 
-    // ===== Post-copy validation: re-parse to verify it's a valid SkillManifest =====
-    let content = std::fs::read_to_string(&dest)
+    // ===== Post-copy validation: re-parse to verify it's a valid standard SKILL.md =====
+    let copied = std::fs::read_to_string(&dest)
         .map_err(|e| crate::error::UiError::Tauri(format!("read copied file failed: {}", e)))?;
-    match user_loader::parse_skill_md(&content) {
-        Ok((manifest, _)) => {
+    match user_loader::parse_skill_md(&copied) {
+        Ok((m, _)) => {
             // Reload DB so the new skill is upserted.
             state.kernel.load_user_skills()?;
-            Ok(UserSkillDto::from_manifest(&manifest, dest))
+            Ok(UserSkillDto::from_manifest(&m, dest))
         }
         Err(e) => {
             // Clean up invalid file.
             let _ = std::fs::remove_file(&dest);
+            let _ = std::fs::remove_dir(&dest_dir);
             Err(crate::error::UiError::InvalidConfig(format!(
-                "copied file is not a valid SkillManifest: {}",
+                "copied file is not a valid standard SKILL.md: {}",
                 e
             )))
         }
@@ -170,23 +191,91 @@ pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDt
 /// Helper:扫描 `dir` 找到 .md 文件,其解析后的 manifest id == `id`。
 /// 找不到时返回 fallback 路径(不应发生,调用方仅用于已加载的 manifest)。
 fn find_skill_file_by_id(dir: &Path, id: &str) -> PathBuf {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok((m, _)) = user_loader::parse_skill_md(&content) {
-                    if m.id == id {
-                        return path;
-                    }
-                }
-            }
-        }
+    dir.join(id).join("SKILL.md")
+}
+
+/// 外部发现 Skill 候选项 DTO：只读扫描结果，不代表已安装/已启用。
+/// 前端用已安装列表的 id 自行标注“已导入”。description + 执行绑定随附，
+/// 避免用户盲导看不见的东西（description 驱动 keyword 路由，执行绑定决定
+/// 启用后能调谁的工具）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalSkillDto {
+    pub source: String,
+    /// 跨源去重后的来源列表（同 id 同内容多来源合并为一个候选）。
+    #[serde(default)]
+    pub sources: Vec<String>,
+    pub dir: String,
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub executable: bool,
+    pub exec_server: Option<String>,
+    pub exec_tool: Option<String>,
+}
+
+fn to_external_skill_dto(
+    h: trust_kernel::external_scan::ExternalSkillHit,
+) -> ExternalSkillDto {
+    ExternalSkillDto {
+        source: h.source,
+        sources: h.sources,
+        dir: h.dir.to_string_lossy().into_owned(),
+        id: h.id,
+        title: h.title,
+        description: h.description,
+        executable: h.executable,
+        exec_server: h.exec_server,
+        exec_tool: h.exec_tool,
     }
-    // Fallback:用 id 派生文件名(把 '.' 换成 '_')。理论不应到达。
-    dir.join(format!("{}.md", id.replace('.', "_")))
+}
+
+/// 逻辑函数:扫描全局第三方 Skill 目录（Claude Code / Agent Skills 标准位置）。
+/// 纯只读：不存在的根目录静默跳过，不写 DB、不碰网络、不起进程。
+pub fn scan_external_skills(_state: &AppState) -> UiResult<Vec<ExternalSkillDto>> {
+    Ok(scan_external_skills_with_roots(
+        &trust_kernel::external_scan::default_windows_skill_roots(),
+    ))
+}
+
+/// 可注入 roots 的扫描实现（单测用 TempDir 固件逐字段断言映射）。
+pub fn scan_external_skills_with_roots(
+    roots: &[(std::path::PathBuf, &'static str)],
+) -> Vec<ExternalSkillDto> {
+    use trust_kernel::external_scan::scan_external_skill_roots;
+    scan_external_skill_roots(roots)
+        .into_iter()
+        .map(to_external_skill_dto)
+        .collect()
+}
+
+/// 逻辑函数:导入外部 Skill 目录（只复制 SKILL.md，见 kernel 方法注释）。
+/// 导入后默认关闭，用户在 Skills Manager 手动启用。目录伴随的 .env
+/// 中疑似凭据会收编进 keyring（源文件不动），key 名随 DTO 返回。
+pub fn import_external_skill(state: &AppState, dir: &str) -> UiResult<UserSkillDto> {
+    let (manifest, migrated_env_keys) = state.kernel.import_external_skill_with_env(Path::new(dir))?;
+    let path = user_loader::user_skills_dir()
+        .map_err(|e| crate::error::UiError::Tauri(e.to_string()))?
+        .join(&manifest.id)
+        .join("SKILL.md");
+    Ok(UserSkillDto {
+        migrated_env_keys,
+        ..UserSkillDto::from_manifest(&manifest, path)
+    })
+}
+
+#[tauri::command]
+pub async fn scan_external_skills_command(
+    state: State<'_, AppState>,
+) -> Result<Vec<ExternalSkillDto>, String> {
+    scan_external_skills(&state).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn import_external_skill_command(
+    state: State<'_, AppState>,
+    dir: String,
+) -> Result<UserSkillDto, String> {
+    import_external_skill(&state, &dir).map_err(Into::into)
 }
 
 #[tauri::command]

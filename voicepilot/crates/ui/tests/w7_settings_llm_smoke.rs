@@ -121,7 +121,10 @@ fn update_settings_persists_and_rebuilds_llm_client() {
 
     // get_settings 报告 key 存在,但绝不返回 key 值。
     let retrieved = get_settings(&state).expect("get_settings");
-    assert!(retrieved.llm_api_key_present, "key present flag must be true");
+    assert!(
+        retrieved.llm_api_key_present,
+        "key present flag must be true"
+    );
     assert!(retrieved.llm_enabled);
 
     // key 在 SecretStore,不在 SQLite。
@@ -222,6 +225,9 @@ fn startup_rebuild_from_persisted_settings_enables_llm() {
     update_settings(&state, &update).expect("persist");
     assert!(state.kernel.llm_client().is_none());
     startup_rebuild_llm(&state);
-    let client = state.kernel.llm_client().expect("client after startup rebuild");
+    let client = state
+        .kernel
+        .llm_client()
+        .expect("client after startup rebuild");
     assert!(client.is_enabled());
 }

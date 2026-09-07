@@ -14,15 +14,33 @@
       {
         "label": "main",
         "title": "VoicePilot",
-        "width": 1024,
-        "height": 768,
-        "minWidth": 768,
+        "theme": "Dark",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 900,
         "minHeight": 600,
-        "resizable": true
+        "resizable": true,
+        "center": true,
+        "visible": true
+      },
+      {
+        "label": "pet",
+        "title": "",
+        "theme": "Dark",
+        "width": 300,
+        "height": 360,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "acceptFirstMouse": true,
+        "visible": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost https://huggingface.co; object-src 'none'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://huggingface.co; object-src 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {
@@ -39,13 +57,13 @@
     "shortDescription": "VoicePilot — 权限感知语音桌面 Agent",
     "longDescription": "VoicePilot 是一个权限感知的语音桌面 Agent,通过 Trust Kernel 提供单一的信任边界,支持语音命令、文件整理、审批流程等。",
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "displayLanguageSelector": false,
-        "languages": ["SimpChinese", "English"],
-        "webview2": {
-          "bootstrapper": true
-        }
+        "languages": ["SimpChinese", "English"]
       }
     }
   }

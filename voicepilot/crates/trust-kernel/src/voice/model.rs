@@ -2,7 +2,7 @@
 //!
 //! W6b-3b:whisper.cpp 单文件 ggml 模型已被 sherpa-onnx SenseVoice 目录模型取代。
 //! 默认模型为 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`(目录形式,
-//! 内含 `model.onnx` + `tokens.txt`,~234MB 压缩 tar.bz2)。
+//! 内含 `model.onnx` + `tokens.txt`,约 1 GB 压缩 tar.bz2)。
 //! 用户可手动下载(CLI 打印 URL)或调用 `model_download::download_model` 自动下载解压。
 
 use crate::voice::error::{VoiceError, VoiceResult};
@@ -15,35 +15,81 @@ pub const SENSE_VOICE_DIR_NAME: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-
 pub const SENSE_VOICE_URL: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2";
 
-/// SenseVoice 压缩包大小(用于进度提示,单位 MB)。
-pub const SENSE_VOICE_SIZE_MB: u32 = 234;
+/// SenseVoice 压缩包大小(用于进度提示,单位 MB,四舍五入)。
+pub const SENSE_VOICE_SIZE_MB: u32 = 1048;
+
+/// SenseVoice pinned archive size in exact bytes.
+pub const SENSE_VOICE_ARCHIVE_SIZE_BYTES: u64 = 1_047_870_769;
+
+/// SenseVoice pinned archive SHA-256 digest.
+pub const SENSE_VOICE_ARCHIVE_SHA256: &str =
+    "f6b2a72ebcb1ac7a764d4cfccd886e6bcb2a95c4657c2199d0ba95ed4b9ea71a";
 
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
     pub name: &'static str,
     pub path: PathBuf,
     pub size_hint_mb: u32,
+    pub archive_size_bytes: u64,
+    pub archive_sha256: &'static str,
     pub download_url: &'static str,
 }
 
 pub struct ModelRegistry {
     home_dir: PathBuf,
+    /// 旧版模型目录根(测试可注入):`%LOCALAPPDATA%`。生产用
+    /// `dirs::data_local_dir()`;None 表示不探测旧路径。
+    local_data_root: Option<PathBuf>,
 }
 
 impl ModelRegistry {
     /// Use the user's home directory from %USERPROFILE% (Windows-only).
     pub fn new() -> Self {
         let home_dir = dirs_or_fallback();
-        Self { home_dir }
+        Self {
+            home_dir,
+            local_data_root: None,
+        }
     }
 
     /// Test-only constructor with explicit home directory.
     pub fn with_home_dir(home_dir: PathBuf) -> Self {
-        Self { home_dir }
+        Self {
+            home_dir,
+            local_data_root: None,
+        }
+    }
+
+    /// Test-only constructor with explicit home + `%LOCALAPPDATA%` root
+    /// (legacy model dir probe).
+    pub fn with_dirs(home_dir: PathBuf, local_data_root: Option<PathBuf>) -> Self {
+        Self {
+            home_dir,
+            local_data_root,
+        }
+    }
+
+    /// Test-only constructor that injects a legacy `%LOCALAPPDATA%` root.
+    pub fn with_legacy_probe(local_data_root: PathBuf) -> Self {
+        Self {
+            home_dir: dirs_or_fallback(),
+            local_data_root: Some(local_data_root),
+        }
     }
 
     fn models_dir(&self) -> PathBuf {
         self.home_dir.join(".voicepilot").join("models")
+    }
+
+    /// Wave 3 Task 3.2:旧版模型目录 `%LOCALAPPDATA%\voicepilot\models`。
+    /// 兼容探测:若 canonical 无该模型而旧路径有,直接使用旧路径(不复制大文件)。
+    fn legacy_models_dir(&self) -> PathBuf {
+        let root = self
+            .local_data_root
+            .clone()
+            .or_else(dirs::data_local_dir)
+            .unwrap_or_default();
+        root.join("voicepilot").join("models")
     }
 
     fn spec_for(&self, name: &'static str, size_mb: u32, url: &'static str) -> ModelSpec {
@@ -51,11 +97,13 @@ impl ModelRegistry {
             name,
             path: self.models_dir().join(name),
             size_hint_mb: size_mb,
+            archive_size_bytes: SENSE_VOICE_ARCHIVE_SIZE_BYTES,
+            archive_sha256: SENSE_VOICE_ARCHIVE_SHA256,
             download_url: url,
         }
     }
 
-    /// Default model: sherpa-onnx SenseVoice (zh-en-ja-ko-yue, ~234MB tar.bz2).
+    /// Default model: sherpa-onnx SenseVoice (zh-en-ja-ko-yue, ~1 GB tar.bz2).
     pub fn default_model(&self) -> ModelSpec {
         self.spec_for(SENSE_VOICE_DIR_NAME, SENSE_VOICE_SIZE_MB, SENSE_VOICE_URL)
     }
@@ -64,36 +112,37 @@ impl ModelRegistry {
     ///
     /// W6b-3b:目前仅支持 SenseVoice 一个模型(whisper.cpp ggml 模型已弃用)。
     pub fn all_known_models(&self) -> Vec<ModelSpec> {
-        vec![self.spec_for(
-            SENSE_VOICE_DIR_NAME,
-            SENSE_VOICE_SIZE_MB,
-            SENSE_VOICE_URL,
-        )]
+        vec![self.spec_for(SENSE_VOICE_DIR_NAME, SENSE_VOICE_SIZE_MB, SENSE_VOICE_URL)]
     }
 
-    /// 检查指定模型(目录形式)是否已存在。
+    /// 检查指定模型(目录形式)是否已存在(canonical 或旧版兼容路径)。
     ///
     /// sherpa-onnx 模型是目录而非单文件,故用 `is_dir()`。
     pub fn is_model_present(&self, name: &str) -> bool {
         self.models_dir().join(name).is_dir()
+            || self.legacy_models_dir().join(name).is_dir()
     }
 
-    /// 解析模型目录路径。
+    /// 解析模型目录路径(canonical 优先,其次旧版 `%LOCALAPPDATA%` 兼容路径)。
     ///
-    /// 返回 `~/.voicepilot/models/<model_id>` 目录 PathBuf(由调用方或
-    /// `SherpaAsrEngine::new` 进一步校验 `model.onnx` + `tokens.txt` 存在)。
+    /// 返回模型目录 PathBuf(由调用方或 `SherpaAsrEngine::new` 进一步校验
+    /// `model.onnx` + `tokens.txt` 存在)。
     pub fn resolve(&self, model_id: &str) -> VoiceResult<PathBuf> {
         let model_root = self.models_dir();
         let model_dir = model_root.join(model_id);
         if model_dir.is_dir() {
-            Ok(model_dir)
-        } else {
-            Err(VoiceError::ModelMissing(format!(
-                "model dir not found: {} (expected at {})",
-                model_id,
-                model_dir.display()
-            )))
+            return Ok(model_dir);
         }
+        let legacy_dir = self.legacy_models_dir().join(model_id);
+        if legacy_dir.is_dir() {
+            return Ok(legacy_dir);
+        }
+        Err(VoiceError::ModelMissing(format!(
+            "model dir not found: {} (expected at {} or legacy {})",
+            model_id,
+            model_dir.display(),
+            legacy_dir.display()
+        )))
     }
 }
 

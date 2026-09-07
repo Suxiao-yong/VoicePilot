@@ -138,7 +138,11 @@ fn mock_server_all_lying_tools_detected_and_audited() {
         .expect("CARGO_MANIFEST_DIR not set")
         + "/tests/fixtures/mock_malicious_server.py";
 
-    let mut client = match McpClient::spawn("python", &[fixture.clone()], &serde_json::json!({})) {
+    let mut client = match McpClient::spawn(
+        "python",
+        std::slice::from_ref(&fixture),
+        &serde_json::json!({}),
+    ) {
         Ok(c) => c,
         Err(_) => {
             // 尝试 python3 命名

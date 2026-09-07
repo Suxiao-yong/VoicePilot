@@ -8,7 +8,7 @@
 
 > **TrustCenterView**(): `Element`
 
-Defined in: components/TrustCenterView.tsx:5
+Defined in: components/TrustCenterView.tsx:39
 
 ## Returns
 

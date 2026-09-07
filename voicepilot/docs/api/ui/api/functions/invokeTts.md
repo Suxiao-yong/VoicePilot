@@ -8,7 +8,7 @@
 
 > **invokeTts**(`text`): `Promise`\<[`TtsResult`](../interfaces/TtsResult.md)\>
 
-Defined in: api.ts:172
+Defined in: api.ts:185
 
 ## Parameters
 

@@ -1,16 +1,14 @@
 //! W9 Plan 7 — 哈希链 + 隐私脱敏 smoke 测试(3 个)。
 //!
 //! 覆盖 spec §5 "哈希链不断" + §6.4 审计事件隐私处理:
-//!   1. audit_chain_hash_links_unbroken — 遍历 audit_logs 验证 prev_hash 链不断 +
-//!      哈希计算正确(SHA256(prev_hash || canonical_json(payload)))
-//!   2. audit_chain_w9_new_5_events_recorded — W9 新增 4 种事件全记录(stronghold 组合)
-//!      (stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed /
-//!       stronghold_degraded_mode_entered / taint_blocked;
-//!       taint_propagated 由 dispatcher 传播,本测试不强求;
-//!       dag_skeleton_modified + dag_modify_limit_exceeded 需 tauri feature,
-//!       在 Task 7 全 feature 组合下验证)
+//!   1. audit_chain_hash_links_unbroken — 遍历 audit_logs 验证 prev_hash 链不断 + 哈希计算正确
+//!      (SHA256(prev_hash || canonical_json(payload)))
+//!   2. audit_chain_w9_new_5_events_recorded — W9 新增 4 种事件全记录(stronghold 组合):
+//!      stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed /
+//!      stronghold_degraded_mode_entered / taint_blocked;taint_propagated 由 dispatcher 传播;
+//!      dag_skeleton_modified + dag_modify_limit_exceeded 需 tauri feature,在 Task 7 全 feature 下验证
 //!   3. audit_chain_details_no_plaintext_secrets — details 字段隐私脱敏
-//!      (不含 password= / passwd= / secret= / api_key= / sk- / plaintext= 密钥字面量前缀)
+//!      (不含 password=/passwd=/secret=/api_key=/sk-/plaintext= 密钥字面量前缀)
 //!
 //! 测试设计:
 //! - 用例 1 + 3 用 default 组合(无 feature gate,可独立编译运行)

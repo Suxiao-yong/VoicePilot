@@ -9,16 +9,22 @@ use tauri::AppHandle;
 use tauri::Emitter;
 #[cfg(feature = "voice")]
 use trust_kernel::voice::model_download::{
-    check_model_present, default_model_info, download_model, DownloadProgress,
+    default_model_info, download_model, model_state, models_dir, DownloadProgress,
 };
 
 /// 模型状态(前端 ModelDownloadBar 用)。
+///
+/// Wave 3 Task 3.2:从二值(Present/Absent)扩展为完整状态机:
+/// Disabled / Missing / Downloading / Verifying / Ready / Failed。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelStatus {
     Disabled,
-    Present,
-    Absent,
+    Missing,
+    Downloading,
+    Verifying,
+    Ready,
+    Failed,
 }
 
 /// 下载进度事件 payload。
@@ -44,10 +50,16 @@ pub fn check_model_command() -> ModelStatus {
     #[cfg(feature = "voice")]
     {
         let info = default_model_info();
-        if check_model_present(&info.name) {
-            ModelStatus::Present
-        } else {
-            ModelStatus::Absent
+        match model_state(&models_dir(), &info.name) {
+            Ok(trust_kernel::voice::model_download::ModelState::Ready) => ModelStatus::Ready,
+            Ok(trust_kernel::voice::model_download::ModelState::Downloading) => {
+                ModelStatus::Downloading
+            }
+            Ok(trust_kernel::voice::model_download::ModelState::Missing) => ModelStatus::Missing,
+            Ok(trust_kernel::voice::model_download::ModelState::Disabled) => ModelStatus::Disabled,
+            Ok(trust_kernel::voice::model_download::ModelState::Verifying) => ModelStatus::Verifying,
+            Ok(trust_kernel::voice::model_download::ModelState::Failed) => ModelStatus::Failed,
+            Err(_) => ModelStatus::Missing,
         }
     }
     #[cfg(not(feature = "voice"))]

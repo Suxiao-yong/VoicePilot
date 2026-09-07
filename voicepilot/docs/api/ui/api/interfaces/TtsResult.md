@@ -6,7 +6,7 @@
 
 # Interface: TtsResult
 
-Defined in: api.ts:164
+Defined in: api.ts:177
 
 TTS 播放结果(W6b-3b Fix 1:`wav_path` 返回合成的 WAV 文件绝对路径,
 由前端 `<audio>` 元素通过 `convertFileSrc` 播放)。
@@ -17,7 +17,7 @@ TTS 播放结果(W6b-3b Fix 1:`wav_path` 返回合成的 WAV 文件绝对路径,
 
 > **error**: `string` \| `null`
 
-Defined in: api.ts:169
+Defined in: api.ts:182
 
 ***
 
@@ -25,7 +25,7 @@ Defined in: api.ts:169
 
 > **interrupted**: `boolean`
 
-Defined in: api.ts:166
+Defined in: api.ts:179
 
 ***
 
@@ -33,7 +33,7 @@ Defined in: api.ts:166
 
 > **played**: `boolean`
 
-Defined in: api.ts:165
+Defined in: api.ts:178
 
 ***
 
@@ -41,7 +41,7 @@ Defined in: api.ts:165
 
 > **sample\_count**: `number`
 
-Defined in: api.ts:167
+Defined in: api.ts:180
 
 ***
 
@@ -49,4 +49,4 @@ Defined in: api.ts:167
 
 > **wav\_path**: `string` \| `null`
 
-Defined in: api.ts:168
+Defined in: api.ts:181

@@ -8,7 +8,7 @@
 
 > **onTranscriptionFinal**(`handler`): `Promise`\<`UnlistenFn`\>
 
-Defined in: api.ts:72
+Defined in: api.ts:73
 
 Subscribe to `transcription-final` events emitted by the Rust side.
 

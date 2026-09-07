@@ -6,7 +6,7 @@
 
 # Interface: DagNode
 
-Defined in: types.ts:200
+Defined in: types.ts:241
 
 W8 §2.3:DAG 节点(前端镜像,与后端 DagNodeDetailDto 对齐)。
 
@@ -16,7 +16,7 @@ W8 §2.3:DAG 节点(前端镜像,与后端 DagNodeDetailDto 对齐)。
 
 > **completed\_at**: `string` \| `null`
 
-Defined in: types.ts:211
+Defined in: types.ts:252
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:211
 
 > **error\_message**: `string` \| `null`
 
-Defined in: types.ts:207
+Defined in: types.ts:248
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:207
 
 > **input\_template\_json**: `string`
 
-Defined in: types.ts:205
+Defined in: types.ts:246
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:205
 
 > **node\_id**: `string`
 
-Defined in: types.ts:201
+Defined in: types.ts:242
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:201
 
 > **output\_json**: `string` \| `null`
 
-Defined in: types.ts:206
+Defined in: types.ts:247
 
 ***
 
@@ -56,7 +56,7 @@ Defined in: types.ts:206
 
 > **risk\_ceiling**: `string`
 
-Defined in: types.ts:203
+Defined in: types.ts:244
 
 ***
 
@@ -64,7 +64,7 @@ Defined in: types.ts:203
 
 > **skill\_id**: `string`
 
-Defined in: types.ts:202
+Defined in: types.ts:243
 
 ***
 
@@ -72,7 +72,7 @@ Defined in: types.ts:202
 
 > **started\_at**: `string` \| `null`
 
-Defined in: types.ts:210
+Defined in: types.ts:251
 
 ***
 
@@ -80,7 +80,7 @@ Defined in: types.ts:210
 
 > **status**: `string`
 
-Defined in: types.ts:204
+Defined in: types.ts:245
 
 ***
 
@@ -88,7 +88,7 @@ Defined in: types.ts:204
 
 > **step\_id**: `string` \| `null`
 
-Defined in: types.ts:209
+Defined in: types.ts:250
 
 ***
 
@@ -96,4 +96,4 @@ Defined in: types.ts:209
 
 > **task\_id**: `string` \| `null`
 
-Defined in: types.ts:208
+Defined in: types.ts:249

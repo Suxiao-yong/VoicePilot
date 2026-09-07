@@ -14,7 +14,7 @@
 //!
 //! `VoiceRecorder` trait 抽象录音,便于单元测试注入 mock。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::voice::audio::{AudioRecorder, AudioRecorderConfig};
@@ -73,6 +73,10 @@ pub struct VoiceListener {
     vad: VadDetector,
     max_duration: Duration,
     chunk_duration: Duration,
+    /// TTS 自激防护:此时间点之前的 chunk 录了也丢弃(不进 buffer/VAD)。
+    /// 由调用方按“TTS 合成返回时刻 + 音频时长 + cooldown”估算填入;
+    /// None = 无防护(默认,行为与旧版一致)。
+    tts_cooldown_until: Mutex<Option<std::time::SystemTime>>,
 }
 
 /// Partial transcript callback 类型(W6b-2 issue #47)。
@@ -117,7 +121,31 @@ impl VoiceListener {
             vad,
             max_duration,
             chunk_duration,
+            tts_cooldown_until: Mutex::new(None),
         }
+    }
+
+    /// 设置 TTS cooldown 窗口(Phase 1 自激防护，与 buzz TTS_COOLDOWN 同值)。
+    /// 调用方传 `Some(TTS停播估算时刻 + cooldown)`;窗口内的 chunk 直接丢弃。
+    pub fn with_tts_cooldown_until(self, until: Option<std::time::SystemTime>) -> Self {
+        *self.tts_cooldown_until.lock().unwrap() = until;
+        self
+    }
+
+    /// 当前 chunk 是否在 TTS cooldown 窗口内(是则丢弃)。
+    fn in_tts_cooldown(&self) -> bool {
+        self.tts_cooldown_until
+            .lock()
+            .unwrap()
+            .is_some_and(|until| std::time::SystemTime::now() < until)
+    }
+
+    /// 把 `SpeechSegment` 应用到累积 buffer:掐头(pre-roll 已回溯起点) + 去尾。
+    /// 返回截取后的样本(调用方直接当结果返回)。
+    fn apply_segment(buffer: &[i16], segment: &crate::voice::vad::SpeechSegment) -> Vec<i16> {
+        let start = segment.speech_start_sample.min(buffer.len());
+        let end = segment.speech_end_sample.min(buffer.len()).max(start);
+        buffer[start..end].to_vec()
     }
 
     /// 开始监听,返回 `ListenOutcome`。
@@ -165,6 +193,7 @@ impl VoiceListener {
         partial_callback: PartialCallback<'_>,
     ) -> VoiceResult<ListenOutcome> {
         use std::sync::atomic::Ordering;
+        self.vad.reset(); // 防御:同一 detector 复用场景下避免旧 fed 状态残留
         let mut buffer: Vec<i16> = Vec::new();
         let mut elapsed = Duration::ZERO;
         let mut last_partial_elapsed = Duration::ZERO;
@@ -177,11 +206,16 @@ impl VoiceListener {
             if chunk.is_empty() {
                 break;
             }
+            // Phase 1 TTS 自激防护:cooldown 窗口内的 chunk 直接丢弃。
+            if self.in_tts_cooldown() {
+                elapsed += self.chunk_duration;
+                continue;
+            }
             buffer.extend_from_slice(&chunk);
             elapsed += self.chunk_duration;
             if let Some(segment) = self.vad.detect_end_of_speech(&buffer) {
-                buffer.truncate(segment.speech_end_sample);
-                return Ok(ListenOutcome::SpeechEnded { samples: buffer });
+                let samples = Self::apply_segment(&buffer, &segment);
+                return Ok(ListenOutcome::SpeechEnded { samples });
             }
             // W6b-2 issue #47:每 2s 发射一次 partial transcript callback
             if let Some(cb) = partial_callback {
@@ -193,12 +227,17 @@ impl VoiceListener {
         }
 
         match self.vad.detect(&buffer) {
-            VadOutcome::Speech { speech_end_sample, .. } => {
-                buffer.truncate(speech_end_sample);
-                if buffer.is_empty() {
+            VadOutcome::Speech {
+                speech_start_sample,
+                speech_end_sample,
+            } => {
+                let start = speech_start_sample.min(buffer.len());
+                let end = speech_end_sample.min(buffer.len()).max(start);
+                let samples = buffer[start..end].to_vec();
+                if samples.is_empty() {
                     Ok(ListenOutcome::NoSpeech)
                 } else {
-                    Ok(ListenOutcome::Timeout { samples: buffer })
+                    Ok(ListenOutcome::Timeout { samples })
                 }
             }
             VadOutcome::NoSpeech => Ok(ListenOutcome::NoSpeech),
@@ -227,6 +266,7 @@ impl VoiceListener {
     ) -> VoiceResult<(ListenOutcome, ListenTimings)> {
         use std::sync::atomic::Ordering;
         use std::time::SystemTime;
+        self.vad.reset();
         let mut buffer: Vec<i16> = Vec::new();
         let mut elapsed = Duration::ZERO;
         let mut last_partial_elapsed = Duration::ZERO;
@@ -240,6 +280,11 @@ impl VoiceListener {
             if chunk.is_empty() {
                 break;
             }
+            // Phase 1 TTS 自激防护:cooldown 窗口内的 chunk 直接丢弃。
+            if self.in_tts_cooldown() {
+                elapsed += self.chunk_duration;
+                continue;
+            }
             // W10 Plan 3: 检测首个 voiced chunk(t0)
             if timings.voice_started_at.is_none() && self.vad.chunk_has_speech(&chunk) {
                 timings.voice_started_at = Some(SystemTime::now());
@@ -247,8 +292,8 @@ impl VoiceListener {
             buffer.extend_from_slice(&chunk);
             elapsed += self.chunk_duration;
             if let Some(segment) = self.vad.detect_end_of_speech(&buffer) {
-                buffer.truncate(segment.speech_end_sample);
-                return Ok((ListenOutcome::SpeechEnded { samples: buffer }, timings));
+                let samples = Self::apply_segment(&buffer, &segment);
+                return Ok((ListenOutcome::SpeechEnded { samples }, timings));
             }
             // W6b-2 issue #47:每 2s 发射一次 partial transcript callback
             // W10 Plan 3: 首次 callback 时记录 t1
@@ -264,12 +309,17 @@ impl VoiceListener {
         }
 
         let outcome = match self.vad.detect(&buffer) {
-            VadOutcome::Speech { speech_end_sample, .. } => {
-                buffer.truncate(speech_end_sample);
-                if buffer.is_empty() {
+            VadOutcome::Speech {
+                speech_start_sample,
+                speech_end_sample,
+            } => {
+                let start = speech_start_sample.min(buffer.len());
+                let end = speech_end_sample.min(buffer.len()).max(start);
+                let samples = buffer[start..end].to_vec();
+                if samples.is_empty() {
                     ListenOutcome::NoSpeech
                 } else {
-                    ListenOutcome::Timeout { samples: buffer }
+                    ListenOutcome::Timeout { samples }
                 }
             }
             VadOutcome::NoSpeech => ListenOutcome::NoSpeech,
@@ -289,6 +339,68 @@ mod tests {
             samples: vec![1, 2, 3],
         };
         assert!(format!("{:?}", outcome).contains("SpeechEnded"));
+    }
+
+    // ===== Phase 1(buzz 端点策略)测试 =====
+
+    #[test]
+    fn apply_segment_strips_leading_silence() {
+        // buffer 内容即下标,段 [3200, 20800) 应原样切出。
+        let buffer: Vec<i16> = (0..24000).map(|i| i as i16).collect();
+        let seg = crate::voice::vad::SpeechSegment {
+            speech_start_sample: 3200,
+            speech_end_sample: 20800,
+        };
+        let out = VoiceListener::apply_segment(&buffer, &seg);
+        assert_eq!(out.len(), 17600);
+        assert_eq!(out[0], 3200);
+        assert_eq!(out[out.len() - 1], 20799);
+    }
+
+    #[test]
+    fn tts_cooldown_discards_all_chunks() {
+        // cooldown 设到 1 小时后 → 所有 chunk 丢弃 → buffer 空 → NoSpeech。
+        let voiced_chunk = vec![10_000i16; 8000];
+        let recorder =
+            std::sync::Arc::new(MockRecorder::new(vec![voiced_chunk.clone(), voiced_chunk]));
+        let future = std::time::SystemTime::now() + Duration::from_secs(3600);
+        let listener = VoiceListener::new(
+            recorder,
+            VadDetector::new(VadConfig::default()),
+            Duration::from_secs(10),
+            Duration::from_millis(500),
+        )
+        .with_tts_cooldown_until(Some(future));
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let outcome = listener.listen_with_cancel(&cancel).unwrap();
+        assert!(
+            matches!(outcome, ListenOutcome::NoSpeech),
+            "chunks in TTS cooldown must be discarded, got {:?}",
+            outcome
+        );
+    }
+
+    #[test]
+    fn expired_cooldown_records_normally() {
+        // 过期 cooldown → 正常录音:1 voiced chunk 后耗尽 → Timeout 非空。
+        let voiced_chunk = vec![10_000i16; 8000];
+        let recorder = std::sync::Arc::new(MockRecorder::new(vec![voiced_chunk]));
+        let past = std::time::SystemTime::now() - Duration::from_secs(1);
+        let listener = VoiceListener::new(
+            recorder,
+            VadDetector::new(VadConfig::default()),
+            Duration::from_secs(10),
+            Duration::from_millis(500),
+        )
+        .with_tts_cooldown_until(Some(past));
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let outcome = listener.listen_with_cancel(&cancel).unwrap();
+        match outcome {
+            ListenOutcome::Timeout { samples } => {
+                assert!(!samples.is_empty(), "expired cooldown must record normally")
+            }
+            other => panic!("expected Timeout, got {:?}", other),
+        }
     }
 
     #[test]

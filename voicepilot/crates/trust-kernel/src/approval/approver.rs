@@ -69,6 +69,20 @@ pub trait Approver: Send + Sync {
     /// 与"用户 Deny"(前者可作为 Err 向上传播,后者是用户意图)。
     /// AutoApprover / AutoDenier 始终返回 Ok。
     fn approve_dag_skeleton(&self, plan: &DagPlan) -> Result<DagApprovalOutcome>;
+
+    /// 追问卡（与审批语义分离）：向用户提问并返回所选 option 下标。
+    ///
+    /// 超时/通道丢失 → 返回 `default_index`（不是 Deny）。
+    /// 默认实现直接返回 `default_index`（AutoApprover/AutoDenier/CLI 无屏
+    /// 场景的确定性行为：回退首选项）。TauriApprover 覆盖为真实 IPC 卡片。
+    fn request_clarification(
+        &self,
+        _question: &str,
+        _options: &[String],
+        default_index: usize,
+    ) -> usize {
+        default_index
+    }
 }
 
 /// Auto-approver for tests and headless runs. Always returns Allow.
@@ -94,5 +108,18 @@ impl Approver for AutoDenier {
 
     fn approve_dag_skeleton(&self, _plan: &DagPlan) -> Result<DagApprovalOutcome> {
         Ok(DagApprovalOutcome::Deny)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clarification_defaults_to_default_index() {
+        // AutoApprover/AutoDenier 一律回 default（测试确定性，与审批 Allow/Deny 无关）。
+        let options = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(AutoApprover.request_clarification("q", &options, 0), 0);
+        assert_eq!(AutoDenier.request_clarification("q", &options, 1), 1);
     }
 }

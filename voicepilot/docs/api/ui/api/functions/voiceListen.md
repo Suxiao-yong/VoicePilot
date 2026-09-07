@@ -8,7 +8,7 @@
 
 > **voiceListen**(): `Promise`\<[`VoiceListenResult`](../../types/type-aliases/VoiceListenResult.md)\>
 
-Defined in: api.ts:57
+Defined in: api.ts:58
 
 ## Returns
 

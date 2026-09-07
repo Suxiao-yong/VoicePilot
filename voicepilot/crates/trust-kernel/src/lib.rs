@@ -19,6 +19,8 @@ pub mod approval;
 pub mod allowed_paths;
 pub mod mcp;
 pub mod skills;
+/// 外部发现:只读扫描全局 Skills/MCP 配置,不启用任何东西。
+pub mod external_scan;
 pub mod llm;
 pub mod extensions;
 // Wave 1 Task 1.2: 统一 PlannerPipeline(纯规划层,无 DB 副作用)。
@@ -38,6 +40,18 @@ pub mod turns;
 
 // Task 6: llm_route_cache 表读写（纯 DB 操作，default-gated）。
 pub mod llm_cache;
+
+// Phase B: 跨会话长期记忆（mem0 extract→consolidate→retrieve 最小子集）。
+// 纯 DB + 纯函数 default-gated；LLM 蒸馏在 maybe_distill 内部 cfg 门控。
+pub mod memory;
+
+// Phase C: 进程内后台作业调度（OpenClaw Automations 复现）。
+// 纯 DB + 纯函数 default-gated；执行复用 route_text_with_dag（llm-gated 内部）。
+pub mod scheduler;
+
+// Phase C: 路由 facade 从 voice::router_bridge 上移为常驻模块 ——
+// 调度器（default-gated）复用 route_text_with_dag；原路径保留 shim。
+pub mod route_bridge;
 
 // W10 Plan 5: 审计事件覆盖率检查器(spec §7.2)。
 // default-gated(纯 DB 操作,不依赖 voice/stronghold feature)。

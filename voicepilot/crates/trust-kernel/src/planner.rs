@@ -66,6 +66,30 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     s.chars().take(max_chars).collect()
 }
 
+/// 在同步上下文驱动 async 规划（route_text / UI voice / memory 蒸馏用）。
+///
+/// 新线程 + current-thread runtime：在已有 tokio runtime 上下文（如 Tauri
+/// async command）内外调用都安全 —— 直接 `Runtime::new().block_on` 在 runtime
+/// 内会 panic（"Cannot start a runtime from within a runtime"）。
+///
+/// Phase B：从 voice::router_bridge 上移到 planner（voice-gated → 常驻），
+/// 记忆蒸馏（default-gated）复用同一实现；router_bridge 保留 re-export。
+pub fn block_on_planner<F, T>(future: F) -> crate::error::Result<T>
+where
+    F: std::future::Future<Output = crate::error::Result<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| crate::error::KernelError::Skill(format!("planner runtime: {e}")))?;
+        runtime.block_on(future)
+    })
+    .join()
+    .map_err(|_| crate::error::KernelError::Skill("planner thread panicked".to_string()))?
+}
+
 impl RealtimeSnapshot {
     pub fn is_fresh_at(&self, now: std::time::SystemTime) -> bool {
         now.duration_since(self.taken_at)
@@ -146,6 +170,9 @@ pub struct PlannerTrace {
     pub token_count: Option<u64>,
     /// 本次规划是否调用过 LLM。
     pub used_llm: bool,
+    /// Phase B：本次规划注入了哪些长期记忆 fact id（空 = 无注入）。
+    /// 由 router_bridge 落 `memory_injected` 审计（记忆影响决策必须可解释）。
+    pub memory_facts: Vec<i64>,
 }
 
 /// 统一规划管道:关键词路由 → LLM classify → LLM DAG 拆解。
@@ -200,6 +227,41 @@ impl PlannerPipeline {
         for manifest in &manifests {
             router.register(manifest.clone());
         }
+        // 3.5 已知站点站内搜快路由（Daisy 本地快路由对等物）："打开抖音搜X"
+        // 直出 sys.open_url + url 槽位，不过 LLM。仅当 sys.open_url 在
+        // 候选中才生效（被禁用时不短路）。放关键词路由之前：站点+搜意图
+        // 比通用 web.search 更具体（如"打开抖音搜索世界杯"应进站内）。
+        // 旧 Skill 不含站点+搜组合，不会被挤掉（冒烟测试锁定）。
+        if manifests.iter().any(|m| m.id == "sys.open_url") {
+            if let Some(url) = crate::skills::router::match_site_search(trimmed) {
+                return Ok((
+                    PlanResult::Skill {
+                        extension_id: "sys.open_url".to_string(),
+                        slots: vec![crate::llm::types::ExtractedSlot {
+                            kind: "url".to_string(),
+                            raw: url,
+                            high_risk: false,
+                        }],
+                    },
+                    self.trace(),
+                ));
+            }
+        }
+        // 3.6 原子快路由（对标 Daisy tryLocalCommand）：全句锚定正则同时完成
+        // 意图匹配 + 参数提取，命中即带槽位返回；形状含糊落空，继续走 keyword。
+        // 位置在 site_search 之后、keyword 之前：快路由只接自己能填满参数的形状，
+        // 接不住的一律 None，不挤掉 keyword 与 site_home 的既有行为。
+        if let Some((skill_id, slots)) =
+            crate::skills::fastroute::match_fast_route(trimmed, &manifests)
+        {
+            return Ok((
+                PlanResult::Skill {
+                    extension_id: skill_id,
+                    slots,
+                },
+                self.trace(),
+            ));
+        }
         match router.route(trimmed) {
             RouteDecision::Skill(manifest) => {
                 return Ok((
@@ -214,6 +276,23 @@ impl PlannerPipeline {
             // 同步 route() 从不返回这两个变体;防御性落到 LLM 路径。
             #[cfg(feature = "llm")]
             RouteDecision::SkillWithSlots(..) | RouteDecision::Dag(_) => {}
+        }
+        // 关键词未命中才用站点直达（裸打开纯网页服务，如"打开红果"；
+        // 有桌面应用可能的站点走 LLM→app_control 优先试本地应用）。
+        if manifests.iter().any(|m| m.id == "sys.open_url") {
+            if let Some(url) = crate::skills::router::match_site_home(trimmed) {
+                return Ok((
+                    PlanResult::Skill {
+                        extension_id: "sys.open_url".to_string(),
+                        slots: vec![crate::llm::types::ExtractedSlot {
+                            kind: "url".to_string(),
+                            raw: url,
+                            high_risk: false,
+                        }],
+                    },
+                    self.trace(),
+                ));
+            }
         }
 
         self.plan_with_llm(trimmed, &manifests, input.snapshot.as_ref()).await
@@ -236,11 +315,26 @@ impl PlannerPipeline {
             return Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace));
         }
 
-        // 快照上下文只进 LLM（关键词路由仍用原文，避免污染匹配）。
-        let llm_text = match snapshot {
-            Some(s) => format!("{}\n{}", s.context_block(), trimmed),
-            None => trimmed.to_string(),
+        // Phase B：长期记忆检索注入（按当前输入召回 top-3，带来源声明）。
+        // 注入的 fact ids 记进 trace，router_bridge 落 memory_injected 审计。
+        // 失败静默跳过 —— 记忆是增益不是依赖。
+        let (memory_block, memory_ids) = {
+            let conn = self.kernel.conn();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            crate::memory::recall_block_for(&conn, trimmed, now_ms).unwrap_or_default()
         };
+        trace.memory_facts = memory_ids;
+
+        // 快照上下文 + 记忆块只进 LLM（关键词路由仍用原文，避免污染匹配）。
+        let mut llm_text = match snapshot {
+            Some(s) => format!("{}\n", s.context_block()),
+            None => String::new(),
+        };
+        if !memory_block.is_empty() {
+            // 记忆块自带结尾换行；跟在快照（或空）之后。
+            llm_text.push_str(&memory_block);
+        }
+        llm_text.push_str(trimmed);
 
         // 4. classify_and_extract — 单 Skill 意图 + Slot 提取。
         // Task 6: classify 缓存。命中且候选仍有效 → 零 LLM 开销直接返回。
@@ -322,9 +416,10 @@ impl PlannerPipeline {
         // 6. 聊天兜底：classify 与 DAG 拆解都失败时，用 LLM 直接回答用户。
         //    只带上文记忆，不带 slot 提取 guard；候选功能清单由 chat_answer 内部拼接。
         //    仍失败才收敛到 Unmatched。
+        //    Phase B：长期记忆也注入聊天兜底（同 recall 块，声明随附）。
         let chat_text = match snapshot {
-            Some(s) => format!("{}{}", s.chat_context(), trimmed),
-            None => trimmed.to_string(),
+            Some(s) => format!("{}{}{}", s.chat_context(), memory_block, trimmed),
+            None => format!("{}{}", memory_block, trimmed),
         };
         let started = Instant::now();
         let chat = llm.chat_answer(&chat_text, manifests).await;
@@ -353,6 +448,7 @@ impl PlannerPipeline {
             latency_ms: 0,
             token_count: None,
             used_llm: false,
+            memory_facts: Vec::new(),
         }
     }
 }

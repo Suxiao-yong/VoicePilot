@@ -19,8 +19,12 @@ fn skill_upsert_creates_new_record() {
     let conn = db::open_in_memory().expect("open");
     db::run_migrations(&conn).expect("run_migrations");
     let repo = SkillRepo::new();
-    repo.upsert(&conn, &make_record("files.organize")).expect("upsert");
-    let got = repo.get(&conn, "files.organize").expect("get").expect("exists");
+    repo.upsert(&conn, &make_record("files.organize"))
+        .expect("upsert");
+    let got = repo
+        .get(&conn, "files.organize")
+        .expect("get")
+        .expect("exists");
     assert_eq!(got.skill_id, "files.organize");
     assert_eq!(got.success_count, 0);
 }
@@ -30,12 +34,58 @@ fn skill_upsert_overwrites_existing() {
     let conn = db::open_in_memory().expect("open");
     db::run_migrations(&conn).expect("run_migrations");
     let repo = SkillRepo::new();
-    repo.upsert(&conn, &make_record("files.organize")).expect("upsert 1");
+    repo.upsert(&conn, &make_record("files.organize"))
+        .expect("upsert 1");
     let mut rec = make_record("files.organize");
     rec.version = 2;
     repo.upsert(&conn, &rec).expect("upsert 2");
-    let got = repo.get(&conn, "files.organize").expect("get").expect("exists");
+    let got = repo
+        .get(&conn, "files.organize")
+        .expect("get")
+        .expect("exists");
     assert_eq!(got.version, 2);
+}
+
+#[test]
+fn skill_upsert_preserves_runtime_state_when_refreshing_manifest() {
+    let conn = db::open_in_memory().expect("open");
+    db::run_migrations(&conn).expect("run_migrations");
+    let repo = SkillRepo::new();
+
+    repo.upsert(
+        &conn,
+        &SkillRecord {
+            skill_id: "skill-refresh".to_string(),
+            version: 1,
+            manifest_json: r#"{"id":"old"}"#.to_string(),
+            enabled: false,
+            success_count: 7,
+            avg_latency_ms: 123.5,
+        },
+    )
+    .expect("upsert existing");
+    repo.upsert(
+        &conn,
+        &SkillRecord {
+            skill_id: "skill-refresh".to_string(),
+            version: 2,
+            manifest_json: r#"{"id":"new"}"#.to_string(),
+            enabled: true,
+            success_count: 0,
+            avg_latency_ms: 0.0,
+        },
+    )
+    .expect("upsert refreshed");
+
+    let got = repo
+        .get(&conn, "skill-refresh")
+        .expect("get")
+        .expect("exists");
+    assert!(!got.enabled);
+    assert_eq!(got.success_count, 7);
+    assert_eq!(got.avg_latency_ms, 123.5);
+    assert_eq!(got.version, 2);
+    assert_eq!(got.manifest_json, r#"{"id":"new"}"#);
 }
 
 #[test]

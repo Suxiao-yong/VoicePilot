@@ -8,7 +8,7 @@
 
 > **onModelDownloadProgress**(`handler`): `Promise`\<`UnlistenFn`\>
 
-Defined in: api.ts:150
+Defined in: api.ts:163
 
 ## Parameters
 

@@ -1,6 +1,6 @@
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
-use trust_kernel::audit::{AuditEvent, AuditLogger, SqliteAuditLogger};
+use trust_kernel::audit::{AuditEvent, SqliteAuditLogger};
 use trust_kernel::db;
 use trust_kernel::repo::step_repo::{StepRecord, StepRepo};
 use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
@@ -41,7 +41,10 @@ fn append_writes_event_with_correct_hash() {
     logger.append(&event).unwrap();
 
     let rows = logger
-        .query_rows("SELECT hash, prev_hash FROM audit_logs WHERE task_id=?1", "task-1")
+        .query_rows(
+            "SELECT hash, prev_hash FROM audit_logs WHERE task_id=?1",
+            "task-1",
+        )
         .unwrap();
     assert_eq!(rows.len(), 1);
     let (hash, prev) = &rows[0];
@@ -68,7 +71,10 @@ fn hash_chain_links_consecutive_events() {
     logger.append(&e2).unwrap();
 
     let rows = logger
-        .query_rows("SELECT hash, prev_hash FROM audit_logs WHERE task_id=?1", "task-2")
+        .query_rows(
+            "SELECT hash, prev_hash FROM audit_logs WHERE task_id=?1",
+            "task-2",
+        )
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(
@@ -88,10 +94,7 @@ fn audit_logger_records_step_id_when_provided() {
     logger.append(&event).unwrap();
 
     let step_id = logger
-        .query_single(
-            "SELECT step_id FROM audit_logs WHERE task_id=?1",
-            "task-3",
-        )
+        .query_single("SELECT step_id FROM audit_logs WHERE task_id=?1", "task-3")
         .unwrap();
     assert_eq!(step_id.as_deref(), Some("step-1"));
 }

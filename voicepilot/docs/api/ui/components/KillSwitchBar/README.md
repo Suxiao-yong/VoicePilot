@@ -8,4 +8,4 @@
 
 ## Functions
 
-- [KillSwitchBar](functions/KillSwitchBar.md)
+- [KillSwitchButton](functions/KillSwitchButton.md)

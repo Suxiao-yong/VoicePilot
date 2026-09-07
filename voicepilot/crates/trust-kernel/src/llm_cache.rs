@@ -20,7 +20,10 @@ pub struct CachedRoute {
 }
 
 pub fn normalize_text(t: &str) -> String {
-    t.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    t.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 pub fn route_cache_key(model: &str, schema_version: u32, text: &str) -> String {
@@ -101,7 +104,10 @@ mod tests {
     fn normalize_ignores_case_and_whitespace() {
         // 空白折叠（非删除）+ 小写：内部单空格保留，首尾/多余空白消失。
         assert_eq!(normalize_text("  打开 记事本\n"), "打开 记事本");
-        assert_eq!(normalize_text("Open   Notepad"), normalize_text("open notepad"));
+        assert_eq!(
+            normalize_text("Open   Notepad"),
+            normalize_text("open notepad")
+        );
     }
 
     #[test]
@@ -112,7 +118,9 @@ mod tests {
         store(&conn, &key, "quick.app_control", "[]", 0.9, 1000).unwrap();
         let hit = lookup(&conn, &key, 2000).unwrap().expect("hit");
         assert_eq!(hit.skill_id, "quick.app_control");
-        assert!(lookup(&conn, &key, 1000 + 86_400_000 + 1).unwrap().is_none());
+        assert!(lookup(&conn, &key, 1000 + 86_400_000 + 1)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

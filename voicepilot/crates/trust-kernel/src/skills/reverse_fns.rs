@@ -1,9 +1,10 @@
 //! W10 Plan 2 — Reverse function implementations for non-move Skills.
 //!
-//! 3 个新 reverse 函数:
+//! 4 个新 reverse 函数:
 //! - reverse_note_capture: 删除 note 文件(payload: {"save_path": "..."})
 //! - reverse_research_save: 删除 markdown 文件(payload: {"save_path": "..."})
 //! - reverse_form_prepare: Playwright eval clear 表单字段(payload: {"fields": {...}})
+//! - reverse_media_clip_chorus: 删除副歌裁剪输出(payload: {"save_path": "..."})
 //!
 //! 所有 reverse 函数签名 `fn(&TrustKernel, &CompensationRecord) -> Result<()>`,
 //! 与 `auto_reverse_move` 一致(通过 ReverseFnRegistry 注册)。
@@ -137,6 +138,46 @@ pub fn reverse_form_prepare(kernel: &TrustKernel, rec: &CompensationRecord) -> R
             serde_json::json!({"script": script}),
         )?;
     }
+
+    Ok(())
+}
+
+/// reverse_media_clip_chorus — 删除 media.clip_chorus 裁出的副歌文件。
+///
+/// reverse_payload JSON 结构: `{"save_path": "<path>"}`
+///
+/// 与 reverse_note_capture 同形（删文件、幂等），独立实现以便单独注册与测试。
+/// 文件不存在 → Ok(())(idempotent)。
+pub fn reverse_media_clip_chorus(
+    _kernel: &TrustKernel,
+    rec: &CompensationRecord,
+) -> Result<()> {
+    let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
+        KernelError::Compensation(format!(
+            "reverse_media_clip_chorus: invalid reverse_payload: {}",
+            e
+        ))
+    })?;
+    let save_path = payload
+        .get("save_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            KernelError::Compensation(
+                "reverse_media_clip_chorus: reverse_payload missing 'save_path'".to_string(),
+            )
+        })?;
+
+    let path = Path::new(save_path);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    std::fs::remove_file(path).map_err(|e| {
+        KernelError::Compensation(format!(
+            "reverse_media_clip_chorus: failed to delete {}: {}",
+            save_path, e
+        ))
+    })?;
 
     Ok(())
 }
@@ -452,5 +493,51 @@ for line in sys.stdin:
             "expected no eval calls for empty fields, got: {}",
             calls
         );
+    }
+}
+
+#[cfg(test)]
+mod clip_chorus_reverse_tests {
+    use super::*;
+    use crate::compensation::types::{CompensationLevel, ConflictPolicy};
+    use crate::kernel::TrustKernel;
+
+    fn make_rec(payload: &str) -> CompensationRecord {
+        CompensationRecord {
+            comp_id: format!("comp-{}", uuid::Uuid::new_v4()),
+            step_id: "s1".to_string(),
+            level: CompensationLevel::BestEffort,
+            snapshot_encrypted: None,
+            ttl_expires: "2030-01-01T00:00:00Z".to_string(),
+            status: "active".to_string(),
+            snapshot_vault_ref: None,
+            conflict_policy: ConflictPolicy::AutoReverse,
+            compensate_fn: "media.reverse_clip_chorus".to_string(),
+            reverse_payload: payload.to_string(),
+        }
+    }
+
+    #[test]
+    fn reverse_clip_chorus_deletes_output_and_is_idempotent() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "voicepilot-reverse-chorus-{}.mp3",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, b"fake chorus").unwrap();
+        let payload = serde_json::json!({"save_path": path.to_string_lossy()}).to_string();
+        let rec = make_rec(&payload);
+        reverse_media_clip_chorus(&kernel, &rec).unwrap();
+        assert!(!path.exists());
+        // 二次调用幂等成功。
+        reverse_media_clip_chorus(&kernel, &rec).unwrap();
+    }
+
+    #[test]
+    fn reverse_clip_chorus_fails_when_payload_missing_save_path() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let rec = make_rec(r#"{"other": "value"}"#);
+        let err = reverse_media_clip_chorus(&kernel, &rec).unwrap_err();
+        assert!(err.to_string().contains("missing 'save_path'"), "{err}");
     }
 }

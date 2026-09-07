@@ -4,42 +4,23 @@ import type { TaskExplanation } from "../types";
 
 interface Props {
   stepId: string;
-  /** Step 状态(用于决定是否显示 LLM 归因段落;Failed 才有归因)。 */
+  /** Step 状态（用于决定是否显示 LLM 归因段落；Failed 才有归因）。 */
   stepStatus?: string;
 }
 
-/** LLM 归因 category 徽章颜色。 */
-function categoryBadgeClass(category: string): string {
+/** LLM 归因 category 徽章。 */
+function categoryMeta(category: string): { cls: string; label: string } {
   switch (category) {
     case "mcp_unavailable":
-      return "category-badge category-mcp";
+      return { cls: "pill pill-warn", label: "MCP 不可用" };
     case "path_not_allowed":
-      return "category-badge category-path";
+      return { cls: "pill pill-fail", label: "路径不允许" };
     case "approval_denied":
-      return "category-badge category-approval";
+      return { cls: "pill pill-fail", label: "审批被拒" };
     case "network_error":
-      return "category-badge category-network";
-    case "unknown":
-      return "category-badge category-unknown";
+      return { cls: "pill pill-warn", label: "网络错误" };
     default:
-      return "category-badge category-unknown";
-  }
-}
-
-function categoryLabel(category: string): string {
-  switch (category) {
-    case "mcp_unavailable":
-      return "MCP 不可用";
-    case "path_not_allowed":
-      return "路径不允许";
-    case "approval_denied":
-      return "审批被拒";
-    case "network_error":
-      return "网络错误";
-    case "unknown":
-      return "未知";
-    default:
-      return category;
+      return { cls: "pill", label: category === "unknown" ? "未知" : category };
   }
 }
 
@@ -68,125 +49,118 @@ export function TaskExplainPanel({ stepId, stepStatus }: Props): JSX.Element {
   };
 
   return (
-    <section
-      className="task-explain-panel"
-      aria-labelledby="task-explain-heading"
-    >
-      <h3 id="task-explain-heading" className="task-explain-title">
-        Task Explain · 失败归因
-      </h3>
+    <section className="explain-card" aria-labelledby="task-explain-heading">
+      <div className="card-head explain-head">
+        <h3 id="task-explain-heading" className="card-title">
+          <span className="tick" aria-hidden="true" />
+          Task Explain · 失败归因
+        </h3>
+      </div>
 
       {loading && (
-        <div role="status" aria-live="polite">
+        <div className="acc-pad" role="status" aria-live="polite">
           加载 LLM 归因…
         </div>
       )}
       {error && (
-        <div className="form-error" role="alert">
-          错误:{error}
+        <div className="alert alert-error alert-inset" role="alert">
+          {error}
         </div>
       )}
 
       {!loading && !error && (
         <>
-          {/* Section 1: Step 基本信息 */}
-          <div className="explain-accordion">
+          <div className="acc-item">
             <button
               type="button"
-              className="explain-accordion-header"
+              className="acc-head"
               onClick={() => toggleSection("info")}
               aria-expanded={openSection === "info"}
               aria-controls="explain-info"
             >
-              <span className="explain-accordion-title">Step 基本信息</span>
-              <span className="explain-accordion-icon" aria-hidden="true">
+              <span>Step 基本信息</span>
+              <span className="acc-icon" aria-hidden="true">
                 {openSection === "info" ? "−" : "+"}
               </span>
             </button>
             {openSection === "info" && (
-              <div id="explain-info" className="explain-accordion-body">
-                <div className="explain-info-row">
-                  <span className="dag-label">Step ID</span>
+              <div id="explain-info" className="acc-body">
+                <div className="llm-row">
+                  <div className="k">Step ID</div>
                   <code className="mono">{stepId}</code>
                 </div>
                 {stepStatus && (
-                  <div className="explain-info-row">
-                    <span className="dag-label">状态</span>
-                    <span className={`status-pill status-${stepStatus}`}>
-                      {stepStatus}
-                    </span>
+                  <div className="llm-row">
+                    <div className="k">状态</div>
+                    <span className="pill">{stepStatus}</span>
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Section 2: 失败工具调用列表(W8 简化:仅显示提示,完整列表需后端额外命令) */}
-          <div className="explain-accordion">
+          <div className="acc-item">
             <button
               type="button"
-              className="explain-accordion-header"
+              className="acc-head"
               onClick={() => toggleSection("tools")}
               aria-expanded={openSection === "tools"}
               aria-controls="explain-tools"
             >
-              <span className="explain-accordion-title">失败工具调用</span>
-              <span className="explain-accordion-icon" aria-hidden="true">
+              <span>失败工具调用</span>
+              <span className="acc-icon" aria-hidden="true">
                 {openSection === "tools" ? "−" : "+"}
               </span>
             </button>
             {openSection === "tools" && (
-              <div id="explain-tools" className="explain-accordion-body">
-                <p className="explain-empty-hint">
+              <div id="explain-tools" className="acc-body">
+                <p className="diff-note">
                   失败工具调用详情需查看 Audit Viewer 中该 step 的 audit_logs。
                 </p>
               </div>
             )}
           </div>
 
-          {/* Section 3: LLM 归因 */}
-          <div className="explain-accordion">
+          <div className="acc-item">
             <button
               type="button"
-              className="explain-accordion-header"
+              className="acc-head"
               onClick={() => toggleSection("llm")}
               aria-expanded={openSection === "llm"}
               aria-controls="explain-llm"
             >
-              <span className="explain-accordion-title">LLM 归因</span>
-              <span className="explain-accordion-icon" aria-hidden="true">
+              <span>LLM 归因</span>
+              <span className="acc-icon" aria-hidden="true">
                 {openSection === "llm" ? "−" : "+"}
               </span>
             </button>
             {openSection === "llm" && (
-              <div id="explain-llm" className="explain-accordion-body">
+              <div id="explain-llm" className="acc-body">
                 {explanation ? (
-                  <div className="llm-analysis">
+                  <div>
                     <div className="llm-row">
-                      <span className="dag-label">根本原因</span>
-                      <p className="llm-root-cause">{explanation.root_cause_zh}</p>
+                      <div className="k">根本原因</div>
+                      <p>{explanation.root_cause_zh}</p>
                     </div>
                     <div className="llm-row">
-                      <span className="dag-label">分类</span>
+                      <div className="k">分类</div>
                       <span
-                        className={categoryBadgeClass(explanation.category)}
-                        aria-label={`失败分类 ${categoryLabel(explanation.category)}`}
+                        className={categoryMeta(explanation.category).cls}
+                        aria-label={`失败分类 ${categoryMeta(explanation.category).label}`}
                       >
-                        {categoryLabel(explanation.category)}
+                        {categoryMeta(explanation.category).label}
                       </span>
                     </div>
                     {explanation.suggested_fix && (
                       <div className="llm-row">
-                        <span className="dag-label">建议修复</span>
-                        <p className="llm-suggested-fix">
-                          {explanation.suggested_fix}
-                        </p>
+                        <div className="k">建议修复</div>
+                        <p>{explanation.suggested_fix}</p>
                       </div>
                     )}
                     <div className="llm-row">
-                      <span className="dag-label">置信度</span>
+                      <div className="k">置信度</div>
                       <div
-                        className="confidence-bar"
+                        className="meter"
                         role="meter"
                         aria-valuenow={Math.round(explanation.confidence * 100)}
                         aria-valuemin={0}
@@ -194,25 +168,24 @@ export function TaskExplainPanel({ stepId, stepStatus }: Props): JSX.Element {
                         aria-label="LLM 归因置信度"
                       >
                         <div
-                          className="confidence-fill"
+                          className="meter-fill"
                           style={{ width: `${explanation.confidence * 100}%` }}
                         />
-                        <span className="confidence-value mono">
-                          {(explanation.confidence * 100).toFixed(0)}%
-                        </span>
                       </div>
+                      <span className="meter-value">
+                        {(explanation.confidence * 100).toFixed(0)}%
+                      </span>
                     </div>
                     {explanation.llm_model && (
                       <div className="llm-row">
-                        <span className="dag-label">模型</span>
+                        <div className="k">模型</div>
                         <code className="mono">{explanation.llm_model}</code>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <p className="explain-empty-hint">
-                    未启用 LLM 归因,可在 Settings 中开启(需配置 llm_api_key +
-                    llm_enabled = true + privacy_mode = false)。
+                  <p className="diff-note">
+                    未启用 LLM 归因，可在设置中开启（需配置 API Key + 启用 LLM + 关闭隐私模式）。
                   </p>
                 )}
               </div>

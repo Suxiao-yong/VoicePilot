@@ -8,7 +8,7 @@
 
 > **toggleSkill**(`skillId`, `enabled`): `Promise`\<`void`\>
 
-Defined in: api.ts:120
+Defined in: api.ts:133
 
 ## Parameters
 

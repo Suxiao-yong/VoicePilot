@@ -8,7 +8,7 @@
 
 > **submitApproval**(`approvalRequestId`, `decision`): `Promise`\<`boolean`\>
 
-Defined in: api.ts:39
+Defined in: api.ts:40
 
 ## Parameters
 

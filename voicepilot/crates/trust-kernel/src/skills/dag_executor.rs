@@ -35,8 +35,9 @@ use crate::skills::dispatcher::dispatch_skill_executor;
 use crate::skills::template::SlotTemplateEngine;
 
 // W9 Plan 6 Task 6:thread-local UiaAdapter 注入点。
-// UiaAdapter 是 !Send + !Sync(COM apartment 模型),不能用 Arc<dyn UiaAdapter>
-// 作为 DagExecutor 字段(DagExecutor 需跨 await 点)。改用 thread-local:
+// 历史原因沿用 thread-local 透传（当年 UiaAdapter 是 !Send 的 COM 对象，
+// 不能进 DagExecutor 字段；现后端是外部 mcp-windows 子进程，adapter 已是
+// 普通数据，保留 thread-local 只为不 churn dispatch/executor 签名）:
 // 测试在 run() 前调 set_thread_local_uia_adapter(Some(adapter)),
 // dispatch_note_capture / dispatch_app_control 从 thread-local 取 adapter
 // 调真实 executor。
@@ -57,9 +58,7 @@ thread_local! {
 /// W9 修复:可见性为 `pub`(非 `pub(crate)`),供集成测试
 /// (tests/w9_plan6_uia_dag_e2e.rs)从 crate 外部调用注入 adapter。
 #[cfg(all(windows, feature = "uia"))]
-pub fn set_thread_local_uia_adapter(
-    adapter: Option<Arc<dyn crate::uiautomation::UiaAdapter>>,
-) {
+pub fn set_thread_local_uia_adapter(adapter: Option<Arc<dyn crate::uiautomation::UiaAdapter>>) {
     THREAD_LOCAL_UIA_ADAPTER.with(|cell| {
         *cell.borrow_mut() = adapter;
     });
@@ -128,12 +127,8 @@ impl DagExecutor {
         {
             let conn = self.kernel.conn();
             if self.dag_repo.get_plan(&conn, &plan.plan_id)?.is_none() {
-                self.dag_repo.create_plan(
-                    &conn,
-                    plan,
-                    &DagStatus::Pending,
-                    Some(&root_task_id),
-                )?;
+                self.dag_repo
+                    .create_plan(&conn, plan, &DagStatus::Pending, Some(&root_task_id))?;
             }
             // 标记 plan 为 Running
             self.dag_repo
@@ -217,7 +212,10 @@ impl DagExecutor {
 
                 // 重新校验 modified_plan(SlotTemplateEngine::validate_dag)
                 if let Err(e) = SlotTemplateEngine::validate_dag(&modified_plan) {
-                    return Err(KernelError::Skill(format!("modified_plan validate_dag failed: {}", e)));
+                    return Err(KernelError::Skill(format!(
+                        "modified_plan validate_dag failed: {}",
+                        e
+                    )));
                 }
 
                 // risk_ceiling 提权检查(spec §6.3 第三条)
@@ -509,7 +507,11 @@ impl DagExecutor {
 
         for modified_node in &modified.nodes {
             let ceiling = modified_node.risk_ceiling;
-            if let Some(original_node) = original.nodes.iter().find(|n| n.node_id == modified_node.node_id) {
+            if let Some(original_node) = original
+                .nodes
+                .iter()
+                .find(|n| n.node_id == modified_node.node_id)
+            {
                 // 既有节点:不能超过原 ceiling
                 if ceiling > original_node.risk_ceiling {
                     return Err(KernelError::Skill(format!(
@@ -617,7 +619,9 @@ impl DagExecutor {
                 (s, Some(task_id.as_str()), Some(step_id.as_str()))
             }
             Ok(outcome) => {
-                let cause = outcome.error_cause.unwrap_or_else(|| "unknown error".into());
+                let cause = outcome
+                    .error_cause
+                    .unwrap_or_else(|| "unknown error".into());
                 let s = DagNodeStatus::Failed { cause };
                 (s, None, None)
             }
@@ -769,7 +773,9 @@ impl DagExecutor {
                     iter_outputs.push(outcome.output.clone());
                 }
                 Ok(outcome) => {
-                    let cause = outcome.error_cause.unwrap_or_else(|| "unknown error".into());
+                    let cause = outcome
+                        .error_cause
+                        .unwrap_or_else(|| "unknown error".into());
                     iter_failed = Some(format!("iter {} failed: {}", idx, cause));
                     break; // 决策 #8:终止循环
                 }
@@ -807,14 +813,8 @@ impl DagExecutor {
         // task_id/step_id 不写入 — 循环节点有多个迭代 task,不持久化单个。
         {
             let conn = self.kernel.conn();
-            self.dag_repo.update_node_status(
-                &conn,
-                &plan.plan_id,
-                node_id,
-                &status,
-                None,
-                None,
-            )?;
+            self.dag_repo
+                .update_node_status(&conn, &plan.plan_id, node_id, &status, None, None)?;
         }
         Ok(status)
     }
@@ -910,9 +910,10 @@ impl DagExecutor {
     ) -> Result<Vec<serde_json::Value>> {
         use crate::skills::dag_types::IterableSource;
         match source {
-            IterableSource::Literal(items) => {
-                Ok(items.iter().map(|s| serde_json::Value::String(s.clone())).collect())
-            }
+            IterableSource::Literal(items) => Ok(items
+                .iter()
+                .map(|s| serde_json::Value::String(s.clone()))
+                .collect()),
             IterableSource::PrevNodeOutput { node_id, port } => {
                 let node_out = node_outputs.get(node_id).ok_or_else(|| {
                     KernelError::Skill(format!(
@@ -1275,32 +1276,50 @@ mod tests {
     fn evaluate_break_condition_object_item_matches() {
         // item.size > 1000,item = {"size": 5000} → true
         let item = serde_json::json!({"size": 5000});
-        assert!(DagExecutor::evaluate_break_condition(&item, "size", ">", 1000.0));
-        assert!(DagExecutor::evaluate_break_condition(&item, "size", ">=", 1000.0));
-        assert!(DagExecutor::evaluate_break_condition(&item, "size", "!=", 1000.0));
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", "<", 1000.0));
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", "<=", 1000.0));
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", "==", 1000.0));
+        assert!(DagExecutor::evaluate_break_condition(
+            &item, "size", ">", 1000.0
+        ));
+        assert!(DagExecutor::evaluate_break_condition(
+            &item, "size", ">=", 1000.0
+        ));
+        assert!(DagExecutor::evaluate_break_condition(
+            &item, "size", "!=", 1000.0
+        ));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", "<", 1000.0
+        ));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", "<=", 1000.0
+        ));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", "==", 1000.0
+        ));
     }
 
     #[test]
     fn evaluate_break_condition_string_item_no_field_returns_false() {
         // item 是 string,无 .size → 字段不存在 → false(不中断)
         let item = serde_json::Value::String("a".into());
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", ">", 1000.0));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", ">", 1000.0
+        ));
     }
 
     #[test]
     fn evaluate_break_condition_missing_field_returns_false() {
         // item 是 object,但无 "size" 字段 → false
         let item = serde_json::json!({"name": "a"});
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", ">", 1000.0));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", ">", 1000.0
+        ));
     }
 
     #[test]
     fn evaluate_break_condition_non_numeric_field_returns_false() {
         // item.size 是 string,as_f64 返回 None → false
         let item = serde_json::json!({"size": "large"});
-        assert!(!DagExecutor::evaluate_break_condition(&item, "size", ">", 1000.0));
+        assert!(!DagExecutor::evaluate_break_condition(
+            &item, "size", ">", 1000.0
+        ));
     }
 }

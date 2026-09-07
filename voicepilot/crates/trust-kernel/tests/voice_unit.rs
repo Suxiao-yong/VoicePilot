@@ -27,10 +27,12 @@ fn voice_error_displays_human_readable_messages() {
     );
 }
 
-use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
+use trust_kernel::voice::model::{
+    ModelRegistry, SENSE_VOICE_ARCHIVE_SHA256, SENSE_VOICE_ARCHIVE_SIZE_BYTES, SENSE_VOICE_DIR_NAME,
+};
 
 #[test]
-fn model_registry_resolves_default_model_path() {
+fn model_registry_resolves_default_model_path_and_archive_contract() {
     let home = std::env::temp_dir().join("vp-w6b3b-model-test-home");
     std::fs::remove_dir_all(&home).ok();
     std::fs::create_dir_all(&home).unwrap();
@@ -40,10 +42,22 @@ fn model_registry_resolves_default_model_path() {
     assert_eq!(spec.name, SENSE_VOICE_DIR_NAME);
     assert_eq!(
         spec.path,
-        home.join(".voicepilot").join("models").join(SENSE_VOICE_DIR_NAME)
+        home.join(".voicepilot")
+            .join("models")
+            .join(SENSE_VOICE_DIR_NAME)
     );
-    // SenseVoice tar.bz2 ~234MB
-    assert!(spec.size_hint_mb >= 200 && spec.size_hint_mb <= 300);
+    assert_eq!(
+        SENSE_VOICE_ARCHIVE_SIZE_BYTES, 1_047_870_769,
+        "SenseVoice archive byte size must remain pinned"
+    );
+    assert_eq!(
+        SENSE_VOICE_ARCHIVE_SHA256,
+        "f6b2a72ebcb1ac7a764d4cfccd886e6bcb2a95c4657c2199d0ba95ed4b9ea71a",
+        "SenseVoice archive SHA-256 must remain pinned"
+    );
+    assert_eq!(spec.archive_size_bytes, SENSE_VOICE_ARCHIVE_SIZE_BYTES);
+    assert_eq!(spec.archive_sha256, SENSE_VOICE_ARCHIVE_SHA256);
+    assert_eq!(spec.size_hint_mb, 1048);
 }
 
 #[test]
@@ -134,14 +148,17 @@ fn wav_read_returns_invalid_wav_error_for_missing_file() {
 
 #[test]
 fn wav_write_creates_parent_dirs_if_missing() {
-    let dir = std::env::temp_dir().join("vp-w5-wav-test-3").join("nested").join("deeper");
+    let dir = std::env::temp_dir()
+        .join("vp-w5-wav-test-3")
+        .join("nested")
+        .join("deeper");
     let path = dir.join("out.wav");
     write_wav(&path, &[100, 200, 300], 16000).unwrap();
     assert!(path.is_file());
     std::fs::remove_dir_all(dir.parent().unwrap().parent().unwrap()).ok();
 }
 
-use trust_kernel::voice::vad::{VadDetector, VadConfig, VadOutcome};
+use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
 
 #[test]
 fn vad_returns_speech_when_samples_above_threshold() {
@@ -149,6 +166,10 @@ fn vad_returns_speech_when_samples_above_threshold() {
         frame_ms: 20,
         sample_rate: 16000,
         energy_threshold: 100.0,
+        energy_exit_threshold: 60.0,
+        onset_frames: 3,
+        pre_roll_ms: 300,
+        tts_cooldown_ms: 150,
         min_speech_ms: 100,
         max_silence_ms: 700,
     };
@@ -165,6 +186,10 @@ fn vad_returns_no_speech_when_all_samples_silent() {
         frame_ms: 20,
         sample_rate: 16000,
         energy_threshold: 100.0,
+        energy_exit_threshold: 60.0,
+        onset_frames: 3,
+        pre_roll_ms: 300,
+        tts_cooldown_ms: 150,
         min_speech_ms: 100,
         max_silence_ms: 700,
     };
@@ -180,6 +205,10 @@ fn vad_detects_silence_after_speech_with_correct_boundary() {
         frame_ms: 20,
         sample_rate: 16000,
         energy_threshold: 100.0,
+        energy_exit_threshold: 60.0,
+        onset_frames: 3,
+        pre_roll_ms: 300,
+        tts_cooldown_ms: 150,
         min_speech_ms: 100,
         max_silence_ms: 200, // 200ms of silence ends speech
     };
@@ -189,7 +218,9 @@ fn vad_detects_silence_after_speech_with_correct_boundary() {
     samples.extend(vec![0i16; 6400]);
     let outcome = vad.detect(&samples);
     match outcome {
-        VadOutcome::Speech { speech_end_sample, .. } => {
+        VadOutcome::Speech {
+            speech_end_sample, ..
+        } => {
             // Speech ends ~4800 + 200ms silence = 4800 + 3200 = 8000
             assert!(
                 (7000..=9000).contains(&speech_end_sample),
@@ -207,6 +238,10 @@ fn vad_ignores_speech_shorter_than_min_speech_ms() {
         frame_ms: 20,
         sample_rate: 16000,
         energy_threshold: 100.0,
+        energy_exit_threshold: 60.0,
+        onset_frames: 3,
+        pre_roll_ms: 300,
+        tts_cooldown_ms: 150,
         min_speech_ms: 500, // require 500ms of speech
         max_silence_ms: 700,
     };
@@ -218,20 +253,15 @@ fn vad_ignores_speech_shorter_than_min_speech_ms() {
     assert!(matches!(outcome, VadOutcome::NoSpeech));
 }
 
-use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
-use trust_kernel::kernel::TrustKernel;
 use trust_kernel::approval::approver::AutoApprover;
+use trust_kernel::kernel::TrustKernel;
+use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
 
 #[test]
 fn router_bridge_routes_files_organize_intent() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let approver = AutoApprover;
-    let outcome = route_text(
-        &kernel,
-        &approver,
-        "把下载目录里的 PDF 整理到论文文件夹",
-    )
-    .unwrap();
+    let outcome = route_text(&kernel, &approver, "把下载目录里的 PDF 整理到论文文件夹").unwrap();
     match outcome {
         RouteOutcome::Routed { skill_id, .. } => {
             assert_eq!(skill_id, "files.organize");

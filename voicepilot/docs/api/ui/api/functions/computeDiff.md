@@ -8,7 +8,7 @@
 
 > **computeDiff**(`sourcePath`, `destPath`): `Promise`\<[`DiffResult`](../../types/interfaces/DiffResult.md)\>
 
-Defined in: api.ts:126
+Defined in: api.ts:139
 
 ## Parameters
 

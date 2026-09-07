@@ -20,17 +20,30 @@ use crate::approval::types::{ApprovalRecord, ApprovalScope};
 use crate::compensation::types::{CompensationLevel, CompensationRecord, ConflictPolicy};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
-use crate::mcp::client::McpClient;
+use crate::mcp::client::{McpCallLimits, McpClient};
 use crate::mcp::repo::McpServerRepo;
 use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::StepStatus;
 use crate::skills::manifest::{SkillInput, SkillInputType, SkillManifest};
-use crate::tools::fs_paths::canonicalize;
 use crate::toolresult::{EvidenceStrength, ToolResult, ToolStatus};
+use crate::tools::fs_paths::canonicalize;
+
+/// 进程级测试锁：串行化所有改进程 CWD 的测试。
+///
+/// CWD 是进程全局的；note_capture / research_save 各自 `mod tests` 里
+/// 的私有 `CWD_MUTEX` 只能串行化本模块，并行跑跨模块测试仍互踩
+/// （`with_temp_cwd` 改 CWD 期间另一模块写相对路径文件即 ENOENT）。
+/// 所有改 CWD 的测试统一拿这把锁。仅测试编译（`#[cfg(test)]`），
+/// 生产代码零影响。
+#[cfg(test)]
+pub(crate) static TEST_CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Child;
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::{Arc, Mutex};
 
 // ===== run_prepare_approve_commit pipeline helpers =====
 
@@ -178,14 +191,17 @@ fn persist_compensation_record(
                 if vault.is_unlocked() {
                     let payload = vault
                         .encrypt(reverse_payload_json.as_bytes())
-                        .map_err(|e| KernelError::Compensation(format!("stronghold encrypt failed: {}", e)))?;
-                    let payload_bytes = bincode::serialize(&payload)
-                        .map_err(|e| KernelError::Compensation(format!("bincode serialize failed: {e}")))?;
+                        .map_err(|e| {
+                            KernelError::Compensation(format!("stronghold encrypt failed: {}", e))
+                        })?;
+                    let payload_bytes = bincode::serialize(&payload).map_err(|e| {
+                        KernelError::Compensation(format!("bincode serialize failed: {e}"))
+                    })?;
                     let vault_ref = uuid::Uuid::new_v4().to_string();
                     let plaintext_len = reverse_payload_json.len();
-                    let task_id = kernel
-                        .task_id_for_step(step_id)?
-                        .ok_or_else(|| KernelError::Compensation(format!("task_id not found for step {}", step_id)))?;
+                    let task_id = kernel.task_id_for_step(step_id)?.ok_or_else(|| {
+                        KernelError::Compensation(format!("task_id not found for step {}", step_id))
+                    })?;
                     kernel.audit_append_external(
                         &task_id,
                         Some(step_id),
@@ -270,48 +286,28 @@ pub fn invoke_mcp_tool(
 ) -> Result<ToolResult> {
     let started_at = Utc::now();
 
-    // Look up the server config inside a block scope so the MutexGuard is
-    // dropped before we spawn the subprocess (avoids holding the DB lock
-    // across potentially slow MCP I/O).
+    // Shared lookup inside a block scope so the MutexGuard is dropped before
+    // we spawn the subprocess (avoids holding the DB lock across slow MCP I/O).
     let (command, args_vec, env_json) = {
         let conn = kernel.conn();
-        let rec = McpServerRepo::new()
-            .get(&conn, server_id)?
-            .ok_or_else(|| {
-                KernelError::Mcp(format!(
-                    "MCP server '{server_id}' not found in mcp_servers table"
-                ))
-            })?;
-        if !rec.enabled {
-            return Err(KernelError::Mcp(format!(
-                "MCP server '{server_id}' is disabled"
-            )));
-        }
-        let command = rec.command.clone().ok_or_else(|| {
-            KernelError::Mcp(format!(
-                "MCP server '{server_id}' missing command field"
-            ))
-        })?;
-        let args_str = rec.args.clone().unwrap_or_else(|| "[]".to_string());
-        let args_vec: Vec<String> = serde_json::from_str(&args_str).map_err(|e| {
-            KernelError::Mcp(format!(
-                "MCP server '{server_id}' args parse error: {e}"
-            ))
-        })?;
-        let env_str = rec.env.clone().unwrap_or_else(|| "{}".to_string());
-        let env_json: serde_json::Value = serde_json::from_str(&env_str).map_err(|e| {
-            KernelError::Mcp(format!(
-                "MCP server '{server_id}' env parse error: {e}"
-            ))
-        })?;
-        (command, args_vec, env_json)
+        McpServerRepo::new().spawn_config(&conn, server_id)?
     };
+    // Phase A 密钥收编：env 里的 keyring 引用在 spawn 前解析为真实值；
+    // 明文永不落 DB（导入时已收编进 SecretStore）。
+    let env_json = resolve_mcp_env(kernel, &env_json)?;
 
     // Spawn the MCP subprocess, run the initialize handshake, and invoke
-    // the tool. All errors here are already KernelError::Mcp(...).
-    let mut client = McpClient::spawn(&command, &args_vec, &env_json)?;
-    client.initialize()?;
-    let result = client.invoke_tool(tool_name, args)?;
+    // the tool under fixed call limits (timeout + max output bytes). All
+    // errors here are already KernelError::Mcp(...).
+    let result = run_mcp_call_limited(
+        server_id,
+        &command,
+        &args_vec,
+        &env_json,
+        tool_name,
+        args,
+        McpCallLimits::default(),
+    )?;
 
     let finished_at = Utc::now();
     let tool_result = ToolResult {
@@ -331,6 +327,176 @@ pub fn invoke_mcp_tool(
         finished_at,
     };
     Ok(tool_result)
+}
+
+/// Phase A 密钥收编：外部 MCP env 凭据在 keyring 里的引用前缀。
+/// 完整引用名 = `{prefix}{server_id}/{ENV_KEY}`，与 LLM API key 同一
+/// service（Windows Credential Manager "voicepilot"）不同 user。
+pub const MCP_ENV_KEYRING_PREFIX: &str = "voicepilot/mcp/";
+
+/// Phase A 密钥收编：外部 skill 伴随 .env 凭据在 keyring 里的引用前缀。
+pub const MCP_SKILL_ENV_KEYRING_PREFIX: &str = "voicepilot/skill/";
+
+/// Phase A 密钥收编：解析 mcp_servers.env JSON 中的 keyring 引用。
+///
+/// 导入外部 MCP 时，疑似凭据的 env 值已迁移进 SecretStore，DB 里只存
+/// 引用 `{"$keyring": "voicepilot/mcp/<server_id>/<KEY>"}`。本函数在
+/// spawn 前把引用换回真实值；引用缺失（keyring 里没有）fail-closed 报错，
+/// 绝不带空值拉起子进程。非引用值原样透传。
+///
+/// 错误信息只含 key 名，绝不含 secret 值（SecretStore 契约）。
+pub fn resolve_mcp_env(
+    kernel: &TrustKernel,
+    env_json: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let Some(obj) = env_json.as_object() else {
+        return Ok(env_json.clone());
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj {
+        // Phase A 收编后的引用形态为字符串 `"$keyring:<name>"`（满足 register
+        // 的 string→string env 校验；早期实现曾用 `{"$keyring": name}` 对象，
+        // 兼容读取旧行以防已有 DB 数据）。
+        let keyring_name = v
+            .as_str()
+            .and_then(|s| s.strip_prefix("$keyring:"))
+            .or_else(|| {
+                v.as_object()
+                    .and_then(|o| o.get("$keyring"))
+                    .and_then(|s| s.as_str())
+            });
+        match keyring_name {
+            Some(name) => {
+                let value = kernel.secret_store().get_secret(name)?.ok_or_else(|| {
+                    KernelError::Mcp(format!(
+                        "env key '{k}' references missing keyring secret '{name}'"
+                    ))
+                })?;
+                out.insert(k.clone(), serde_json::Value::String(value));
+            }
+            None => {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+/// Phase A 密钥收编：判断 env key 是否疑似凭据（导入时迁移进 keyring）。
+/// 大小写不敏感；命中规则：含 KEY / TOKEN / SECRET / PASSWORD / PASSWD。
+pub fn is_credential_env_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD"]
+        .iter()
+        .any(|marker| upper.contains(marker))
+}
+
+/// Reject tool results whose serialized size exceeds the call limit.
+///
+/// Public so tests (and future callers) can unit-test the boundary check
+/// directly. Returns `Err(KernelError::Mcp(...))` mentioning the output
+/// limit when `value` serializes to more than `max_output_bytes`.
+pub fn enforce_mcp_output_limit(value: &serde_json::Value, max_output_bytes: u64) -> Result<()> {
+    let bytes = serde_json::to_vec(value)?.len() as u64;
+    if bytes > max_output_bytes {
+        return Err(KernelError::Mcp(format!(
+            "MCP tool result exceeds output limit: {bytes} bytes > {max_output_bytes} bytes"
+        )));
+    }
+    Ok(())
+}
+
+/// Run one MCP call (spawn + initialize + tools/call) under `McpCallLimits`.
+///
+/// The subprocess lifecycle runs on a worker thread so a stuck MCP server
+/// cannot block the caller beyond `limits.timeout`; the result is then
+/// checked against `max_output_bytes` before it leaves the MCP boundary.
+///
+/// The worker publishes the spawned `Child` into a shared slot the moment it
+/// exists; if the caller's `recv_timeout` fires first it kills and reaps the
+/// child there, so the leak is bounded by reaping rather than by the child
+/// eventually writing/EOF and the client dropping.
+pub(crate) fn run_mcp_call_limited(
+    server_id: &str,
+    command: &str,
+    args: &[String],
+    env: &serde_json::Value,
+    tool_name: &str,
+    tool_args: serde_json::Value,
+    limits: McpCallLimits,
+) -> Result<serde_json::Value> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let command = command.to_string();
+    let args = args.to_vec();
+    let env = env.clone();
+    let server_id = server_id.to_string();
+    let tool_name = tool_name.to_string();
+    // Worker-side clones for the late-result warn (the originals stay in
+    // this thread for the timeout / output-limit error messages).
+    let worker_server_id = server_id.clone();
+    let worker_tool_name = tool_name.clone();
+    // Shared slot for the spawned subprocess: the worker publishes the Child
+    // here right after spawn; the caller reaps it on timeout, so a hung
+    // server cannot outlive this call.
+    let child_slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let worker_slot = child_slot.clone();
+    std::thread::spawn(move || {
+        let outcome = (|| -> Result<serde_json::Value> {
+            let mut client = McpClient::spawn_into(&command, &args, &env, worker_slot)?;
+            client.initialize()?;
+            client.invoke_tool(&worker_tool_name, tool_args)
+        })();
+        // The caller may already have timed out and dropped the receiver. A
+        // slow-but-finished call whose side effects already ran must stay
+        // auditable, not silently dropped.
+        if let Err(send_err) = tx.send(outcome) {
+            tracing::warn!(
+                server_id = %worker_server_id,
+                tool_name = %worker_tool_name,
+                late_outcome = ?send_err.0,
+                "MCP call finished after caller timed out; result dropped, side effects (if any) already executed"
+            );
+        }
+    });
+    let inner = rx.recv_timeout(limits.timeout).map_err(|e| match e {
+        RecvTimeoutError::Timeout => {
+            // Drop the receiver first so a late worker send fails and is
+            // logged by the worker's tracing::warn! above; then reap the
+            // subprocess instead of leaving it running.
+            drop(rx);
+            reap_shared_child(&child_slot);
+            KernelError::Mcp(format!(
+                "MCP tool call '{tool_name}' on server '{server_id}' exceeded timeout of {}s",
+                limits.timeout.as_secs()
+            ))
+        }
+        // The worker thread panicked (or the channel was dropped) before
+        // responding — distinct from a timeout: no result will ever arrive.
+        RecvTimeoutError::Disconnected => {
+            reap_shared_child(&child_slot);
+            KernelError::Mcp(format!(
+                "MCP worker for tool '{tool_name}' on server '{server_id}' disconnected (worker thread panicked or channel dropped)"
+            ))
+        }
+    })?;
+    let result = inner?;
+    enforce_mcp_output_limit(&result, limits.max_output_bytes).map_err(|e| {
+        KernelError::Mcp(format!(
+            "MCP tool call '{tool_name}' on server '{server_id}': {e}"
+        ))
+    })?;
+    Ok(result)
+}
+
+/// Kill and reap the shared MCP subprocess if it is still alive.
+///
+/// Kill errors are ignored: the child may already have exited on its own
+/// (or been reaped by the worker's client Drop).
+fn reap_shared_child(child_slot: &Arc<Mutex<Option<Child>>>) {
+    if let Some(child) = child_slot.lock().unwrap().as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 // ===== Input validation =====
@@ -417,9 +583,7 @@ fn validate_single_input(name: &str, spec: &SkillInput, value: &serde_json::Valu
         }
         SkillInputType::Enum => {
             let s = value_as_string(name, value)?;
-            if !spec.allowed_values.is_empty()
-                && !spec.allowed_values.iter().any(|v| v == &s)
-            {
+            if !spec.allowed_values.is_empty() && !spec.allowed_values.iter().any(|v| v == &s) {
                 return Err(KernelError::Skill(format!(
                     "validation failed for {name}: value '{s}' not in allowed_values"
                 )));
@@ -473,6 +637,50 @@ mod tests {
     use crate::skills::manifest::{files_organize_manifest, SkillInput, SkillInputType};
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    // ===== Phase A 密钥收编：resolve_mcp_env / is_credential_env_key =====
+
+    #[test]
+    fn credential_key_heuristics() {
+        assert!(is_credential_env_key("CONTEXT7_API_KEY"));
+        assert!(is_credential_env_key("github_token"));
+        assert!(is_credential_env_key("ClientSecret"));
+        assert!(is_credential_env_key("MY_PASSWORD"));
+        assert!(!is_credential_env_key("BASE_URL"));
+        assert!(!is_credential_env_key("REGION")); // 字面无凭据标记
+    }
+
+    #[test]
+    fn resolve_mcp_env_resolves_and_fails_closed_on_missing() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let store = kernel.secret_store();
+        store
+            .set_secret("voicepilot/mcp/ctx7/CONTEXT7_API_KEY", "kcy_123")
+            .unwrap();
+        let env = serde_json::json!({
+            "CONTEXT7_API_KEY": "$keyring:voicepilot/mcp/ctx7/CONTEXT7_API_KEY",
+            "BASE_URL": "https://api.x.com",
+        });
+        let out = resolve_mcp_env(&kernel, &env).unwrap();
+        assert_eq!(out["CONTEXT7_API_KEY"], "kcy_123");
+        assert_eq!(out["BASE_URL"], "https://api.x.com");
+        // 早期对象形式（{"$keyring": name}）兼容读取。
+        let legacy = serde_json::json!({
+            "K": {"$keyring": "voicepilot/mcp/ctx7/CONTEXT7_API_KEY"},
+        });
+        assert_eq!(resolve_mcp_env(&kernel, &legacy).unwrap()["K"], "kcy_123");
+        // 引用缺失 → fail-closed 报错（绝不带空值 spawn）。
+        let missing = serde_json::json!({
+            "K": "$keyring:voicepilot/mcp/nope/K",
+        });
+        let err = resolve_mcp_env(&kernel, &missing).unwrap_err().to_string();
+        assert!(err.contains("missing keyring secret"), "got: {err}");
+        // 非对象 env 原样透传。
+        assert_eq!(
+            resolve_mcp_env(&kernel, &serde_json::json!(null)).unwrap(),
+            serde_json::json!(null)
+        );
+    }
 
     // ===== validate_input_against_manifest tests =====
 
@@ -704,14 +912,8 @@ mod tests {
 
     #[test]
     fn validate_url_invalid_scheme_fails() {
-        let manifest = build_manifest_with_one_input(
-            "url",
-            SkillInputType::Url,
-            true,
-            vec![],
-            vec![],
-            None,
-        );
+        let manifest =
+            build_manifest_with_one_input("url", SkillInputType::Url, true, vec![], vec![], None);
         let mut input = HashMap::new();
         input.insert("url".to_string(), serde_json::json!("ftp://example.com"));
         let err = validate_input_against_manifest(&input, &manifest).unwrap_err();
@@ -720,14 +922,8 @@ mod tests {
 
     #[test]
     fn validate_url_https_ok() {
-        let manifest = build_manifest_with_one_input(
-            "url",
-            SkillInputType::Url,
-            true,
-            vec![],
-            vec![],
-            None,
-        );
+        let manifest =
+            build_manifest_with_one_input("url", SkillInputType::Url, true, vec![], vec![], None);
         let mut input = HashMap::new();
         input.insert("url".to_string(), serde_json::json!("https://example.com"));
         assert!(validate_input_against_manifest(&input, &manifest).is_ok());
@@ -739,7 +935,10 @@ mod tests {
         let mut input = HashMap::new();
         input.insert("source".to_string(), serde_json::json!("Downloads"));
         input.insert("filter".to_string(), serde_json::json!("*.pdf"));
-        input.insert("destination".to_string(), serde_json::json!("Workspace/papers"));
+        input.insert(
+            "destination".to_string(),
+            serde_json::json!("Workspace/papers"),
+        );
         assert!(validate_input_against_manifest(&input, &manifest).is_ok());
     }
 
@@ -874,7 +1073,9 @@ mod tests {
     #[test]
     fn finalize_step_success_marks_succeeded() {
         let kernel = setup_kernel_with_step();
-        kernel.update_step_status("s1", StepStatus::Running).unwrap();
+        kernel
+            .update_step_status("s1", StepStatus::Running)
+            .unwrap();
         let comp_id = create_post_commit_compensation(
             &kernel,
             "s1",
@@ -895,7 +1096,9 @@ mod tests {
     #[test]
     fn finalize_step_success_without_compensation_ref() {
         let kernel = setup_kernel_with_step();
-        kernel.update_step_status("s1", StepStatus::Running).unwrap();
+        kernel
+            .update_step_status("s1", StepStatus::Running)
+            .unwrap();
         finalize_step_success(&kernel, "s1", "weak", None).unwrap();
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Succeeded);
@@ -910,7 +1113,9 @@ mod tests {
         // Simulate: prepare (mock) → approve (Allow) → commit (mock) →
         // create compensation → finalize step.
         let kernel = setup_kernel_with_step();
-        kernel.update_step_status("s1", StepStatus::Running).unwrap();
+        kernel
+            .update_step_status("s1", StepStatus::Running)
+            .unwrap();
         let manifest = blank_effect_manifest();
         let approver = AutoApprover;
         let preconditions_hash = "sha256:fake".to_string();
@@ -952,7 +1157,9 @@ mod tests {
     fn pipeline_helpers_compose_with_deny() {
         // Simulate: prepare → approve (Deny) → cancel step (no compensation).
         let kernel = setup_kernel_with_step();
-        kernel.update_step_status("s1", StepStatus::Running).unwrap();
+        kernel
+            .update_step_status("s1", StepStatus::Running)
+            .unwrap();
         let manifest = blank_effect_manifest();
         let approver = AutoDenier;
         let preconditions_hash = "sha256:fake".to_string();
@@ -962,7 +1169,9 @@ mod tests {
         assert_eq!(approval.user_decision, ApprovalDecision::Deny);
 
         // On Deny: cancel the step, do NOT create compensation.
-        kernel.update_step_status("s1", StepStatus::Cancelled).unwrap();
+        kernel
+            .update_step_status("s1", StepStatus::Cancelled)
+            .unwrap();
 
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Cancelled);
@@ -979,8 +1188,7 @@ mod tests {
     #[test]
     fn invoke_mcp_tool_server_not_found_returns_err() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        let result =
-            invoke_mcp_tool(&kernel, "nonexistent-server", "echo", serde_json::json!({}));
+        let result = invoke_mcp_tool(&kernel, "nonexistent-server", "echo", serde_json::json!({}));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1009,8 +1217,7 @@ mod tests {
         McpServerRepo::new()
             .create(&kernel.conn(), &rec)
             .expect("insert must succeed");
-        let result =
-            invoke_mcp_tool(&kernel, "disabled-server", "echo", serde_json::json!({}));
+        let result = invoke_mcp_tool(&kernel, "disabled-server", "echo", serde_json::json!({}));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1039,8 +1246,7 @@ mod tests {
         McpServerRepo::new()
             .create(&kernel.conn(), &rec)
             .expect("insert must succeed");
-        let result =
-            invoke_mcp_tool(&kernel, "no-cmd-server", "echo", serde_json::json!({}));
+        let result = invoke_mcp_tool(&kernel, "no-cmd-server", "echo", serde_json::json!({}));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1052,7 +1258,9 @@ mod tests {
     #[test]
     fn invoke_mcp_tool_success_via_python_mock() {
         // Probe Python availability. Skip (pass) if absent — not fail.
-        let python_probe = std::process::Command::new("python").arg("--version").output();
+        let python_probe = std::process::Command::new("python")
+            .arg("--version")
+            .output();
         let python_available = match python_probe {
             Ok(out) => out.status.success(),
             Err(_) => false,

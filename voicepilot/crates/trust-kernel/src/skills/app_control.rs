@@ -1,9 +1,8 @@
 //! quick.app_control Skill executor — W7 Plan 4 Task 3.
 //!
 //! Launches, focuses, or closes a Windows application via the UIA adapter.
-//! Risk E2 (UIA can drive arbitrary GUI actions), approval PerStep —
-//! the approver sees an EffectManifest describing the planned action and
-//! must Allow before the adapter is invoked.
+//! Risk E2 (UIA can drive arbitrary GUI actions). 2026 姿态：免审批直接执行
+//! （不在 `approval_required` 白名单），审计留痕由 task/step 落库提供。
 //!
 //! Pipeline:
 //!   1. Validate `app_name` + `action` inputs (non-empty + action ∈
@@ -11,11 +10,12 @@
 //!   2. Validate the full input map against `app_control_manifest`.
 //!   3. Create new task + step.
 //!   4. Update step → Running.
-//!   5. Record approval decision (E2 + PerStep). Branch on Allow/Deny/Modify.
+//!   5. focus/close resolve the window (`find_window_titled`);
+//!      not-found fails here with no prompt spent.
 //!   6. Branch on action:
 //!      - launch → adapter.launch_app(app_name)
-//!      - focus  → adapter.find_window(app_name) → adapter.click(handle)
-//!      - close  → adapter.find_window(app_name) → adapter.find_element(window, ByName("Close")) → adapter.click(close_btn)
+//!      - focus  → adapter.click(pre-resolved handle)
+//!      - close  → adapter.close_window(pre-resolved handle, discard=false)
 //!   7. Finalize step as Succeeded with Weak evidence (no file evidence).
 //!
 //! W7 Plan 4 Task 5 (review fix): the `allowed_apps` whitelist
@@ -43,7 +43,7 @@ use crate::skills::common::{
     ApprovalContext,
 };
 use crate::skills::manifest::app_control_manifest;
-use crate::uiautomation::{UiaAdapter, UiaSelector};
+use crate::uiautomation::{UiaAdapter, UiaElementHandle};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
@@ -64,6 +64,22 @@ pub struct AppControlInput {
 /// in `app_control_manifest`. Validated here in addition to the manifest so
 /// a caller error is surfaced before any DB write.
 const ALLOWED_ACTIONS: &[&str] = &["launch", "focus", "close"];
+
+/// 中文应用别名 → 可执行名。
+///
+/// 与前端 `buildAppControlSlots` 内映射保持一致（改一边必须改另一边）。
+/// 归一化发生在白名单/审批之前（见 `execute_app_control` 入口），因此别名目标
+/// 与原名享受完全一致的白名单与审批语义；审计与 manifest 记录归一化后的名。
+pub fn normalize_app_name(raw: &str) -> String {
+    // 唯一来源：`manifest::known_app_aliases`。精确相等（前后 trim）。
+    let trimmed = raw.trim();
+    for (display, exe) in crate::skills::manifest::known_app_aliases() {
+        if trimmed == display {
+            return exe.to_string();
+        }
+    }
+    trimmed.to_string()
+}
 
 /// Execute the `quick.app_control` Skill.
 ///
@@ -102,6 +118,13 @@ pub fn execute_app_control(
             input.action, ALLOWED_ACTIONS
         )));
     }
+    // 中文别名归一化（`normalize_app_name`）：后续白名单、审批、审计、adapter
+    // 全走归一化后的名。`AppControlInput: Clone`，整体替换最省 diff。
+    let input_owned = AppControlInput {
+        app_name: normalize_app_name(&input.app_name),
+        ..input.clone()
+    };
+    let input = &input_owned;
 
     // Step 2: validate the full input map against the manifest. With the
     // Task 5 review fix, `app_name` is free-form Text (no allowed_values)
@@ -121,71 +144,118 @@ pub fn execute_app_control(
     let step = StepRecord::new(input.step_id.clone(), input.task_id.clone(), 1);
     kernel.create_step(&step)?;
 
+    // Step 3b: focus/close resolve the window BEFORE the approval prompt,
+    // so the approval binds the exact resolved window
+    // ({action, app_name, title}) instead of just the query that may have
+    // matched several windows. Not-found fails here with the same messages
+    // as before — no approval prompt is spent on a missing window.
+    // Launch resolves nothing (the window does not exist yet).
+    let resolved: Option<(UiaElementHandle, String)> = match input.action.as_str() {
+        "focus" | "close" => {
+            match adapter
+                .find_window_titled(&input.app_name)
+                .inspect_err(|_e| {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                })? {
+                Some(pair) => Some(pair),
+                None => {
+                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                    if input.action == "focus" {
+                        return Err(KernelError::Uia(format!(
+                            "no window found matching '{}'",
+                            input.app_name
+                        )));
+                    }
+                    return Err(KernelError::Uia(
+                        "close failed: window not found".to_string(),
+                    ));
+                }
+            }
+        }
+        _ => None,
+    };
+    let resolved_title: Option<&str> = resolved.as_ref().map(|(_, t)| t.as_str());
+
     // Step 4: build EffectManifest for the approval prompt. UIA ops have
     // no file sources — the manifest is purely descriptive; the
-    // `destination` carries the action+app_name so the approval record
-    // has a non-empty target.
-    let effect_manifest = build_app_control_effect_manifest(&input.app_name, &input.action);
+    // `destination` carries action+app_name (+ resolved title for
+    // focus/close) so the approval record has a non-empty target.
+    let effect_manifest =
+        build_app_control_effect_manifest(&input.app_name, &input.action, resolved_title);
 
     // Step 5: update step → Running.
     kernel.update_step_status(&input.step_id, StepStatus::Running)?;
 
-    // Step 6: record approval decision (E2 + PerStep) — UNLESS the launch
-    // target is in the kernel's `allowed_apps` whitelist. Spec §2.6 line
-    // 304: "超出白名单需 PerStep approval" — apps outside the whitelist
-    // require PerStep approval; in-whitelist launches are pre-approved
-    // and skip the approval gate. Focus and Close always require approval
-    // (they drive UIA into an existing window, which the whitelist does
-    // not cover). The approver sees the effect_manifest describing what
-    // will happen; the preconditions_hash binds this approval to the
-    // exact {action, app_name} pair so post-hoc audit can verify what
-    // the user actually approved.
-    let preconditions_hash = {
-        let mut hasher = Sha256::new();
-        hasher.update(input.action.as_bytes());
-        hasher.update(b"\x00");
-        hasher.update(input.app_name.as_bytes());
-        format!("{:x}", hasher.finalize())
-    };
-    let ctx = ApprovalContext {
-        task_id: &input.task_id,
-        step_id: &input.step_id,
-        destination: &effect_manifest.destination,
-        preconditions_hash: &preconditions_hash,
-        e_level: ELevel::E2,
-        d_level: DLevel::D2,
-        approval_scope: ApprovalScope::Single,
-    };
-    let skip_approval = input.action == "launch"
-        && kernel.allowed_apps().iter().any(|a| a == &input.app_name);
-    let approval = if skip_approval {
-        // App is in the whitelist — approval skipped (advisory whitelist,
-        // per spec §2.6 line 304). No approval record is persisted.
-        tracing::info!(
-            target = "skills.app_control",
-            app = %input.app_name,
-            "app in whitelist, approval skipped"
-        );
-        None
-    } else {
-        Some(record_approval_decision(kernel, approver, &effect_manifest, &ctx)?)
-    };
+    // Step 6: 审批门 —— quick.app_control 不在审批白名单（approval_required 在
+    // simple.rs，仅 fs.*/shell.run 保留审批），不弹窗，直接执行。审计留痕仍由
+    // 任务/步骤落库提供。保留分支代码便于日后重新加入白名单。
+    if crate::skills::simple::approval_required("quick.app_control") {
+        // target is in the kernel's `allowed_apps` whitelist. Spec §2.6 line
+        // 304: "超出白名单需 PerStep approval" — apps outside the whitelist
+        // require PerStep approval; in-whitelist launches are pre-approved
+        // and skip the approval gate. Focus and Close always require approval
+        // (they drive UIA into an existing window, which the whitelist does
+        // not cover). The approver sees the effect_manifest describing what
+        // will happen; the preconditions_hash binds this approval to the
+        // exact {action, app_name} pair — plus the resolved window title for
+        // focus/close (Step 3b) — so post-hoc audit can verify what the user
+        // actually approved.
+        let preconditions_hash = {
+            let mut hasher = Sha256::new();
+            hasher.update(input.action.as_bytes());
+            hasher.update(b"\x00");
+            hasher.update(input.app_name.as_bytes());
+            if let Some(title) = resolved_title {
+                hasher.update(b"\x00");
+                hasher.update(title.as_bytes());
+            }
+            format!("{:x}", hasher.finalize())
+        };
+        let ctx = ApprovalContext {
+            task_id: &input.task_id,
+            step_id: &input.step_id,
+            destination: &effect_manifest.destination,
+            preconditions_hash: &preconditions_hash,
+            e_level: ELevel::E2,
+            d_level: DLevel::D2,
+            approval_scope: ApprovalScope::Single,
+        };
+        let skip_approval =
+            input.action == "launch" && kernel.allowed_apps().iter().any(|a| a == &input.app_name);
+        let approval = if skip_approval {
+            // App is in the whitelist — approval skipped (advisory whitelist,
+            // per spec §2.6 line 304). No approval record is persisted.
+            tracing::info!(
+                target = "skills.app_control",
+                app = %input.app_name,
+                "app in whitelist, approval skipped"
+            );
+            None
+        } else {
+            Some(record_approval_decision(
+                kernel,
+                approver,
+                &effect_manifest,
+                &ctx,
+            )?)
+        };
 
-    // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    // Only consulted when approval was required (skip_approval == false).
-    if let Some(approval) = &approval {
-        match approval.user_decision {
-            ApprovalDecision::Deny => {
-                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-                return Err(KernelError::Skill("user denied app_control".to_string()));
+        // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
+        // Only consulted when approval was required (skip_approval == false).
+        if let Some(approval) = &approval {
+            match approval.user_decision {
+                ApprovalDecision::Deny => {
+                    kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                    return Err(KernelError::Skill("user denied app_control".to_string()));
+                }
+                ApprovalDecision::Modify => {
+                    kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                    return Err(KernelError::Skill(
+                        "modify not supported for app_control".to_string(),
+                    ));
+                }
+                ApprovalDecision::Allow => { /* proceed to commit */ }
             }
-            ApprovalDecision::Modify => {
-                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-                return Err(KernelError::Skill(
-                    "modify not supported for app_control".to_string(),
-                ));
-            }
-            ApprovalDecision::Allow => { /* proceed to commit */ }
         }
     }
 
@@ -200,74 +270,35 @@ pub fn execute_app_control(
     // always require approval regardless of whitelist membership.
     match input.action.as_str() {
         "launch" => {
-            adapter
-                .launch_app(&input.app_name)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
+            adapter.launch_app(&input.app_name).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
         }
         "focus" => {
-            let window = adapter
-                .find_window(&input.app_name)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
-            let window = match window {
-                Some(h) => h,
-                None => {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                    return Err(KernelError::Uia(format!(
-                        "no window found matching '{}'",
-                        input.app_name
-                    )));
-                }
-            };
-            adapter
-                .click(&window)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
+            // Handle was resolved pre-approval (Step 3b): act on exactly
+            // what the user approved, no second find (no TOCTOU gap).
+            let (window, _) = resolved.ok_or_else(|| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                KernelError::Uia("internal error: focus window was not resolved".to_string())
+            })?;
+            adapter.click(&window).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
         }
         "close" => {
-            // W7 Plan 4 final review (follow-up #3): real implementation.
-            // Locate the app's window via `find_window`, then find its
-            // Close button via `find_element(ByName("Close"))` and click
-            // it. If the window isn't found, return a descriptive Uia
-            // error so callers can distinguish "app not running" from
-            // "Close button not visible / not clickable".
-            let window = adapter
-                .find_window(&input.app_name)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
-            let window = match window {
-                Some(h) => h,
-                None => {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                    return Err(KernelError::Uia(
-                        "close failed: window not found".to_string(),
-                    ));
-                }
-            };
-            let close_btn = adapter
-                .find_element(&window, &UiaSelector::ByName("Close".to_string()))
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
-            let close_btn = match close_btn {
-                Some(h) => h,
-                None => {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                    return Err(KernelError::Uia(
-                        "close failed: Close button not found".to_string(),
-                    ));
-                }
-            };
-            adapter
-                .click(&close_btn)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
+            // WM_CLOSE via the adapter (`window_management` close).
+            // 标题栏按钮不在现代应用的 UIA 树里（Win11 标签页记事本实测
+            // `ui_find` 找不到 Close），按 handle 关是唯一可靠路径。
+            // `discard_changes=false`：脏窗口弹保存对话框、后端报失败，
+            // 绝不静默丢用户数据。Handle 来自 Step 3b 的审批前解析，
+            // 关的正是用户批准的那个窗口。
+            let (window, _) = resolved.ok_or_else(|| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+                KernelError::Uia("internal error: close window was not resolved".to_string())
+            })?;
+            adapter.close_window(&window, false).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
         }
         // Unreachable: ALLOWED_ACTIONS check above filters this. Kept for
         // exhaustiveness so future actions force an explicit branch.
@@ -283,10 +314,9 @@ pub fn execute_app_control(
     // Step 8: finalize step as Succeeded with Weak evidence (UIA ops
     // produce no file artifacts — verification is by screenshot, deferred
     // to Plan 5).
-    finalize_step_success(kernel, &input.step_id, "weak", None)
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    finalize_step_success(kernel, &input.step_id, "weak", None).inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     Ok(input.task_id.clone())
 }
@@ -294,10 +324,21 @@ pub fn execute_app_control(
 /// Build a descriptive EffectManifest for the approval prompt. UIA ops
 /// have no file sources — the manifest carries the app_name as the
 /// `destination` so the approval record has a non-empty target.
-fn build_app_control_effect_manifest(app_name: &str, action: &str) -> EffectManifest {
+/// For focus/close the pre-resolved window title is appended
+/// (`uia:{action}:{app}:{title}`), binding the approval to the exact
+/// window (Step 3b); launch passes `None`.
+fn build_app_control_effect_manifest(
+    app_name: &str,
+    action: &str,
+    resolved_title: Option<&str>,
+) -> EffectManifest {
+    let destination = match resolved_title {
+        Some(title) => format!("uia:{action}:{app_name}:{title}"),
+        None => format!("uia:{action}:{app_name}"),
+    };
     EffectManifest {
         sources: vec![],
-        destination: format!("uia:{}:{}", action, app_name),
+        destination,
         conflicts: vec![],
         total_bytes: 0,
     }
@@ -306,11 +347,95 @@ fn build_app_control_effect_manifest(app_name: &str, action: &str) -> EffectMani
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approval::approver::AutoApprover;
+    use crate::approval::approver::{AutoApprover, AutoDenier};
     use crate::kernel::TrustKernel;
     use crate::uiautomation::{UiaElementHandle, UiaSelector};
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    #[test]
+    fn normalize_app_name_maps_cjk_aliases() {
+        assert_eq!(normalize_app_name("记事本"), "notepad");
+        assert_eq!(normalize_app_name("计算器"), "calc");
+        assert_eq!(normalize_app_name("资源管理器"), "explorer");
+        assert_eq!(normalize_app_name("文件资源管理器"), "explorer");
+        assert_eq!(normalize_app_name("Microsoft Edge"), "msedge.exe");
+        assert_eq!(normalize_app_name("Edge"), "msedge.exe");
+        assert_eq!(normalize_app_name("浏览器"), "msedge.exe");
+        assert_eq!(normalize_app_name("飞书"), "Feishu.exe");
+        assert_eq!(normalize_app_name(" 飞书 "), "Feishu.exe");
+        assert_eq!(normalize_app_name("notepad"), "notepad");
+        assert_eq!(normalize_app_name(" 记事本 "), "notepad");
+    }
+
+    /// Captures the EffectManifest handed to the approval prompt.
+    /// `Mutex` (not `RefCell`): `Approver: Send + Sync`.
+    /// 2026 免审批后 app_control 不再提示 approver，本 struct 仅保留供
+    /// 未来重新加入白名单时恢复断言。（当前无测试引用时编译器会提示未使用。）
+
+    #[test]
+    fn test_app_control_focus_executes_without_approval() {
+        // 2026：quick.app_control 不在审批白名单 —— 不弹审批，直接执行。
+        // focus 仍先解析窗口（Step 3b），点击为该解析出的 handle（无二次查窗）。
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        state.borrow_mut().titled_title = Some("我的记事本".to_string());
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let result = execute_app_control(&kernel, &make_input("focus"), &AutoApprover, adapter);
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+
+        // Single find (Step 3b); Step 7 reuses the handle.
+        assert_eq!(state.borrow().find_window_calls.len(), 1);
+        assert_eq!(state.borrow().click_calls, 1);
+        // 免审批：不落审批记录（审计由 task/step 提供）。
+        assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_app_control_alias_hits_whitelist_before_approval() {
+        // 记事本 normalizes to notepad BEFORE the adapter call; 免审批后
+        // approver 完全不consulted，adapter 收到规范化名。
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let mut input = make_input("launch");
+        input.app_name = "记事本".to_string();
+        let result = execute_app_control(&kernel, &input, &AutoDenier, adapter);
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+        assert_eq!(state.borrow().launch_calls, vec!["notepad".to_string()]);
+        let approvals = kernel.list_approvals_for_task("t1").unwrap();
+        assert!(
+            approvals.is_empty(),
+            "免审批不落审批记录，got {} records",
+            approvals.len()
+        );
+    }
+
+    #[test]
+    fn test_app_control_close_executes_without_approval() {
+        // 2026：close 免审批 —— 不弹窗，验证 find 一次 + close(discard=false)。
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let mock = MockAdapter::new();
+        let state = mock.state_handle();
+        state.borrow_mut().titled_title = Some("画图".to_string());
+        let adapter: &dyn UiaAdapter = &mock;
+
+        let mut input = make_input("close");
+        input.app_name = "mspaint".to_string();
+        let result = execute_app_control(&kernel, &input, &AutoApprover, adapter);
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+
+        assert_eq!(
+            state.borrow().find_window_calls,
+            vec!["mspaint".to_string()]
+        );
+        assert_eq!(state.borrow().close_calls, vec![false]);
+        assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
+    }
 
     /// Recorded state shared between the MockAdapter and the test harness.
     /// Mirrors the design in `uiautomation/mod.rs` tests so we can inspect
@@ -326,9 +451,15 @@ mod tests {
         /// When `true`, `find_window` returns `Ok(None)` instead of `Ok(Some(handle))`.
         find_window_returns_none: bool,
         /// When `true`, `find_element` returns `Ok(None)` instead of
-        /// `Ok(Some(handle))`. Used to test the "Close button not found"
-        /// path in `close` action.
+        /// `Ok(Some(handle))`.
         find_element_returns_none: bool,
+        /// Every `close_window` call records its `discard_changes` here.
+        close_calls: Vec<bool>,
+        /// When `true`, `close_window` returns `Err` (server close failure).
+        fail_close: bool,
+        /// Title returned by the `find_window_titled` override (`None` →
+        /// empty string, same as the default trait body).
+        titled_title: Option<String>,
     }
 
     /// Mock adapter that records calls into a shared `Rc<RefCell<MockState>>`.
@@ -373,6 +504,14 @@ mod tests {
             }
         }
 
+        fn find_window_titled(&self, query: &str) -> Result<Option<(UiaElementHandle, String)>> {
+            // find_window call is recorded once here (Step 3b resolves once,
+            // Step 7 reuses the handle — no second find).
+            let found = self.find_window(query)?;
+            let title = self.state.borrow().titled_title.clone().unwrap_or_default();
+            Ok(found.map(|h| (h, title)))
+        }
+
         fn find_element(
             &self,
             _root: &UiaElementHandle,
@@ -395,6 +534,18 @@ mod tests {
             s.click_calls += 1;
             if let Some(msg) = s.next_error {
                 return Err(KernelError::Uia(msg.to_string()));
+            }
+            Ok(())
+        }
+
+        fn close_window(&self, _window: &UiaElementHandle, discard_changes: bool) -> Result<()> {
+            let mut s = self.state.borrow_mut();
+            s.close_calls.push(discard_changes);
+            if let Some(msg) = s.next_error {
+                return Err(KernelError::Uia(msg.to_string()));
+            }
+            if s.fail_close {
+                return Err(KernelError::Uia("mock close failed".to_string()));
             }
             Ok(())
         }
@@ -455,17 +606,14 @@ mod tests {
         assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
         assert!(step.compensation_ref.is_none());
 
-        // Approval was recorded (PerStep).
+        // 免审批：不落审批记录。
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].e_level, ELevel::E2);
+        assert!(approvals.is_empty());
     }
 
     #[test]
     fn launch_in_whitelist_skips_approval() {
-        // Spec §2.6 line 304: in-whitelist launches skip PerStep approval.
-        // `allowed_apps = ["notepad"]`, `app_name = "notepad"` → no
-        // approval record persisted, `launch_app` called, step Succeeded.
+        // 2026：quick.app_control 整体免审批 —— 无论白名单内外都无审批记录。
         let kernel = TrustKernel::open_in_memory().unwrap();
         kernel.set_allowed_apps(vec!["notepad".to_string()]);
         let approver = AutoApprover;
@@ -488,49 +636,32 @@ mod tests {
         assert_eq!(step.status, StepStatus::Succeeded);
         assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
 
-        // NO approval record was persisted (in-whitelist launch skips
-        // approval per spec §2.6 line 304).
+        // No approval record (免审批)。
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert!(
-            approvals.is_empty(),
-            "expected no approval record for in-whitelist launch, got {} records",
-            approvals.len()
-        );
+        assert!(approvals.is_empty(), "got {} records", approvals.len());
     }
 
     #[test]
-    fn launch_outside_whitelist_requires_approval() {
-        // Spec §2.6 line 304: out-of-whitelist launches require PerStep
-        // approval. `allowed_apps = []`, `app_name = "notepad"` → AutoApprover
-        // consulted, approval record persisted, `launch_app` called, step
-        // Succeeded. (Using AutoApprover here; AutoDenier would cancel the
-        // step — see existing `test_app_control_*` deny-path coverage.)
+    fn launch_outside_whitelist_executes_without_approval() {
+        // 2026：白名单内外一律免审批 —— AutoDenier 也不再拦截。
         let kernel = TrustKernel::open_in_memory().unwrap();
         kernel.set_allowed_apps(vec![]);
-        let approver = AutoApprover;
         let mock = MockAdapter::new();
         let state = mock.state_handle();
         let adapter: &dyn UiaAdapter = &mock;
 
         let input = make_input("launch");
-        let result = execute_app_control(&kernel, &input, &approver, adapter);
-
+        // AutoDenier：旧姿态下会被拒；免审批后直接执行。
+        let result = execute_app_control(&kernel, &input, &AutoDenier, adapter);
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 
-        // launch_app was called once with "notepad".
         assert_eq!(state.borrow().launch_calls.len(), 1);
         assert_eq!(state.borrow().launch_calls[0], "notepad");
 
-        // Step is Succeeded.
         let step = kernel.get_step("s1").unwrap().unwrap();
         assert_eq!(step.status, StepStatus::Succeeded);
 
-        // Approval record WAS persisted (out-of-whitelist launch requires
-        // PerStep approval per spec §2.6 line 304).
-        let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].e_level, ELevel::E2);
-        assert_eq!(approvals[0].user_decision, ApprovalDecision::Allow);
+        assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
     }
 
     #[test]
@@ -565,9 +696,9 @@ mod tests {
 
     #[test]
     fn test_app_control_close_action() {
-        // close action: find_window → find_element(ByName("Close")) →
-        // click on the close button. Verify all three adapter calls
-        // fire in order, step is Succeeded, and approval is recorded.
+        // close action: find_window → close_window(handle, discard=false).
+        // WM_CLOSE 按 handle 关（标题栏按钮不在现代应用 UIA 树里）。
+        // discard=false：绝不静默丢用户数据。
         let kernel = TrustKernel::open_in_memory().unwrap();
         let approver = AutoApprover;
         let mock = MockAdapter::new();
@@ -582,14 +713,11 @@ mod tests {
         // find_window was called once with "notepad".
         assert_eq!(state.borrow().find_window_calls.len(), 1);
         assert_eq!(state.borrow().find_window_calls[0], "notepad");
-        // find_element was called once with ByName("Close").
-        assert_eq!(state.borrow().find_element_calls.len(), 1);
-        assert_eq!(
-            state.borrow().find_element_calls[0],
-            UiaSelector::ByName("Close".to_string())
-        );
-        // click was called once on the close button handle.
-        assert_eq!(state.borrow().click_calls, 1);
+        // close_window was called once with discard_changes=false.
+        assert_eq!(state.borrow().close_calls, vec![false]);
+        // find_element / click are NOT used by close anymore.
+        assert!(state.borrow().find_element_calls.is_empty());
+        assert_eq!(state.borrow().click_calls, 0);
         // launch_app was NOT called (close uses find_window, not launch).
         assert!(state.borrow().launch_calls.is_empty());
 
@@ -598,16 +726,15 @@ mod tests {
         assert_eq!(step.status, StepStatus::Succeeded);
         assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
 
-        // Approval was recorded (PerStep — close always requires approval).
-        let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
+        // 免审批：不落审批记录。
+        assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
     }
 
     #[test]
     fn test_app_control_close_fails_when_window_not_found() {
         // close action with find_window returning Ok(None) → step Failed
-        // with "close failed: window not found". find_element and click
-        // are NOT called (window not found short-circuits).
+        // with "close failed: window not found". close_window is NOT
+        // called (window not found short-circuits).
         let kernel = TrustKernel::open_in_memory().unwrap();
         let approver = AutoApprover;
         let mock = MockAdapter::new();
@@ -627,10 +754,8 @@ mod tests {
 
         // find_window was called.
         assert_eq!(state.borrow().find_window_calls.len(), 1);
-        // find_element was NOT called (window not found short-circuits).
-        assert!(state.borrow().find_element_calls.is_empty());
-        // click was NOT called.
-        assert_eq!(state.borrow().click_calls, 0);
+        // close_window was NOT called (window not found short-circuits).
+        assert!(state.borrow().close_calls.is_empty());
 
         // Step is marked Failed.
         let step = kernel.get_step("s1").unwrap().unwrap();
@@ -638,15 +763,14 @@ mod tests {
     }
 
     #[test]
-    fn test_app_control_close_fails_when_close_button_not_found() {
-        // close action with find_element returning Ok(None) → step
-        // Failed with "close failed: Close button not found". click
-        // is NOT called (button not found short-circuits).
+    fn test_app_control_close_fails_when_backend_close_fails() {
+        // close action with close_window returning Err → step Failed,
+        // error surfaces verbatim (e.g. dirty-window save dialog timeout).
         let kernel = TrustKernel::open_in_memory().unwrap();
         let approver = AutoApprover;
         let mock = MockAdapter::new();
         let state = mock.state_handle();
-        state.borrow_mut().find_element_returns_none = true;
+        state.borrow_mut().fail_close = true;
         let adapter: &dyn UiaAdapter = &mock;
 
         let input = make_input("close");
@@ -654,21 +778,15 @@ mod tests {
 
         let err = result.unwrap_err();
         assert!(
-            matches!(err, KernelError::Uia(ref m) if m == "close failed: Close button not found"),
-            "expected Uia 'close failed: Close button not found' error, got {:?}",
+            matches!(err, KernelError::Uia(ref m) if m == "mock close failed"),
+            "expected Uia mock close error, got {:?}",
             err
         );
 
         // find_window was called (returned Some(handle)).
         assert_eq!(state.borrow().find_window_calls.len(), 1);
-        // find_element was called (returned None).
-        assert_eq!(state.borrow().find_element_calls.len(), 1);
-        assert_eq!(
-            state.borrow().find_element_calls[0],
-            UiaSelector::ByName("Close".to_string())
-        );
-        // click was NOT called (button not found short-circuits).
-        assert_eq!(state.borrow().click_calls, 0);
+        // close_window was called once with discard_changes=false.
+        assert_eq!(state.borrow().close_calls, vec![false]);
 
         // Step is marked Failed.
         let step = kernel.get_step("s1").unwrap().unwrap();

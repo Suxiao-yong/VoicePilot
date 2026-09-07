@@ -78,10 +78,10 @@ fn voice_latency_table_exists() {
 
 // ===== W10 Plan 4: Kill Switch + Cancelling 状态机 Fitness Functions =====
 
-use trust_kernel::state::TaskState;
-use trust_kernel::skills::dag_types::DagStatus;
-use std::time::Instant;
 use chrono::Utc;
+use std::time::Instant;
+use trust_kernel::skills::dag_types::DagStatus;
+use trust_kernel::state::TaskState;
 use uuid::Uuid;
 
 /// 测试 3:Idle → Cancelled ≤ 100ms(可中断,无 Cancelling 中间态)。
@@ -89,10 +89,14 @@ use uuid::Uuid;
 fn kill_switch_sla_met_from_idle() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "fitness: idle kill switch").unwrap();
+    kernel
+        .create_task(&task_id, "fitness: idle kill switch")
+        .unwrap();
 
     let t0 = Instant::now();
-    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    let triggered_at_ms = kernel
+        .trigger_kill_switch(&task_id, "fitness_test")
+        .unwrap();
     kernel
         .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
         .unwrap();
@@ -100,7 +104,11 @@ fn kill_switch_sla_met_from_idle() {
 
     let task = kernel.get_task(&task_id).unwrap().unwrap();
     assert_eq!(task.status, TaskState::Cancelled);
-    assert!(elapsed.as_millis() <= 100, "Idle kill switch must be ≤ 100ms, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 100,
+        "Idle kill switch must be ≤ 100ms, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 /// 测试 4:Listening → Cancelling → Cancelled ≤ 1s(可中断)。
@@ -108,11 +116,15 @@ fn kill_switch_sla_met_from_idle() {
 fn kill_switch_sla_met_from_listening() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "fitness: listening kill switch").unwrap();
+    kernel
+        .create_task(&task_id, "fitness: listening kill switch")
+        .unwrap();
     kernel.transition(&task_id, TaskState::Listening).unwrap();
 
     let t0 = Instant::now();
-    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    let triggered_at_ms = kernel
+        .trigger_kill_switch(&task_id, "fitness_test")
+        .unwrap();
     kernel
         .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
         .unwrap();
@@ -120,7 +132,11 @@ fn kill_switch_sla_met_from_listening() {
 
     let task = kernel.get_task(&task_id).unwrap().unwrap();
     assert_eq!(task.status, TaskState::Cancelled);
-    assert!(elapsed.as_millis() <= 1000, "Listening kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Listening kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 /// 测试 5:Planning → Cancelling → Cancelled ≤ 1s(可中断)。
@@ -128,12 +144,16 @@ fn kill_switch_sla_met_from_listening() {
 fn kill_switch_sla_met_from_planning() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "fitness: planning kill switch").unwrap();
+    kernel
+        .create_task(&task_id, "fitness: planning kill switch")
+        .unwrap();
     kernel.transition(&task_id, TaskState::Listening).unwrap();
     kernel.transition(&task_id, TaskState::Planning).unwrap();
 
     let t0 = Instant::now();
-    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    let triggered_at_ms = kernel
+        .trigger_kill_switch(&task_id, "fitness_test")
+        .unwrap();
     kernel
         .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
         .unwrap();
@@ -141,7 +161,11 @@ fn kill_switch_sla_met_from_planning() {
 
     let task = kernel.get_task(&task_id).unwrap().unwrap();
     assert_eq!(task.status, TaskState::Cancelled);
-    assert!(elapsed.as_millis() <= 1000, "Planning kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Planning kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 /// 测试 6:AwaitingApproval → Cancelling → Cancelled ≤ 1s(可中断)。
@@ -149,13 +173,19 @@ fn kill_switch_sla_met_from_planning() {
 fn kill_switch_sla_met_from_awaiting_approval() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "fitness: awaiting kill switch").unwrap();
+    kernel
+        .create_task(&task_id, "fitness: awaiting kill switch")
+        .unwrap();
     kernel.transition(&task_id, TaskState::Listening).unwrap();
     kernel.transition(&task_id, TaskState::Planning).unwrap();
-    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+    kernel
+        .transition(&task_id, TaskState::AwaitingApproval)
+        .unwrap();
 
     let t0 = Instant::now();
-    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    let triggered_at_ms = kernel
+        .trigger_kill_switch(&task_id, "fitness_test")
+        .unwrap();
     kernel
         .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
         .unwrap();
@@ -163,7 +193,11 @@ fn kill_switch_sla_met_from_awaiting_approval() {
 
     let task = kernel.get_task(&task_id).unwrap().unwrap();
     assert_eq!(task.status, TaskState::Cancelled);
-    assert!(elapsed.as_millis() <= 1000, "AwaitingApproval kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "AwaitingApproval kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 /// 测试 7:Executing voice loop chunk 边界 → Cancelling → Cancelled ≤ 1s(可中断)。
@@ -171,14 +205,20 @@ fn kill_switch_sla_met_from_awaiting_approval() {
 fn kill_switch_sla_met_from_executing_voice_loop() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "fitness: executing kill switch").unwrap();
+    kernel
+        .create_task(&task_id, "fitness: executing kill switch")
+        .unwrap();
     kernel.transition(&task_id, TaskState::Listening).unwrap();
     kernel.transition(&task_id, TaskState::Planning).unwrap();
-    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+    kernel
+        .transition(&task_id, TaskState::AwaitingApproval)
+        .unwrap();
     kernel.transition(&task_id, TaskState::Executing).unwrap();
 
     let t0 = Instant::now();
-    let triggered_at_ms = kernel.trigger_kill_switch(&task_id, "fitness_test").unwrap();
+    let triggered_at_ms = kernel
+        .trigger_kill_switch(&task_id, "fitness_test")
+        .unwrap();
     kernel
         .complete_cancellation(&task_id, triggered_at_ms, Utc::now().timestamp_millis())
         .unwrap();
@@ -186,7 +226,11 @@ fn kill_switch_sla_met_from_executing_voice_loop() {
 
     let task = kernel.get_task(&task_id).unwrap().unwrap();
     assert_eq!(task.status, TaskState::Cancelled);
-    assert!(elapsed.as_millis() <= 1000, "Executing voice loop kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Executing voice loop kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 /// 测试 8:Cancelling → Cancelled 合法 + Cancelled 直跳仍合法(TaskState)。
@@ -221,20 +265,35 @@ fn task_state_cancelling_transitions_illegal() {
 #[test]
 fn dag_status_cancelling_transitions_legal() {
     // Running → Cancelling 合法(W10 Plan 4 新增)
-    assert!(DagStatus::transition(&DagStatus::Running, &DagStatus::Cancelling));
+    assert!(DagStatus::transition(
+        &DagStatus::Running,
+        &DagStatus::Cancelling
+    ));
     // Cancelling → Cancelled 合法(W10 Plan 4 新增)
-    assert!(DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Cancelled));
+    assert!(DagStatus::transition(
+        &DagStatus::Cancelling,
+        &DagStatus::Cancelled
+    ));
     // Running → Cancelled 直跳仍合法(向后兼容)
-    assert!(DagStatus::transition(&DagStatus::Running, &DagStatus::Cancelled));
+    assert!(DagStatus::transition(
+        &DagStatus::Running,
+        &DagStatus::Cancelled
+    ));
 }
 
 /// 测试 11:DAG Cancelling → Running 非法(Cancelling 不可逆)。
 #[test]
 fn dag_status_cancelling_transitions_illegal() {
     // Cancelling → Running 非法(不可逆)
-    assert!(!DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Running));
+    assert!(!DagStatus::transition(
+        &DagStatus::Cancelling,
+        &DagStatus::Running
+    ));
     // Cancelling → Succeeded 非法(必须先 → Cancelled)
-    assert!(!DagStatus::transition(&DagStatus::Cancelling, &DagStatus::Succeeded));
+    assert!(!DagStatus::transition(
+        &DagStatus::Cancelling,
+        &DagStatus::Succeeded
+    ));
     // Cancelling → Failed 非法
     assert!(!DagStatus::transition(
         &DagStatus::Cancelling,
@@ -290,8 +349,10 @@ fn audit_coverage_default_full() {
         "taint_blocked",
         "kill_switch_triggered",
         "task_cancelled",
+        // Wave 3 Task 3.1: secret_migration(启动迁移,default-gated,可达)
+        "secret_migration",
     ];
-    assert_eq!(DEFAULT_REACHABLE.len(), 26);
+    assert_eq!(DEFAULT_REACHABLE.len(), 27);
 
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = "t-fitness-coverage";
@@ -309,7 +370,7 @@ fn audit_coverage_default_full() {
     let uncovered = checker.uncovered().unwrap();
     assert!(
         uncovered.is_empty(),
-        "V1 gate: default feature must cover all 26 reachable audit event types, uncovered: {:?}",
+        "V1 gate: default feature must cover all 27 reachable audit event types, uncovered: {:?}",
         uncovered
     );
 }
@@ -317,9 +378,9 @@ fn audit_coverage_default_full() {
 // ===== W10 Plan 6: Verifier 覆盖率 Fitness Function(spec §8.1 测试 1 + §9.4 ⑥)=====
 
 use trust_kernel::skills::manifest::{
-    files_organize_manifest, form_prepare_manifest, form_submit_manifest,
-    note_capture_manifest, research_save_manifest, task_compensate_manifest,
-    task_explain_manifest, task_repeat_verified_manifest,
+    files_organize_manifest, form_prepare_manifest, form_submit_manifest, note_capture_manifest,
+    research_save_manifest, task_compensate_manifest, task_explain_manifest,
+    task_repeat_verified_manifest,
 };
 
 /// 测试 1(W10 Plan 6):7/7 有副作用 Skill verifier.strategy = "strong" +
@@ -336,13 +397,25 @@ use trust_kernel::skills::manifest::{
 fn verifier_coverage_all_strong() {
     // 7 个有副作用 Skill 必须为 "strong"
     let seven_strong = [
-        ("files.organize", files_organize_manifest().verifier.strategy),
+        (
+            "files.organize",
+            files_organize_manifest().verifier.strategy,
+        ),
         ("note.capture", note_capture_manifest().verifier.strategy),
-        ("research.save_markdown", research_save_manifest().verifier.strategy),
+        (
+            "research.save_markdown",
+            research_save_manifest().verifier.strategy,
+        ),
         ("form.prepare", form_prepare_manifest().verifier.strategy),
         ("form.submit", form_submit_manifest().verifier.strategy),
-        ("task.repeat_verified", task_repeat_verified_manifest().verifier.strategy),
-        ("task.compensate", task_compensate_manifest().verifier.strategy),
+        (
+            "task.repeat_verified",
+            task_repeat_verified_manifest().verifier.strategy,
+        ),
+        (
+            "task.compensate",
+            task_compensate_manifest().verifier.strategy,
+        ),
     ];
     for (name, strategy) in &seven_strong {
         assert_eq!(
@@ -386,11 +459,20 @@ use trust_kernel::compensation::types::CompensationLevel;
 fn compensation_coverage_all_strong() {
     // 5 个可逆 Skill 必须为 Strong
     let five_strong = [
-        ("files.organize", files_organize_manifest().compensation.level),
+        (
+            "files.organize",
+            files_organize_manifest().compensation.level,
+        ),
         ("note.capture", note_capture_manifest().compensation.level),
-        ("research.save_markdown", research_save_manifest().compensation.level),
+        (
+            "research.save_markdown",
+            research_save_manifest().compensation.level,
+        ),
         ("form.prepare", form_prepare_manifest().compensation.level),
-        ("task.compensate", task_compensate_manifest().compensation.level),
+        (
+            "task.compensate",
+            task_compensate_manifest().compensation.level,
+        ),
     ];
     for (name, level) in &five_strong {
         assert_eq!(
@@ -404,7 +486,10 @@ fn compensation_coverage_all_strong() {
     let three_none = [
         ("form.submit", form_submit_manifest().compensation.level),
         ("task.explain", task_explain_manifest().compensation.level),
-        ("task.repeat_verified", task_repeat_verified_manifest().compensation.level),
+        (
+            "task.repeat_verified",
+            task_repeat_verified_manifest().compensation.level,
+        ),
     ];
     for (name, level) in &three_none {
         assert_eq!(
@@ -450,10 +535,10 @@ fn audit_registry_all_lower_snake_case() {
         "V1 gate: AUDIT_EVENT_TYPE_REGISTRY contains event_type(s) not matching lower_snake_case: {:?}",
         non_compliant
     );
-    // 分母断言:registry 必须有 29 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4)
+    // 分母断言:registry 必须有 31 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4 + Wave 3 secret_migration + Phase B memory_injected)
     assert_eq!(
         AUDIT_EVENT_TYPE_REGISTRY.len(),
-        29,
-        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 29 event types (spec §7.1 + llm_explain_called + malicious_server_detected)"
+        31,
+        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 31 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + memory_injected)"
     );
 }

@@ -45,6 +45,14 @@ pub mod voice_commands;
 #[cfg(feature = "tauri")]
 pub mod model_download_commands;
 
+/// 桌宠窗口命令 + 鼠标穿透看门狗(桌宠化改造)。
+#[cfg(feature = "tauri")]
+pub mod pet_commands;
+
+/// Phase C: 后台定时作业命令（列表/历史/停用）。
+#[cfg(feature = "tauri")]
+pub mod scheduler_commands;
+
 pub mod slot_parser;
 
 pub use error::UiError;

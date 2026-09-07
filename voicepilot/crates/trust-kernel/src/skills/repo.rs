@@ -35,8 +35,7 @@ impl SkillRepo {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(skill_id) DO UPDATE SET
                version = excluded.version,
-               manifest_json = excluded.manifest_json,
-               enabled = excluded.enabled",
+               manifest_json = excluded.manifest_json",
             params![rec.skill_id, rec.version, rec.manifest_json, rec.enabled, rec.success_count, rec.avg_latency_ms],
         )?;
         Ok(())
@@ -46,16 +45,18 @@ impl SkillRepo {
         let mut stmt = conn.prepare(
             "SELECT skill_id, version, manifest_json, enabled, success_count, avg_latency_ms FROM skills WHERE skill_id = ?1",
         )?;
-        let rec = stmt.query_row(params![skill_id], |row| {
-            Ok(SkillRecord {
-                skill_id: row.get(0)?,
-                version: row.get(1)?,
-                manifest_json: row.get(2)?,
-                enabled: row.get(3)?,
-                success_count: row.get(4)?,
-                avg_latency_ms: row.get(5)?,
+        let rec = stmt
+            .query_row(params![skill_id], |row| {
+                Ok(SkillRecord {
+                    skill_id: row.get(0)?,
+                    version: row.get(1)?,
+                    manifest_json: row.get(2)?,
+                    enabled: row.get(3)?,
+                    success_count: row.get(4)?,
+                    avg_latency_ms: row.get(5)?,
+                })
             })
-        }).optional()?;
+            .optional()?;
         Ok(rec)
     }
 

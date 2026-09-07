@@ -76,11 +76,125 @@ pub enum SecretMigrationOutcome {
     Failed,
 }
 
+/// Phase A 密钥收编（skill 侧）：读 `{src_dir}/.env`，把疑似凭据的
+/// KEY=VALUE 迁进 SecretStore（`voicepilot/skill/<skill_id>/<KEY>`）。
+/// 只复制值、只报 key 名；源文件不动（R2 finding 1：不自动搬全文）。
+/// `.env` 不存在 / 解析失败 → 空列表（best-effort，不阻断导入）。
+fn migrate_skill_env_credentials(
+    kernel: &TrustKernel,
+    src_dir: &std::path::Path,
+    skill_id: &str,
+) -> Vec<String> {
+    use crate::skills::common::{is_credential_env_key, MCP_SKILL_ENV_KEYRING_PREFIX};
+    let env_file = src_dir.join(".env");
+    let Ok(content) = std::fs::read_to_string(&env_file) else {
+        return Vec::new();
+    };
+    let mut migrated = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        if key.is_empty() || value.is_empty() || !is_credential_env_key(key) {
+            continue;
+        }
+        let ref_name = format!("{MCP_SKILL_ENV_KEYRING_PREFIX}{skill_id}/{key}");
+        if kernel.secret_store().set_secret(&ref_name, value).is_ok() {
+            migrated.push(key.to_string());
+        }
+    }
+    if !migrated.is_empty() {
+        tracing::info!(
+            skill_id = %skill_id,
+            migrated_count = migrated.len(),
+            "imported skill .env: credential keys migrated into SecretStore (source file untouched)"
+        );
+    }
+    migrated
+}
+
+/// Phase A：Playwright MCP 一等公民化 —— 把内置打包的 web.page_* 技能
+/// （网页导航/点击/填表/截图，绑定既有 playwright MCP server）播到用户
+/// skills 目录（仅缺失时写入，用户改过/删过不覆盖）。播完即被
+/// `load_user_skills` 收进 catalog；playwright 未标记信任时 fail-closed
+/// 不可执行（注册门已在 catalog load 处收口）。幂等，错误仅记日志。
+const BUNDLED_SKILL_FILES: &[(&str, &str)] = &[
+    (
+        "web.page_navigate",
+        include_str!("skills/bundled/web.page_navigate/SKILL.md"),
+    ),
+    (
+        "web.page_click",
+        include_str!("skills/bundled/web.page_click/SKILL.md"),
+    ),
+    (
+        "web.page_fill",
+        include_str!("skills/bundled/web.page_fill/SKILL.md"),
+    ),
+    (
+        "web.page_screenshot",
+        include_str!("skills/bundled/web.page_screenshot/SKILL.md"),
+    ),
+    // Phase D：IM/邮件试点（Composio MCP；composio 未导入/未信任时
+    // fail-closed 不可执行，同 web.page_* 姿态）。
+    (
+        "mail.list_recent",
+        include_str!("skills/bundled/mail.list_recent/SKILL.md"),
+    ),
+    (
+        "mail.draft",
+        include_str!("skills/bundled/mail.draft/SKILL.md"),
+    ),
+];
+
+fn seed_bundled_skills(kernel: &TrustKernel) {
+    // 测试注入的 skills 目录（open_in_memory_with_user_skills_dir）不播种：
+    // 测试用 TempDir 固件自己控制内容，多余文件会破坏数量断言。
+    if kernel.user_skills_dir_override.is_some() {
+        return;
+    }
+    match kernel.user_skills_dir() {
+        Ok(dir) => seed_bundled_skills_into(&dir),
+        Err(e) => tracing::warn!(error = ?e, "seed_bundled_skills: no skills dir; skipped"),
+    }
+}
+
+/// 幂等播种：仅写入缺失的 `{dir}/{id}/SKILL.md`；已有文件（用户改过/删过）
+/// 不覆盖。错误仅记日志不传播（一个写失败不能阻断 boot）。
+fn seed_bundled_skills_into(dir: &std::path::Path) {
+    for (id, content) in BUNDLED_SKILL_FILES {
+        let dest = dir.join(id).join("SKILL.md");
+        if dest.exists() {
+            continue; // 用户已导入/改过/删过 → 不覆盖
+        }
+        // fs::write 不建父目录 —— {dir}/{id}/ 首次播种时不存在。
+        if let Some(parent) = dest.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!(skill_id = %id, error = ?e, "seed_bundled_skills mkdir failed");
+                continue;
+            }
+        }
+        if let Err(e) = std::fs::write(&dest, content) {
+            tracing::warn!(skill_id = %id, error = ?e, "seed_bundled_skills write failed");
+        }
+    }
+}
+
 impl TrustKernel {
     pub fn open_in_memory() -> Result<Self> {
         let conn = db::open_in_memory()?;
         db::run_migrations(&conn)?;
-        Ok(Self::with_conn_full(conn, None, Self::default_secret_store()))
+        Ok(Self::with_conn_full(
+            conn,
+            None,
+            Self::default_secret_store(),
+        ))
     }
 
     pub fn open_in_memory_with_user_skills_dir(path: PathBuf) -> Result<Self> {
@@ -96,7 +210,11 @@ impl TrustKernel {
     pub fn open_file(path: &str) -> Result<Self> {
         let conn = db::open_file(path)?;
         db::run_migrations(&conn)?;
-        Ok(Self::with_conn_full(conn, None, Self::default_secret_store()))
+        Ok(Self::with_conn_full(
+            conn,
+            None,
+            Self::default_secret_store(),
+        ))
     }
 
     /// Wave 3 Task 3.1: 注入 SecretStore 的测试构造器(内存实现),与
@@ -215,6 +333,7 @@ impl TrustKernel {
         // W7 Plan 3: best-effort user skill loading at boot. Errors are
         // logged via tracing::warn! and never propagate — a malformed user
         // skill file must not crash kernel construction.
+        seed_bundled_skills(&kernel);
         if let Err(e) = kernel.load_user_skills() {
             tracing::warn!(error = ?e, "load_user_skills failed at boot");
         }
@@ -329,13 +448,24 @@ impl TrustKernel {
     }
 
     /// classify 缓存查询（Task 6）。key 含模型+schema版本+归一化文本；过期由 lookup 过滤。
-    pub fn lookup_route_cache(&self, key: &str, now_ms: i64) -> Result<Option<crate::llm_cache::CachedRoute>> {
+    pub fn lookup_route_cache(
+        &self,
+        key: &str,
+        now_ms: i64,
+    ) -> Result<Option<crate::llm_cache::CachedRoute>> {
         let conn = self.conn();
         crate::llm_cache::lookup(&conn, key, now_ms)
     }
 
     /// 存一次高置信 Skill 命中（Task 6）。只在 planner 命中路径调用。
-    pub fn record_route_cache(&self, key: &str, skill_id: &str, slots_json: &str, confidence: f32, now_ms: i64) -> Result<()> {
+    pub fn record_route_cache(
+        &self,
+        key: &str,
+        skill_id: &str,
+        slots_json: &str,
+        confidence: f32,
+        now_ms: i64,
+    ) -> Result<()> {
         let conn = self.conn();
         crate::llm_cache::store(&conn, key, skill_id, slots_json, confidence, now_ms)
     }
@@ -378,7 +508,9 @@ impl TrustKernel {
             .delete_secret(crate::secrets::LLM_API_KEY_NAME)?;
         {
             let conn = self.conn();
-            let _ = self.config_repo().set(&conn, "llm.api_key_present", "false");
+            let _ = self
+                .config_repo()
+                .set(&conn, "llm.api_key_present", "false");
         }
         Ok(())
     }
@@ -436,9 +568,7 @@ impl TrustKernel {
 
         {
             let conn = self.conn();
-            let _ = self
-                .config_repo()
-                .set(&conn, "llm.api_key_present", "true");
+            let _ = self.config_repo().set(&conn, "llm.api_key_present", "true");
         }
         self.secret_migration_audit(&provider, true);
         SecretMigrationOutcome::Migrated
@@ -457,8 +587,7 @@ impl TrustKernel {
         let placeholder_task_id = format!("secret-migration-{}", Uuid::new_v4());
         {
             let conn = self.conn();
-            let placeholder =
-                TaskRecord::new(&placeholder_task_id, "secret migration placeholder");
+            let placeholder = TaskRecord::new(&placeholder_task_id, "secret migration placeholder");
             if let Err(e) = self.task_repo.create(&conn, &placeholder) {
                 tracing::warn!(
                     error = ?e,
@@ -472,12 +601,9 @@ impl TrustKernel {
             "key_name": crate::secrets::LLM_API_KEY_NAME,
             "success": success,
         });
-        if let Err(e) = self.audit_append_external(
-            &placeholder_task_id,
-            None,
-            "secret_migration",
-            details,
-        ) {
+        if let Err(e) =
+            self.audit_append_external(&placeholder_task_id, None, "secret_migration", details)
+        {
             tracing::warn!(
                 error = ?e,
                 "secret migration: failed to append audit event"
@@ -1172,9 +1298,9 @@ impl TrustKernel {
         let previous = {
             let conn = self.conn();
             let repo = crate::mcp::repo::McpServerRepo::new();
-            let previous = repo
-                .get(&conn, server_id)?
-                .ok_or_else(|| KernelError::Mcp(format!("MCP server '{server_id}' does not exist")))?;
+            let previous = repo.get(&conn, server_id)?.ok_or_else(|| {
+                KernelError::Mcp(format!("MCP server '{server_id}' does not exist"))
+            })?;
             repo.delete(&conn, server_id)?;
             previous
         };
@@ -1212,14 +1338,15 @@ impl TrustKernel {
         let records = crate::skills::repo::SkillRepo::new().list(&conn)?;
         let mut referencing = Vec::new();
         for record in records {
-            let execution_server_id = serde_json::from_str::<serde_json::Value>(&record.manifest_json)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .pointer("/execution/server_id")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                });
+            let execution_server_id =
+                serde_json::from_str::<serde_json::Value>(&record.manifest_json)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .pointer("/execution/server_id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from)
+                    });
             if execution_server_id.as_deref() == Some(server_id) {
                 referencing.push(record.skill_id);
             }
@@ -1322,6 +1449,117 @@ impl TrustKernel {
         }
         self.reload_extensions()?;
         Ok(manifests.len())
+    }
+
+    /// 从外部目录导入第三方 Skill（外部发现流程用）。
+    ///
+    /// 只写入已校验的 `SKILL.md` 字节（脚本/素材不跟随：本项目不执行 Skill 自带脚本，
+    /// 跟随复制只会扩大攻击面）。DB 行出生即 `enabled=false` —— 第三方
+    /// 内容默认关闭，用户在 Skills Manager 手动启用；与 `load_user_skills`
+    /// 对自有目录新 Skill 默认启用的语义不同，差异在此处收敛。
+    ///
+    /// 单次读取：源文件只读一次，写入的是已校验字节，不存在“读-拷”竞态窗口；
+    /// `load_user_skills` 对已存在行保留其 enabled（此处已为 false）。
+    ///
+    /// 边界校验（镜像 ui 层 `import_skill` 的 Sink 2 规则）：绝对路径目录、
+    /// 含常规文件 SKILL.md（封顶读取 1MiB+1，超限拒绝）、id 合法且不与已有
+    /// skill_id 冲突（显式报错，不覆盖）。
+    pub fn import_external_skill(
+        &self,
+        src_dir: &std::path::Path,
+    ) -> Result<crate::skills::manifest::SkillManifest> {
+        let (manifest, _migrated) = self.import_external_skill_with_env(src_dir)?;
+        Ok(manifest)
+    }
+
+    /// 与 `import_external_skill` 相同，并附带 Phase A 密钥收编：
+    /// 源目录下伴随的 `.env` 文件（如 anysearch）里疑似凭据的 KEY=VALUE
+    /// 迁移进 SecretStore（`voicepilot/skill/<id>/<KEY>`）；**不自动搬
+    /// 全文**（可能含非凭据配置），**不改源文件**（用户的文件原样保留，
+    /// 凭据留在原处属用户清理决定）。返回 (manifest, 已收编的 key 名)。
+    pub fn import_external_skill_with_env(
+        &self,
+        src_dir: &std::path::Path,
+    ) -> Result<(crate::skills::manifest::SkillManifest, Vec<String>)> {
+        use crate::skills::user_loader::parse_skill_md;
+
+        if !src_dir.is_absolute() {
+            return Err(KernelError::Skill(
+                "external skill dir must be absolute".to_string(),
+            ));
+        }
+        let canonical_src = std::fs::canonicalize(src_dir).map_err(|e| {
+            KernelError::Skill(format!("canonicalize external skill dir failed: {e}"))
+        })?;
+        if !canonical_src.is_dir() {
+            return Err(KernelError::Skill(
+                "external skill dir is not a directory".to_string(),
+            ));
+        }
+        let src_file = canonical_src.join("SKILL.md");
+        if !std::fs::metadata(&src_file)
+            .map(|m| m.is_file())
+            .unwrap_or(false)
+        {
+            return Err(KernelError::Skill(
+                "external skill dir has no SKILL.md".to_string(),
+            ));
+        }
+        let content = crate::external_scan::read_text_capped(&src_file, 1024 * 1024)
+            .map_err(|e| KernelError::Skill(format!("read external SKILL.md failed: {e}")))?;
+        let (manifest, _) = parse_skill_md(&content)
+            .map_err(|e| KernelError::Skill(format!("external SKILL.md invalid: {e}")))?;
+        // 单次 canonical 基址 + 先判 containment 再建目录。
+        let skills_dir = self.user_skills_dir()?;
+        let dest_dir = skills_dir.join(&manifest.id);
+        let dest = dest_dir.join("SKILL.md");
+        // Defense-in-depth:目标必须在自有 skills 目录内（id 已由 parse 限定字符集，
+        // 无分隔符，此处为纵深）。
+        if !dest.starts_with(&skills_dir) {
+            return Err(KernelError::Skill(
+                "destination escapes skills dir".to_string(),
+            ));
+        }
+        if dest_dir.exists() {
+            return Err(KernelError::Skill(format!(
+                "skill id '{}' already exists; remove it first",
+                manifest.id
+            )));
+        }
+        std::fs::create_dir_all(&dest_dir)
+            .map_err(|e| KernelError::Skill(format!("create skill dir failed: {e}")))?;
+        // 写已校验字节（不回读源盘）：与校验时解析的是同一份内容。
+        // 默认关闭保证：DB 行出生即 disabled（upsert 显式 false），不存在
+        // 先启用再关闭的窗口；其后 toggle(false) 仅用于覆盖可能残留的陈旧行
+        //（upsert 的 ON CONFLICT 不碰 enabled 列），最后 load 保留 false。
+        if let Err(e) = (|| -> Result<()> {
+            std::fs::write(&dest, content.as_bytes())
+                .map_err(|e| KernelError::Skill(format!("write SKILL.md failed: {e}")))?;
+            let manifest_json = serde_json::to_string(&manifest)
+                .map_err(|e| KernelError::Skill(format!("serde_json failed: {e}")))?;
+            let conn = self.conn();
+            let repo = crate::skills::repo::SkillRepo::new();
+            repo.upsert(
+                &conn,
+                &crate::skills::repo::SkillRecord {
+                    skill_id: manifest.id.clone(),
+                    version: 1,
+                    manifest_json,
+                    enabled: false,
+                    success_count: 0,
+                    avg_latency_ms: 0.0,
+                },
+            )?;
+            repo.toggle(&conn, &manifest.id, false)?;
+            Ok(())
+        })() {
+            let _ = std::fs::remove_file(&dest);
+            let _ = std::fs::remove_dir(&dest_dir);
+            return Err(e);
+        }
+        self.load_user_skills()?;
+        let migrated_keys = migrate_skill_env_credentials(self, &canonical_src, &manifest.id);
+        Ok((manifest, migrated_keys))
     }
 
     /// W7 Plan 3:重新扫描 skills 目录,返回用户自定义 Skill manifests。
@@ -1751,7 +1989,57 @@ mod tests {
         );
     }
 
-    // ===== W10 Plan 3: voice latency sample recording =====
+    // ===== Phase A：捆绑 web.page_* 技能（Playwright MCP 一等公民化）=====
+
+    #[test]
+    fn bundled_skill_files_parse_and_bind_playwright() {
+        use crate::skills::user_loader::parse_skill_md;
+        for (id, content) in BUNDLED_SKILL_FILES {
+            let (manifest, _) = parse_skill_md(content)
+                .unwrap_or_else(|e| panic!("bundled skill {id} must parse: {e}"));
+            assert_eq!(manifest.id, *id);
+            let Some(crate::skills::manifest::SkillExecutionSpec::McpTool {
+                server_id,
+                tool_name,
+            }) = manifest.execution
+            else {
+                panic!("bundled skill {id} must bind an MCP tool");
+            };
+            assert!(
+                server_id == "playwright" || server_id == "composio",
+                "bundled skill {id} server"
+            );
+            assert!(
+                tool_name.starts_with("browser_") || tool_name.starts_with("GMAIL_"),
+                "bundled skill {id} tool"
+            );
+            assert!(!manifest.description.is_empty());
+        }
+    }
+
+    #[test]
+    fn seed_bundled_skills_into_is_idempotent_and_preserves_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_bundled_skills_into(tmp.path());
+        for (id, _) in BUNDLED_SKILL_FILES {
+            assert!(
+                tmp.path().join(id).join("SKILL.md").is_file(),
+                "{id} seeded"
+            );
+        }
+        // 用户改过的文件不被覆盖。
+        let custom = tmp.path().join("web.page_navigate").join("SKILL.md");
+        std::fs::write(
+            &custom,
+            "---\nname: web.page_navigate\ndescription: custom\n---\ncustom body",
+        )
+        .unwrap();
+        seed_bundled_skills_into(tmp.path());
+        assert_eq!(
+            std::fs::read_to_string(&custom).unwrap(),
+            "---\nname: web.page_navigate\ndescription: custom\n---\ncustom body"
+        );
+    }
 
     #[test]
     fn record_voice_latency_sample_writes_row_and_emits_audit_event() {

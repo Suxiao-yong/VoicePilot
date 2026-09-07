@@ -6,7 +6,7 @@
 
 # Interface: Slot
 
-Defined in: types.ts:177
+Defined in: types.ts:218
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:177
 
 > **end**: `number`
 
-Defined in: types.ts:181
+Defined in: types.ts:222
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:181
 
 > **high\_risk**: `boolean`
 
-Defined in: types.ts:182
+Defined in: types.ts:223
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:182
 
 > **kind**: [`SlotKind`](../type-aliases/SlotKind.md)
 
-Defined in: types.ts:178
+Defined in: types.ts:219
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: types.ts:178
 
 > `optional` **modified?**: `boolean`
 
-Defined in: types.ts:184
+Defined in: types.ts:225
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: types.ts:184
 
 > **raw**: `string`
 
-Defined in: types.ts:179
+Defined in: types.ts:220
 
 ***
 
@@ -54,4 +54,4 @@ Defined in: types.ts:179
 
 > **start**: `number`
 
-Defined in: types.ts:180
+Defined in: types.ts:221

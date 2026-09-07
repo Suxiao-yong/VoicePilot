@@ -6,7 +6,7 @@
 
 # Interface: DiffResult
 
-Defined in: types.ts:146
+Defined in: types.ts:180
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:146
 
 > **dest\_path**: `string`
 
-Defined in: types.ts:148
+Defined in: types.ts:182
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:148
 
 > **diff\_text**: `string` \| `null`
 
-Defined in: types.ts:150
+Defined in: types.ts:184
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:150
 
 > **file\_kind**: [`FileKind`](../type-aliases/FileKind.md)
 
-Defined in: types.ts:149
+Defined in: types.ts:183
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: types.ts:149
 
 > **source\_path**: `string`
 
-Defined in: types.ts:147
+Defined in: types.ts:181
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: types.ts:147
 
 > **truncate\_reason**: `string` \| `null`
 
-Defined in: types.ts:152
+Defined in: types.ts:186
 
 ***
 
@@ -54,4 +54,4 @@ Defined in: types.ts:152
 
 > **truncated**: `boolean`
 
-Defined in: types.ts:151
+Defined in: types.ts:185

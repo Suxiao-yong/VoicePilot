@@ -8,7 +8,7 @@
 
 > **listMcpServers**(): `Promise`\<[`McpServer`](../../types/interfaces/McpServer.md)[]\>
 
-Defined in: api.ts:108
+Defined in: api.ts:109
 
 ## Returns
 

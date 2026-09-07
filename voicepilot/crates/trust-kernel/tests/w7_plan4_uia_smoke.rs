@@ -14,11 +14,11 @@
 //!   `set_text("hello")` → file written to disk at `<temp>/Documents/test.txt`
 //!   → step Succeeded with strong evidence → approval record persisted.
 //!
-//! Test 3 (`real_gui_notepad_launch_settext_close`):
-//!   Real `WindowsUiaAdapter` launches actual Notepad, sets text on its edit
-//!   control, (cleanup is manual). `#[ignore]`-tagged — run with
-//!   `cargo test -p trust-kernel --features uia --test w7_plan4_uia_smoke --
-//!   --ignored real_gui`.
+//! Test 3 (`live_mcp_windows_launch_find_close`):
+//!   Live round trip through `McpUiaAdapter` against a real mcp-windows
+//!   server: launch notepad → find window → close tab. Auto-skips when
+//!   `Sbroenne.WindowsMcp.exe` is absent (CI) or the user already has
+//!   Notepad open (never touches чужі windows).
 //!
 //! Platform / feature gate: every item is `#[cfg(all(windows, feature = "uia"))]`-gated
 //! so the default build (no `uia` feature, or non-Windows) compiles cleanly.
@@ -182,11 +182,10 @@ mod common {
 
 #[cfg(all(windows, feature = "uia"))]
 mod smoke {
-    use super::common::{MockAdapter, with_temp_cwd};
+    use super::common::{with_temp_cwd, MockAdapter};
     use trust_kernel::approval::approver::AutoApprover;
     use trust_kernel::compensation::types::CompensationLevel;
     use trust_kernel::kernel::TrustKernel;
-    use trust_kernel::policy::types::ELevel;
     use trust_kernel::repo::step_repo::StepStatus;
     use trust_kernel::skills::app_control::{execute_app_control, AppControlInput};
     use trust_kernel::skills::note_capture::{execute_note_capture, NoteCaptureInput};
@@ -245,12 +244,11 @@ mod smoke {
         assert_eq!(step.evidence_strength.as_deref(), Some("weak"));
         assert!(step.compensation_ref.is_none());
 
-        // Approval was recorded (PerStep, E2).
+        // 2026 免审批：不落审批记录（审计由 task/step 提供）。
         let approvals = kernel
             .list_approvals_for_task("smoke-task-1")
             .expect("list_approvals_for_task");
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].e_level, ELevel::E2);
+        assert!(approvals.is_empty(), "got {} records", approvals.len());
     }
 
     /// Test 2: `note.capture` writes "hello" (mock adapter).
@@ -308,7 +306,10 @@ mod smoke {
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
             // W10 Plan 2: note.capture 成功必须注册 note.reverse_capture 补偿
             // （旧断言 is_none() 是 Plan 2 之前的残留，已过期）。
-            let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+            let comp_ref = step
+                .compensation_ref
+                .as_ref()
+                .expect("compensation_ref must be set");
             let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
             assert_eq!(comp.compensate_fn, "note.reverse_capture");
             assert_eq!(comp.level, CompensationLevel::Strong);
@@ -318,97 +319,105 @@ mod smoke {
                 Some("Documents/test.txt")
             );
 
-            // Approval was recorded (PerStep, E2).
+            // 2026 免审批：不落审批记录（审计由 task/step 提供）。
             let approvals = kernel
                 .list_approvals_for_task("smoke-task-2")
                 .expect("list_approvals_for_task");
-            assert_eq!(approvals.len(), 1);
-            assert_eq!(approvals[0].e_level, ELevel::E2);
+            assert!(approvals.is_empty(), "got {} records", approvals.len());
         });
     }
 }
 
 #[cfg(all(windows, feature = "uia"))]
-mod real_gui {
+mod live_mcp {
+    //! Test 3: live round trip through `McpUiaAdapter` (auto-skip, not ignore).
+    //!
+    //! Needs `Sbroenne.WindowsMcp.exe`: `MCP_WINDOWS_EXE` env or the repo
+    //! `tools/mcp-windows/server/` copy. Skips (green) when absent — CI has
+    //! no exe — and when the user already runs Notepad (we never close
+    //! чужі tabs; the launched fresh tab is closed by its own handle).
+
+    use std::path::PathBuf;
+    use std::sync::Arc;
     use trust_kernel::approval::approver::AutoApprover;
     use trust_kernel::kernel::TrustKernel;
-    use trust_kernel::uiautomation::adapter::WindowsUiaAdapter;
-    use trust_kernel::uiautomation::{UiaAdapter, UiaSelector};
+    use trust_kernel::mcp::repo::McpServerRepo;
+    use trust_kernel::skills::app_control::{execute_app_control, AppControlInput};
+    use trust_kernel::skills::dag_executor::set_thread_local_uia_adapter;
+    use trust_kernel::uiautomation::adapter::McpUiaAdapter;
+    use trust_kernel::uiautomation::UiaAdapter;
 
-    /// Test 3: real-GUI Notepad launch + set_text + close (`#[ignore]`).
-    ///
-    /// This test launches a REAL Notepad process via `WindowsUiaAdapter`. It
-    /// is `#[ignore]`-tagged so CI doesn't run it; run manually:
-    ///   `cargo test -p trust-kernel --features uia --test w7_plan4_uia_smoke -- --ignored real_gui`
-    ///
-    /// Steps:
-    /// 1. `TrustKernel::open_in_memory()` — verify kernel constructs OK.
-    /// 2. `WindowsUiaAdapter::new()` — real adapter (initializes COM).
-    /// 3. `AutoApprover` — verify it coexists with the real adapter.
-    /// 4. `adapter.launch_app("notepad")` — spawns real notepad.exe.
-    /// 5. `adapter.find_window("Notepad")` — waits for the window to appear.
-    /// 6. `adapter.find_element(window, ByRole("Edit"))` — locate the text
-    ///    area. `set_text` requires an element supporting `UIValuePattern`;
-    ///    the window itself doesn't, but the Edit control does.
-    /// 7. `adapter.set_text(edit, "VoicePilot UIA smoke test")` — write text.
-    /// 8. Assert `set_text` succeeded.
-    /// 9. (Cleanup) Print "please close Notepad manually" — the `close`
-    ///    action is not yet implemented (see `app_control.rs`).
-    ///
-    /// NOTE: This test will fail if Notepad isn't available or if the test
-    /// runs without a desktop session (e.g., over SSH without an interactive
-    /// Windows session). The `#[ignore]` tag makes this explicit.
+    fn exe_path() -> Option<PathBuf> {
+        if let Ok(p) = std::env::var("MCP_WINDOWS_EXE") {
+            let p = PathBuf::from(p);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // crates/trust-kernel → crates → voicepilot/ → repo root → tools/…
+        // （曾少一层 `..`，导致恒 SKIP、活覆盖静默丢失）。
+        p.push("..");
+        p.push("..");
+        p.push("..");
+        p.push("tools");
+        p.push("mcp-windows");
+        p.push("server");
+        p.push("Sbroenne.WindowsMcp.exe");
+        p.is_file().then_some(p)
+    }
+
+    fn register_server(kernel: &TrustKernel, exe: &PathBuf) {
+        // conn guard 不得活过本函数：executor 内部还要锁 conn（同线程重锁会死锁）。
+        let repo = McpServerRepo::new();
+        let conn = kernel.conn();
+        repo.delete(&conn, "mcp-windows-test").unwrap();
+        let mut rec = repo.get(&conn, "mcp-windows").unwrap().unwrap();
+        rec.server_id = "mcp-windows-test".to_string();
+        rec.command = Some(exe.to_string_lossy().into_owned());
+        rec.enabled = true;
+        repo.create(&conn, &rec).unwrap();
+    }
+
     #[test]
-    #[ignore = "requires real Windows GUI; run with --ignored --features uia manually"]
-    fn real_gui_notepad_launch_settext_close() {
-        // 1. Kernel — verify it constructs alongside the real adapter.
-        let _kernel = TrustKernel::open_in_memory().expect("open_in_memory");
-        // 2. Real adapter (initializes COM for the calling thread).
-        let adapter = WindowsUiaAdapter::new().expect("WindowsUiaAdapter::new");
-        // 3. AutoApprover — unused here (we call the adapter directly), but
-        //    constructed to verify it coexists with the real adapter.
-        let _approver = AutoApprover;
-
-        // 4. Launch real Notepad. `Command::new("notepad")` resolves via PATH
-        //    on Windows (→ C:\Windows\System32\notepad.exe). The adapter waits
-        //    up to 3s for the window to appear.
-        let _app_handle = adapter
-            .launch_app("notepad")
-            .expect("launch_app('notepad') should succeed");
-
-        // 5. Find the Notepad window by title. `find_window` returns
-        //    `Ok(None)` if no window matches within timeout(0).
-        let window = adapter
-            .find_window("Notepad")
-            .expect("find_window('Notepad') should not error")
-            .expect("Notepad window should be found after launch");
-
-        // 6. Locate the Edit control inside the Notepad window. `set_text`
-        //    requires an element supporting `UIValuePattern`; the window
-        //    itself doesn't, but its Edit child does.
-        let edit = adapter
-            .find_element(&window, &UiaSelector::ByRole("Edit".to_string()))
-            .expect("find_element(ByRole('Edit')) should not error")
-            .expect("Notepad window should contain an Edit control");
-
-        // 7. Set the text. This calls `UIValuePattern::set_value` on the
-        //    Edit control.
-        adapter
-            .set_text(&edit, "VoicePilot UIA smoke test")
-            .expect("set_text on Edit control should succeed");
-
-        // 8. Assert set_text succeeded (implicit — expect didn't panic).
-        //    Optionally read back the text to verify.
-        let read_back = adapter
-            .get_text(&edit)
-            .expect("get_text should succeed after set_text");
-        assert_eq!(
-            read_back, "VoicePilot UIA smoke test",
-            "text read back from Notepad should match what we set"
+    fn live_mcp_windows_launch_find_close() {
+        let Some(exe) = exe_path() else {
+            eprintln!("SKIP: Sbroenne.WindowsMcp.exe not found (set MCP_WINDOWS_EXE)");
+            return;
+        };
+        let kernel = TrustKernel::open_in_memory().expect("open_in_memory");
+        register_server(&kernel, &exe);
+        let adapter = McpUiaAdapter::for_server(&kernel, "mcp-windows-test").expect("resolve");
+        if adapter.find_window("Notepad").expect("pre-check").is_some() {
+            eprintln!("SKIP: user already runs Notepad, refusing to touch it");
+            return;
+        }
+        set_thread_local_uia_adapter(Some(Arc::new(adapter)));
+        let adapter_ref =
+            trust_kernel::skills::dag_executor::thread_local_uia_adapter().expect("injected");
+        let launch = AppControlInput {
+            task_id: "live-launch".to_string(),
+            step_id: "live-launch-s".to_string(),
+            app_name: "notepad".to_string(),
+            action: "launch".to_string(),
+        };
+        execute_app_control(&kernel, &launch, &AutoApprover, adapter_ref.as_ref())
+            .expect("launch must succeed");
+        // Fresh tab is empty → WM_CLOSE needs no save dialog.
+        let close = AppControlInput {
+            task_id: "live-close".to_string(),
+            step_id: "live-close-s".to_string(),
+            app_name: "notepad".to_string(),
+            action: "close".to_string(),
+        };
+        execute_app_control(&kernel, &close, &AutoApprover, adapter_ref.as_ref())
+            .expect("close must succeed");
+        set_thread_local_uia_adapter(None);
+        // Window really gone (new client to avoid adapter borrow issues).
+        let adapter2 = McpUiaAdapter::for_server(&kernel, "mcp-windows-test").expect("resolve");
+        assert!(
+            adapter2.find_window("Notepad").expect("verify").is_none(),
+            "notepad window must be gone after close"
         );
-
-        // 9. Cleanup: the `close` action is not yet implemented (see
-        //    `app_control.rs`). Print a manual cleanup message.
-        eprintln!("[real_gui_notepad_launch_settext_close] please close Notepad manually");
     }
 }

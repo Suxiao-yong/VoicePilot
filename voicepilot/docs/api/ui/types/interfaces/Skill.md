@@ -6,7 +6,7 @@
 
 # Interface: Skill
 
-Defined in: types.ts:123
+Defined in: types.ts:157
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:123
 
 > **avg\_latency\_ms**: `number`
 
-Defined in: types.ts:128
+Defined in: types.ts:162
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:128
 
 > **enabled**: `boolean`
 
-Defined in: types.ts:126
+Defined in: types.ts:160
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:126
 
 > **risk\_label**: `string`
 
-Defined in: types.ts:129
+Defined in: types.ts:163
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: types.ts:129
 
 > **skill\_id**: `string`
 
-Defined in: types.ts:124
+Defined in: types.ts:158
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: types.ts:124
 
 > **success\_count**: `number`
 
-Defined in: types.ts:127
+Defined in: types.ts:161
 
 ***
 
@@ -54,4 +54,4 @@ Defined in: types.ts:127
 
 > **version**: `string`
 
-Defined in: types.ts:125
+Defined in: types.ts:159

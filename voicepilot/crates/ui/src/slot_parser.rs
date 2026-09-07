@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+// 注意：这里绝不能加 `#[serde(tag = ...)]`——internally tagged enum 会把
+// `SlotKind::App` 序列化成对象 `{"kind":"app"}`，前端 `{slot.kind}` 直接渲染
+// 该对象即 React #31 黑屏（"打开飞书"经 LLM 路由带槽位时必现）。保持裸字符串。
+#[serde(rename_all = "snake_case")]
 pub enum SlotKind {
     /// 文件系统路径(高风险)。
     Path,
@@ -24,6 +27,40 @@ pub enum SlotKind {
     TimeRange,
     /// W7 新增:URL(LLM 提取,浏览器自动化场景)。
     Url,
+    // ---- 2026 原子快路由扩展：以下变体与后端 Skill input 名 1:1 对应
+    // （serde snake_case 序列化后即字段名），让快路由/LLM 抽出的槽位
+    // 不经转换直达 `dispatch_skill_executor`。
+    Action,
+    AppName,
+    AudioOnly,
+    Body,
+    Command,
+    Content,
+    Days,
+    DaysAhead,
+    Destination,
+    Direction,
+    End,
+    Filter,
+    Format,
+    Keys,
+    Label,
+    Limit,
+    Operation,
+    Query,
+    SavePath,
+    Seconds,
+    Source,
+    SourceFilter,
+    Start,
+    Subject,
+    Target,
+    TargetStepId,
+    TargetTaskId,
+    Text,
+    Time,
+    Title,
+    To,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -220,9 +257,10 @@ impl SlotParser {
 
 /// W7: 将 LLM 返回的 `kind` 字符串映射为 `SlotKind`。
 ///
-/// LLM 的 `ExtractedSlot.kind` 是开放字符串(由 prompt 约束为 7 种之一),
-/// 此处做白名单映射;未知 kind 默认 `App`(低风险,避免误判为 path/recipient)。
-#[cfg(feature = "llm")]
+/// LLM 的 `ExtractedSlot.kind` 是开放字符串：先按后端 input 名 1:1 映射
+/// （原子快路由与新版 prompt 均直接输出 input 名）；未知 kind 默认 `App`
+/// (低风险,避免误判为 path/recipient)。
+/// 纯函数，无 llm feature 依赖，快路由（无 llm 构建亦可用）共用。
 fn parse_slot_kind(kind: &str) -> SlotKind {
     match kind {
         "path" => SlotKind::Path,
@@ -232,6 +270,37 @@ fn parse_slot_kind(kind: &str) -> SlotKind {
         "delete_target" => SlotKind::DeleteTarget,
         "time_range" => SlotKind::TimeRange,
         "url" => SlotKind::Url,
+        "action" => SlotKind::Action,
+        "app_name" => SlotKind::AppName,
+        "audio_only" => SlotKind::AudioOnly,
+        "body" => SlotKind::Body,
+        "command" => SlotKind::Command,
+        "content" => SlotKind::Content,
+        "days" => SlotKind::Days,
+        "days_ahead" => SlotKind::DaysAhead,
+        "destination" => SlotKind::Destination,
+        "direction" => SlotKind::Direction,
+        "end" => SlotKind::End,
+        "filter" => SlotKind::Filter,
+        "format" => SlotKind::Format,
+        "keys" => SlotKind::Keys,
+        "label" => SlotKind::Label,
+        "limit" => SlotKind::Limit,
+        "operation" => SlotKind::Operation,
+        "query" => SlotKind::Query,
+        "save_path" => SlotKind::SavePath,
+        "seconds" => SlotKind::Seconds,
+        "source" => SlotKind::Source,
+        "source_filter" => SlotKind::SourceFilter,
+        "start" => SlotKind::Start,
+        "subject" => SlotKind::Subject,
+        "target" => SlotKind::Target,
+        "target_step_id" => SlotKind::TargetStepId,
+        "target_task_id" => SlotKind::TargetTaskId,
+        "text" => SlotKind::Text,
+        "time" => SlotKind::Time,
+        "title" => SlotKind::Title,
+        "to" => SlotKind::To,
         _ => SlotKind::App,
     }
 }
@@ -242,8 +311,8 @@ fn parse_slot_kind(kind: &str) -> SlotKind {
 /// UI Chip 渲染只依赖 `raw` + `kind` + `high_risk`,不依赖位置;
 /// 后续 Skill executor 也只读 `raw`,位置仅用于源文本高亮(可选)。
 ///
-/// 调用方:`commands::route_text` 在 `RouteDecision::SkillWithSlots` 分支调用。
-#[cfg(feature = "llm")]
+/// 调用方:`commands::route_text` 在 `RouteDecision::SkillWithSlots` 分支调用，
+/// 以及无 llm 构建的快路由 slots 直通。
 pub fn convert_extracted_slots(
     extracted: &[trust_kernel::llm::types::ExtractedSlot],
 ) -> Vec<Slot> {
@@ -343,6 +412,29 @@ mod tests {
         let json = serde_json::to_string(&slot).unwrap();
         assert!(json.contains("\"kind\":\"path\""));
         assert!(json.contains("\"high_risk\":true"));
+    }
+
+    #[test]
+    fn slot_kind_serializes_as_plain_string() {
+        // 回归：SlotKind 必须是裸字符串。之前误标 `#[serde(tag = "kind")]`，
+        // 把 `SlotKind::App` 序列化成对象 `{"kind":"app"}`，前端 `{slot.kind}`
+        // 直接渲染该对象即 React #31，主界面黑屏（"打开飞书"经 LLM 路由
+        // 带槽位时必现）。旧的 contains 断言太弱，恰好漏过此形状错误。
+        let slot = Slot {
+            kind: SlotKind::App,
+            raw: "飞书".to_string(),
+            start: 0,
+            end: 2,
+            high_risk: false,
+        };
+        let json = serde_json::to_string(&slot).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"app","raw":"飞书","start":0,"end":2,"high_risk":false}"#
+        );
+        // 反序列化往返，保证 DTO 双向一致。
+        let back: Slot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, slot);
     }
 
     #[test]

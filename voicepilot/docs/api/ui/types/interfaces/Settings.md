@@ -18,11 +18,11 @@ Defined in: types.ts:82
 
 ***
 
-### llm\_api\_key
+### llm\_api\_key\_present
 
-> **llm\_api\_key**: `string`
+> **llm\_api\_key\_present**: `boolean`
 
-Defined in: types.ts:89
+Defined in: types.ts:90
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:89
 
 > **llm\_base\_url**: `string`
 
-Defined in: types.ts:90
+Defined in: types.ts:91
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: types.ts:88
 
 > **llm\_model**: `string`
 
-Defined in: types.ts:91
+Defined in: types.ts:92
 
 ***
 
@@ -54,7 +54,7 @@ Defined in: types.ts:91
 
 > **llm\_provider\_url**: `string`
 
-Defined in: types.ts:92
+Defined in: types.ts:93
 
 ***
 
@@ -86,7 +86,7 @@ Defined in: types.ts:85
 
 > **uia\_allowed\_apps**: `string`[]
 
-Defined in: types.ts:95
+Defined in: types.ts:96
 
 ***
 

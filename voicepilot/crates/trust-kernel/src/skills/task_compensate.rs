@@ -124,7 +124,8 @@ pub fn execute_compensate(
     // 审计 task_id 用 input.task_id(已在 line 90 create_task 创建,FK 保证),
     // 不用 task_id_for_step(raw_comp.step_id) 避免原始 task 已删除的边界 case。
     #[cfg(feature = "stronghold")]
-    let target_comp = decrypt_compensation_if_needed(kernel, raw_comp, &input.task_id, &input.step_id)?;
+    let target_comp =
+        decrypt_compensation_if_needed(kernel, raw_comp, &input.task_id, &input.step_id)?;
     #[cfg(not(feature = "stronghold"))]
     let target_comp = raw_comp;
 
@@ -153,21 +154,25 @@ pub fn execute_compensate(
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
     };
-    let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
+    // Step 6: 审批门 —— task.compensate 不在审批白名单，不弹窗直接执行。
+    // 审计留痕由任务/步骤落库提供；分支代码保留便于日后重新加入白名单。
+    if crate::skills::simple::approval_required("task.compensate") {
+        let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
 
-    // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    match approval.user_decision {
-        ApprovalDecision::Deny => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill("user denied compensation".to_string()));
+        // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
+        match approval.user_decision {
+            ApprovalDecision::Deny => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill("user denied compensation".to_string()));
+            }
+            ApprovalDecision::Modify => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill(
+                    "modify not supported for compensation".to_string(),
+                ));
+            }
+            ApprovalDecision::Allow => { /* proceed to commit */ }
         }
-        ApprovalDecision::Modify => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill(
-                "modify not supported for compensation".to_string(),
-            ));
-        }
-        ApprovalDecision::Allow => { /* proceed to commit */ }
     }
 
     // Step 7: execute auto_reverse (the "commit" phase). On failure, mark
@@ -321,9 +326,8 @@ fn decrypt_compensation_if_needed(
     };
 
     // plaintext → UTF-8 字符串
-    let plaintext_str = String::from_utf8(plaintext).map_err(|e| {
-        KernelError::Compensation(format!("plaintext not UTF-8: {}", e))
-    })?;
+    let plaintext_str = String::from_utf8(plaintext)
+        .map_err(|e| KernelError::Compensation(format!("plaintext not UTF-8: {}", e)))?;
 
     // 替换 reverse_payload,返回新 record
     let mut decrypted = raw_comp;
@@ -433,7 +437,9 @@ mod tests {
         fs::write(curr, b"hello").unwrap();
 
         // Create previous task + step.
-        kernel.create_task("prev-task", "previous organize").unwrap();
+        kernel
+            .create_task("prev-task", "previous organize")
+            .unwrap();
         kernel
             .create_step(&StepRecord::new("prev-step", "prev-task", 1))
             .unwrap();
@@ -476,16 +482,10 @@ mod tests {
         let new_step = kernel.get_step("new-step").unwrap().unwrap();
         assert_eq!(new_step.status, StepStatus::Succeeded);
         assert_eq!(new_step.evidence_strength.as_deref(), Some("strong"));
-        assert_eq!(
-            new_step.compensation_ref.as_deref(),
-            Some(comp_id.as_str())
-        );
+        assert_eq!(new_step.compensation_ref.as_deref(), Some(comp_id.as_str()));
 
         // File moved from curr back to orig.
-        assert!(
-            !curr.exists(),
-            "file should have been moved away from curr"
-        );
+        assert!(!curr.exists(), "file should have been moved away from curr");
         assert!(orig.exists(), "file should exist at orig after reverse");
         assert_eq!(fs::read_to_string(&orig).unwrap(), "hello");
 
@@ -493,16 +493,17 @@ mod tests {
         let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(comp.status, "reversed");
 
-        // An approval record was persisted for the new task.
+        // 2026 免审批：task.compensate 不在白名单，不落审批记录。
         let approvals = kernel.list_approvals_for_task("new-task").unwrap();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].user_decision, ApprovalDecision::Allow);
+        assert!(approvals.is_empty(), "got {} records", approvals.len());
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn execute_compensate_fails_when_user_denies() {
+    fn execute_compensate_denier_still_reverses() {
+        // 2026 免审批：AutoDenier 也不再拦截（审批门在白名单外不执行），
+        // 补偿照常执行成功。
         let kernel = TrustKernel::open_in_memory().unwrap();
         let dir = tmp_dir();
         let orig = dir.join("orig").join("file.txt");
@@ -518,30 +519,26 @@ mod tests {
         let approver = AutoDenier;
         let result = execute_compensate(&kernel, &input, &approver);
 
-        let err = result.unwrap_err();
-        assert!(matches!(err, KernelError::Skill(_)));
-        assert!(
-            err.to_string().contains("denied"),
-            "expected 'denied' in error, got: {}",
-            err
-        );
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+        assert_eq!(result.unwrap(), "new-task");
 
-        // Step status = Cancelled.
+        // 免审批执行成功：文件已从 curr 移回 orig。
+        assert!(orig.exists(), "file should exist at orig after reverse");
+        assert!(!curr.exists(), "file should have been moved away from curr");
+
+        // Step is Succeeded.
         let new_step = kernel.get_step("new-step").unwrap().unwrap();
-        assert_eq!(new_step.status, StepStatus::Cancelled);
+        assert_eq!(new_step.status, StepStatus::Succeeded);
 
-        // File NOT moved — still at curr, not at orig.
-        assert!(curr.exists(), "file should still be at curr");
-        assert!(!orig.exists(), "file should NOT be at orig");
-
-        // Compensation record status still "active".
+        // Compensation record marked reversed.
         let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
-        assert_eq!(comp.status, "active");
+        assert_eq!(comp.status, "reversed");
 
-        // Approval record still persisted (Deny).
-        let approvals = kernel.list_approvals_for_task("new-task").unwrap();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].user_decision, ApprovalDecision::Deny);
+        // 免审批：不落审批记录。
+        assert!(kernel
+            .list_approvals_for_task("new-task")
+            .unwrap()
+            .is_empty());
 
         fs::remove_dir_all(&dir).ok();
     }

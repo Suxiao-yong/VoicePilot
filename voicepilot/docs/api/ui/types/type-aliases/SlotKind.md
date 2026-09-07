@@ -8,4 +8,4 @@
 
 > **SlotKind** = `"path"` \| `"app"` \| `"number"` \| `"recipient"` \| `"delete_target"` \| `"time_range"` \| `"url"`
 
-Defined in: types.ts:167
+Defined in: types.ts:208

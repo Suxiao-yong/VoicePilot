@@ -42,6 +42,7 @@
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
+use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::policy::transaction::EffectManifest;
@@ -51,7 +52,6 @@ use crate::skills::common::{
     create_post_commit_compensation_with_payload, finalize_step_success, invoke_mcp_tool,
     record_approval_decision, validate_input_against_manifest, ApprovalContext,
 };
-use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::skills::manifest::form_prepare_manifest;
 use crate::skills::verifiers::{verify_form_prepare, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
@@ -103,19 +103,15 @@ pub fn execute_form_prepare(
     // input is `Text` with `max_length: 5000` (SkillInputType has no
     // Object variant) — pass the JSON-encoded fields map as a string so
     // the manifest's Text + max_length validation applies cleanly.
-    let fields_json = serde_json::to_string(&input.fields).map_err(|e| {
-        KernelError::Skill(format!("failed to serialize fields: {e}"))
-    })?;
+    let fields_json = serde_json::to_string(&input.fields)
+        .map_err(|e| KernelError::Skill(format!("failed to serialize fields: {e}")))?;
     let mut input_map: HashMap<String, serde_json::Value> = HashMap::new();
     input_map.insert("url".to_string(), serde_json::json!(input.url));
     input_map.insert("fields".to_string(), serde_json::json!(fields_json));
     validate_input_against_manifest(&input_map, &form_prepare_manifest())?;
 
     // Step 3: create new task + step.
-    kernel.create_task(
-        &input.task_id,
-        &format!("form_prepare:{}", input.url),
-    )?;
+    kernel.create_task(&input.task_id, &format!("form_prepare:{}", input.url))?;
     let step = StepRecord::new(input.step_id.clone(), input.task_id.clone(), 1);
     kernel.create_step(&step)?;
 
@@ -154,39 +150,47 @@ pub fn execute_form_prepare(
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
     };
-    let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
+    // Step 6: 审批门 —— form.prepare 不在审批白名单，不弹窗直接执行。
+    // 审计留痕由任务/步骤落库提供；分支代码保留便于日后重新加入白名单。
+    if crate::skills::simple::approval_required("form.prepare") {
+        let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
 
-    // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    match approval.user_decision {
-        ApprovalDecision::Deny => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill("user denied form_prepare".to_string()));
+        // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
+        match approval.user_decision {
+            ApprovalDecision::Deny => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill("user denied form_prepare".to_string()));
+            }
+            ApprovalDecision::Modify => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill(
+                    "modify not supported for form_prepare".to_string(),
+                ));
+            }
+            ApprovalDecision::Allow => { /* proceed to MCP calls */ }
         }
-        ApprovalDecision::Modify => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill(
-                "modify not supported for form_prepare".to_string(),
-            ));
-        }
-        ApprovalDecision::Allow => { /* proceed to MCP calls */ }
     }
 
     // Step 7: invoke_mcp_tool(navigate, {url}) — navigate to the URL.
     // On MCP failure, mark step Failed and propagate the error so the
     // SkillRouter can map it to error_code = "mcp_playwright_unavailable".
-    invoke_mcp_tool(kernel, "playwright", "navigate", serde_json::json!({"url": input.url}))
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    invoke_mcp_tool(
+        kernel,
+        "playwright",
+        "navigate",
+        serde_json::json!({"url": input.url}),
+    )
+    .inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     // Step 8: invoke_mcp_tool(snapshot, {}) — establish browser session
     // state. Required by spec §2.7 to establish browser session state
     // before fills. The returned tree is unused in this minimal
     // implementation but the call must succeed.
-    invoke_mcp_tool(kernel, "playwright", "snapshot", serde_json::json!({}))
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    invoke_mcp_tool(kernel, "playwright", "snapshot", serde_json::json!({})).inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     // Step 9: for each (selector, value) in `fields`, call fill. Use
     // BTreeMap for deterministic iteration order so test assertions on
@@ -425,13 +429,17 @@ for line in sys.stdin:
         std::fs::write(&path, "[]").expect("seed calls file");
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations
         // process-wide; no other test thread is reading this var.
-        unsafe { std::env::set_var("FORM_PREPARE_CALLS_PATH", &path); }
+        unsafe {
+            std::env::set_var("FORM_PREPARE_CALLS_PATH", &path);
+        }
         path
     }
 
     fn clear_calls_env() {
         // SAFETY: see set_calls_env.
-        unsafe { std::env::remove_var("FORM_PREPARE_CALLS_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_PREPARE_CALLS_PATH");
+        }
     }
 
     #[test]
@@ -456,7 +464,9 @@ for line in sys.stdin:
         let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&values_path, serde_json::to_string(&input.fields).unwrap()).unwrap();
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
-        unsafe { std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path); }
+        unsafe {
+            std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+        }
 
         let result = execute_form_prepare(&kernel, &input, &approver);
 
@@ -468,15 +478,17 @@ for line in sys.stdin:
         assert_eq!(step.status, StepStatus::Succeeded);
         assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
         // W10 Plan 2: compensation_ref 必须指向 form.reverse_prepare 记录。
-        let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+        let comp_ref = step
+            .compensation_ref
+            .as_ref()
+            .expect("compensation_ref must be set");
         let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
         assert_eq!(comp.compensate_fn, "form.reverse_prepare");
         assert_eq!(comp.level, CompensationLevel::Strong);
 
-        // Approval was recorded (PerStep).
+        // 2026 免审批：不落审批记录。
         let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0].e_level, ELevel::E2);
+        assert!(approvals.is_empty(), "got {} records", approvals.len());
 
         // CRITICAL acceptance gate: assert that the mock MCP server
         // received navigate + snapshot + fill × N calls and NO click.
@@ -497,12 +509,35 @@ for line in sys.stdin:
         );
         let fill_count = recorded.iter().filter(|n| *n == "fill").count();
         assert_eq!(
-            fill_count,
-            fields_count,
+            fill_count, fields_count,
             "expected {} fill calls, got {} (full list: {:?})",
-            fields_count,
-            fill_count,
+            fields_count, fill_count, recorded
+        );
+        // Approval was recorded (PerStep).
+        let approvals = kernel.list_approvals_for_task("t1").unwrap();
+        assert!(approvals.is_empty(), "got {} records", approvals.len());
+
+        // CRITICAL acceptance gate: assert that the mock MCP server
+        // received navigate + snapshot + fill × N calls and NO click.
+        let recorded: Vec<String> = std::fs::read_to_string(&calls_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        assert!(
+            recorded.contains(&"navigate".to_string()),
+            "expected navigate in recorded calls, got {:?}",
             recorded
+        );
+        assert!(
+            recorded.contains(&"snapshot".to_string()),
+            "expected snapshot in recorded calls, got {:?}",
+            recorded
+        );
+        let fill_count = recorded.iter().filter(|n| *n == "fill").count();
+        assert_eq!(
+            fill_count, fields_count,
+            "expected {} fill calls, got {} (full list: {:?})",
+            fields_count, fill_count, recorded
         );
         // Acceptance gate: click MUST NOT be called.
         assert!(
@@ -513,11 +548,14 @@ for line in sys.stdin:
 
         clear_calls_env();
         // SAFETY: see set_calls_env.
-        unsafe { std::env::remove_var("FORM_PREPARE_VALUES_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+        }
     }
 
     #[test]
-    fn test_form_prepare_user_denies_cancels_step() {
+    fn test_form_prepare_denier_still_fills_fields() {
+        // 2026 免审批：AutoDenier 不再拦截，form.prepare 照常填充字段。
         if !python_available() {
             eprintln!("skipping: python not on PATH");
             return;
@@ -530,35 +568,47 @@ for line in sys.stdin:
         install_python_mock(&kernel, MOCK_SCRIPT);
         let approver = AutoDenier;
         let input = make_input(sample_fields());
+        let fields_count = input.fields.len();
+
+        // verify_form_prepare 需要与 input.fields 一致的值文件。
+        let values_path = temp
+            .path()
+            .join(format!("values-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&values_path, serde_json::to_string(&input.fields).unwrap()).unwrap();
+        // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
+        unsafe {
+            std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+        }
+
         let result = execute_form_prepare(&kernel, &input, &approver);
 
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, KernelError::Skill(ref m) if m.contains("user denied")),
-            "expected Skill 'user denied' error, got {:?}",
-            err
-        );
+        assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+        assert_eq!(result.unwrap(), "t1");
 
-        // Step is Cancelled, not Failed.
+        // Step Succeeded (免审批直接执行).
         let step = kernel.get_step("s1").unwrap().unwrap();
-        assert_eq!(step.status, StepStatus::Cancelled);
+        assert_eq!(step.status, StepStatus::Succeeded);
 
-        // Approval was still recorded (user saw the prompt).
-        let approvals = kernel.list_approvals_for_task("t1").unwrap();
-        assert_eq!(approvals.len(), 1);
-
-        // No MCP calls were made (denial short-circuits before navigate).
+        // MCP calls WERE made (approval-free runs through to fill).
         let recorded: Vec<String> = std::fs::read_to_string(&calls_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        assert!(
-            recorded.is_empty(),
-            "expected no MCP calls after denial, got {:?}",
-            recorded
+        let fill_count = recorded.iter().filter(|n| *n == "fill").count();
+        assert_eq!(
+            fill_count, fields_count,
+            "expected {} fill calls, got {:?}",
+            fields_count, recorded
         );
 
+        // 免审批：不落审批记录。
+        assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
+
         clear_calls_env();
+        // SAFETY: see set_calls_env.
+        unsafe {
+            std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+        }
     }
 
     #[test]

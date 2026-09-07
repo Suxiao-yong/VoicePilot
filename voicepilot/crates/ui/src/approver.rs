@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 use trust_kernel::approval::approver::{Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
@@ -21,6 +21,19 @@ use trust_kernel::skills::dag_types::DagPlan;
 use uuid::Uuid;
 
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// 桌宠化改造:审批事件发射前唤醒隐藏的主窗口。
+///
+/// 双窗口架构下 main 常处于隐藏驻留态;高风险操作审批若只在后台 emit,
+/// 用户看不到 ApprovalModal 会一直阻塞到 300s 超时默认 Deny。show 对
+/// 可见窗口是无操作,set_focus 抢焦点正是审批场景所需。
+fn wake_main_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
 
 /// Payload emitted to the webview on the `approval-request` event.
 /// V1.1 §8.2:Approval 窗口必须接受一次性 approval_request_id
@@ -48,6 +61,17 @@ pub struct DagApprovalRequestPayload {
     pub plan_json: serde_json::Value,
 }
 
+/// Payload emitted to the webview on the `clarification-request` event.
+///
+/// 与审批语义分离：前端渲染追问卡（三选一），超时/关闭回 `default_index`。
+#[derive(serde::Serialize, Clone)]
+pub struct ClarificationRequestPayload {
+    pub clarification_request_id: String,
+    pub question: String,
+    pub options: Vec<String>,
+    pub default_index: usize,
+}
+
 /// W9 Plan 4:携带 modified_plan 的 DAG 审批决策 payload。
 ///
 /// 通过 oneshot channel 从 `submit_dag_skeleton_approval` 命令投递到
@@ -61,11 +85,32 @@ pub struct DagApprovalPayload {
     pub modified_plan: Option<DagPlan>,
 }
 
+/// 新线程里跑完 future 并 join 取回（`trust_kernel::planner::block_on_planner` 同构）。
+/// 三个 wait 的统一底座：调用线程无论在 Tauri 命令协程内、setup 内还是普通
+/// 测试内都安全 —— 直接 `Runtime::block_on` 在已有 runtime 上下文会 panic。
+fn block_on_wait<F, T>(future: F) -> T
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("failed to build tokio runtime");
+        rt.block_on(future)
+    })
+    .join()
+    .expect("wait thread panicked")
+}
+
 #[derive(Clone)]
 pub struct ApprovalRegistry {
     senders: Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>,
     /// W9 Plan 4:DAG 骨架审批专用 senders(与 `senders` 平行,不破坏既有 `prompt` 语义)。
     dag_senders: Arc<Mutex<HashMap<String, oneshot::Sender<DagApprovalPayload>>>>,
+    /// 追问卡专用 senders(与审批语义分离:超时回 default_index,不是 Deny)。
+    clarify_senders: Arc<Mutex<HashMap<String, oneshot::Sender<usize>>>>,
 }
 
 impl ApprovalRegistry {
@@ -73,6 +118,7 @@ impl ApprovalRegistry {
         Self {
             senders: Arc::new(Mutex::new(HashMap::new())),
             dag_senders: Arc::new(Mutex::new(HashMap::new())),
+            clarify_senders: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -122,14 +168,17 @@ impl ApprovalRegistry {
     }
 
     /// W9 Plan 4:阻塞等待 DAG 审批决策,超时或 sender dropped 返回 Deny(默认安全)。
-    // W9 修复(P0-5):用 Handle::try_current() 检测当前是否在 tokio runtime 内,
-    // 避免 #[tokio::test] 上下文触发 "runtime within runtime" panic。
+    ///
+    /// 新线程 + join 取回（`trust_kernel::planner::block_on_planner` 同构）：
+    /// Tauri 命令协程内直接 `block_on` 会 panic（"Cannot start a runtime
+    /// from within a runtime"），自带线程则 setup/命令/测试处处可调。
+    /// W9 的 `try_current` 分支已删（该分支在 multi-thread worker 内同样 panic）。
     pub fn wait_for_dag_decision(
         &self,
         rx: oneshot::Receiver<DagApprovalPayload>,
         timeout: Duration,
     ) -> DagApprovalPayload {
-        let wait_fn = || async move {
+        block_on_wait(async move {
             match tokio::time::timeout(timeout, rx).await {
                 Ok(Ok(payload)) => payload,
                 Ok(Err(_)) => DagApprovalPayload {
@@ -141,39 +190,57 @@ impl ApprovalRegistry {
                     modified_plan: None,
                 }, // timeout
             }
-        };
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                // 已在 runtime 内(如 #[tokio::test]),用 handle.block_on 避免嵌套 runtime panic
-                handle.block_on(wait_fn())
-            }
-            Err(_) => {
-                // 不在 runtime 内(如 #[test] 同步上下文),新建 current_thread runtime
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .expect("failed to build tokio runtime");
-                rt.block_on(wait_fn())
-            }
-        }
+        })
     }
 
     /// 阻塞直到决定到达或超时。
     /// 超时或 sender 被丢弃时:返回 Deny(更安全的默认值)。
+    /// 线程模型同 `wait_for_dag_decision`（新线程 + join，不依赖调用方上下文）。
     pub fn wait_for_decision(
         &self,
         rx: oneshot::Receiver<ApprovalDecision>,
         timeout: Duration,
     ) -> ApprovalDecision {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()
-            .expect("failed to build tokio runtime");
-        rt.block_on(async move {
+        block_on_wait(async move {
             match tokio::time::timeout(timeout, rx).await {
                 Ok(Ok(decision)) => decision,
                 Ok(Err(_)) => ApprovalDecision::Deny, // sender dropped
                 Err(_) => ApprovalDecision::Deny,     // timeout
+            }
+        })
+    }
+
+    /// 创建追问卡请求。返回 (clarification_request_id, receiver)。
+    pub fn create_clarify_request(
+        &self,
+    ) -> (String, oneshot::Receiver<usize>) {
+        let id = format!("clf_{}", Uuid::new_v4());
+        let (tx, rx) = oneshot::channel::<usize>();
+        self.clarify_senders
+            .lock()
+            .unwrap()
+            .insert(id.clone(), tx);
+        (id, rx)
+    }
+
+    /// 取出追问卡的 sender(由 `submit_clarification` 调用，一次性)。
+    pub fn take_clarify_sender(&self, id: &str) -> Option<oneshot::Sender<usize>> {
+        self.clarify_senders.lock().unwrap().remove(id)
+    }
+
+    /// 阻塞直到用户点选或超时。超时/sender 丢弃 → 返回 default_index（不是 Deny）。
+    /// 线程模型同 `wait_for_dag_decision`（新线程 + join，不依赖调用方上下文）。
+    pub fn wait_for_clarification(
+        &self,
+        rx: oneshot::Receiver<usize>,
+        timeout: Duration,
+        default_index: usize,
+    ) -> usize {
+        block_on_wait(async move {
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(i)) => i,
+                Ok(Err(_)) => default_index, // sender dropped
+                Err(_) => default_index,     // timeout
             }
         })
     }
@@ -232,6 +299,7 @@ impl Approver for TauriApprover {
         // 生产环境:向 webview 发射 "approval-request" 事件。
         // 单元测试:调用方直接调用 `registry.take_sender(id).send(decision)`。
         if let Some(app) = &self.app {
+            wake_main_window(app); // main 隐藏驻留时先唤醒,否则审批无人可见
             let payload = ApprovalRequestPayload {
                 approval_request_id: approval_id.clone(),
                 manifest: manifest.clone(),
@@ -249,6 +317,29 @@ impl Approver for TauriApprover {
     /// 构造 `DagApprovalOutcome::Modify`。
     fn approve_dag_skeleton(&self, plan: &DagPlan) -> KernelResult<DagApprovalOutcome> {
         TauriApprover::approve_dag_skeleton_outcome(self, plan)
+    }
+
+    /// 追问卡入口:emit `clarification-request` 事件 + oneshot channel +
+    /// 5min timeout → default_index。无 app（单测）时直接回 default。
+    fn request_clarification(
+        &self,
+        question: &str,
+        options: &[String],
+        default_index: usize,
+    ) -> usize {
+        let (id, rx) = self.registry.create_clarify_request();
+        if let Some(app) = &self.app {
+            wake_main_window(app);
+            let payload = ClarificationRequestPayload {
+                clarification_request_id: id,
+                question: question.to_string(),
+                options: options.to_vec(),
+                default_index,
+            };
+            let _ = app.emit("clarification-request", payload);
+        }
+        self.registry
+            .wait_for_clarification(rx, DEFAULT_APPROVAL_TIMEOUT, default_index)
     }
 }
 
@@ -275,6 +366,7 @@ impl TauriApprover {
         *self.latest_dag_approval_id.lock().unwrap() = Some(approval_id.clone());
 
         if let Some(app) = &self.app {
+            wake_main_window(app); // main 隐藏驻留时先唤醒,否则审批无人可见
             let plan_json = serde_json::to_value(plan).unwrap_or(serde_json::json!({}));
             let payload = DagApprovalRequestPayload {
                 approval_request_id: approval_id.clone(),

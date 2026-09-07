@@ -6,7 +6,7 @@
 
 # Interface: ExtractedSlot
 
-Defined in: types.ts:191
+Defined in: types.ts:232
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:191
 
 > **high\_risk**: `boolean`
 
-Defined in: types.ts:194
+Defined in: types.ts:235
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:194
 
 > **kind**: `string`
 
-Defined in: types.ts:192
+Defined in: types.ts:233
 
 ***
 
@@ -30,4 +30,4 @@ Defined in: types.ts:192
 
 > **raw**: `string`
 
-Defined in: types.ts:193
+Defined in: types.ts:234

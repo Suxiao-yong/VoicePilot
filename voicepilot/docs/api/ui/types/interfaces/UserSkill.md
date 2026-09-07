@@ -6,7 +6,7 @@
 
 # Interface: UserSkill
 
-Defined in: types.ts:134
+Defined in: types.ts:168
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:134
 
 > **description**: `string`
 
-Defined in: types.ts:137
+Defined in: types.ts:171
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:137
 
 > **skill\_id**: `string`
 
-Defined in: types.ts:135
+Defined in: types.ts:169
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:135
 
 > **source\_path**: `string`
 
-Defined in: types.ts:139
+Defined in: types.ts:173
 
 源文件绝对路径(`%APPDATA%\voicepilot\skills\<filename>.md`)。
 
@@ -40,4 +40,4 @@ Defined in: types.ts:139
 
 > **title**: `string`
 
-Defined in: types.ts:136
+Defined in: types.ts:170

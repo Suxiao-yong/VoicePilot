@@ -8,7 +8,7 @@
 
 > **cancelVoice**(): `Promise`\<`void`\>
 
-Defined in: api.ts:61
+Defined in: api.ts:62
 
 ## Returns
 

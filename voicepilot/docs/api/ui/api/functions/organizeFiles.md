@@ -8,7 +8,7 @@
 
 > **organizeFiles**(`input`): `Promise`\<[`OrganizeResult`](../../types/interfaces/OrganizeResult.md)\>
 
-Defined in: api.ts:33
+Defined in: api.ts:34
 
 ## Parameters
 

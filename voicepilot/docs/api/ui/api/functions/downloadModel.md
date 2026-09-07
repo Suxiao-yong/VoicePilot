@@ -8,7 +8,7 @@
 
 > **downloadModel**(): `Promise`\<`string`\>
 
-Defined in: api.ts:146
+Defined in: api.ts:159
 
 ## Returns
 

@@ -174,6 +174,47 @@ mod tests {
     }
 
     #[test]
+    fn route_app_control_compound_keywords() {
+        // 回归：“帮我打开notepad”曾因缺复合关键词掉进 Chat 兜底，
+        // 模型谎称“正在为您打开”。动词+已知应用必须直达 Skill。
+        use crate::skills::manifest::app_control_manifest;
+        let mut router = SkillRouter::new();
+        router.register(app_control_manifest());
+        for goal in ["帮我打开notepad", "打开记事本", "关闭计算器", "启动calc"] {
+            match router.route(goal) {
+                RouteDecision::Skill(m) => assert_eq!(m.id, "quick.app_control"),
+                other => panic!("expected Skill for {goal}, got {other:?}"),
+            }
+        }
+        // 裸动词未收录：“打开网页”不得误伤（LLM 长尾继续覆盖）。
+        assert!(matches!(
+            router.route("打开网页存档"),
+            RouteDecision::Planner
+        ));
+    }
+
+    #[test]
+    fn route_app_control_vs_note_capture_precedence() {
+        // 双注册（顺序同 extensions/registry.rs builtin_manifests：
+        // app_control 在前，note.capture 在后，first-match-wins）。
+        // “打开记事本写TODO”命中 app_control 的 intent_example（早于复合
+        // 关键词就已如此）——此处锁定该既有优先级，不做行为变更。
+        use crate::skills::manifest::{app_control_manifest, note_capture_manifest};
+        let mut router = SkillRouter::new();
+        router.register(app_control_manifest());
+        router.register(note_capture_manifest());
+        match router.route("打开记事本写TODO") {
+            RouteDecision::Skill(m) => assert_eq!(m.id, "quick.app_control"),
+            other => panic!("expected quick.app_control, got {other:?}"),
+        }
+        // note.capture 专属输入（无 app_control 复合词）仍归 note.capture。
+        match router.route("记一条买菜笔记") {
+            RouteDecision::Skill(m) => assert_eq!(m.id, "note.capture"),
+            other => panic!("expected note.capture, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn register_same_id_overrides_built_in() {
         let mut router = SkillRouter::new();
         let mut built_in = files_organize_manifest();
@@ -324,5 +365,235 @@ mod tests {
         let skills = router.skills();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].id, "files.organize");
+    }
+}
+
+/// 已知站点站内搜（Daisy 本地快路由对等物）：高频“打开X搜Y”不过 LLM。
+/// 返回可直接打开的搜索 URL；query 为空或站点未知 → None（落回正常路由）。
+/// 模板只收录 URL 模式稳定的站点（抖音/B站/小红书/知乎/微博/淘宝/京东/
+/// 微信搜一搜；红果/夸克等无稳定直达的不收，仍走 LLM）。
+pub fn match_site_search(text: &str) -> Option<String> {
+    // (别名组, 搜索 URL 模板{q}, 站点首页)。首页用于无 query 的裸打开。
+    const SITES: &[(&[&str], &str, &str)] = &[
+        (&["抖音"], "https://www.douyin.com/search/{q}", "https://www.douyin.com/"),
+        (
+            &["哔哩哔哩", "b站", "bilibili"],
+            "https://search.bilibili.com/all?keyword={q}",
+            "https://www.bilibili.com/",
+        ),
+        (
+            &["小红书"],
+            "https://www.xiaohongshu.com/search_result?keyword={q}",
+            "https://www.xiaohongshu.com/",
+        ),
+        (
+            &["知乎"],
+            "https://www.zhihu.com/search?type=content&q={q}",
+            "https://www.zhihu.com/",
+        ),
+        (
+            &["微博"],
+            "https://s.weibo.com/weibo?q={q}",
+            "https://www.weibo.com/",
+        ),
+        (
+            &["淘宝"],
+            "https://s.taobao.com/search?q={q}",
+            "https://www.taobao.com/",
+        ),
+        (
+            &["京东"],
+            "https://search.jd.com/Search?keyword={q}",
+            "https://www.jd.com/",
+        ),
+        (
+            &["微信", "公众号", "视频号"],
+            "https://weixin.sogou.com/weixin?query={q}",
+            "https://weixin.sogou.com/",
+        ),
+        (
+            &["tiktok"],
+            "https://www.tiktok.com/search?q={q}",
+            "https://www.tiktok.com/",
+        ),
+        (
+            &["推特", "twitter"],
+            "https://x.com/search?q={q}&src=typed_query",
+            "https://x.com/",
+        ),
+        (
+            &["reddit"],
+            "https://www.reddit.com/search/?q={q}",
+            "https://www.reddit.com/",
+        ),
+        (
+            &["维基百科", "维基", "wikipedia"],
+            "https://zh.wikipedia.org/w/index.php?search={q}",
+            "https://zh.wikipedia.org/",
+        ),
+        (
+            &["github"],
+            "https://github.com/search?q={q}",
+            "https://github.com/",
+        ),
+        (
+            &["stackoverflow"],
+            "https://stackoverflow.com/search?q={q}",
+            "https://stackoverflow.com/",
+        ),
+        (
+            &["amazon", "亚马逊"],
+            "https://www.amazon.com/s?k={q}",
+            "https://www.amazon.com/",
+        ),
+        (
+            &["ebay"],
+            "https://www.ebay.com/sch/i.html?_nkw={q}",
+            "https://www.ebay.com/",
+        ),
+        (
+            &["steam"],
+            "https://store.steampowered.com/search/?term={q}",
+            "https://store.steampowered.com/",
+        ),
+    ];
+    // 无站内搜、只有首页的站点见 match_site_home 的 HOME_ONLY（与上表互补）。
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let tl = t.to_lowercase();
+    // 必须有“搜”意图字，否则普通提及（如“我爱刷抖音”）不触发。
+    if !(tl.contains('搜') || tl.contains("search")) {
+        return None;
+    }
+    for (aliases, tpl, _home) in SITES {
+        let hit = aliases.iter().find(|a| tl.contains(*a));
+        let site = match hit {
+            Some(s) => s,
+            None => continue,
+        };
+        // query = 去掉站点名与动词噪音后的剩余部分（大小写不敏感去噪，
+        // 但保留原 query 大小写，如 "猫meme"）。
+        let mut q = t.to_string();
+        for noise in [
+            *site,
+            "打开",
+            "搜索",
+            "搜一下",
+            "搜一搜",
+            "搜",
+            "找一下",
+            "找一找",
+            "找",
+            "在",
+            "上",
+            "一下",
+            "帮我",
+            "请",
+            "search",
+        ] {
+            let re = regex::RegexBuilder::new(&regex::escape(noise))
+                .case_insensitive(true)
+                .build();
+            if let Ok(re) = re {
+                q = re.replace_all(&q, " ").into_owned();
+            }
+        }
+        let query: String = q.split_whitespace().collect::<Vec<_>>().join(" ");
+        if query.is_empty() {
+            continue;
+        }
+        return Some(tpl.replace("{q}", &crate::skills::web_ops::percent_encode(&query)));
+    }
+    None
+}
+
+/// 站点裸打开（无 query）：仅收无桌面应用、以网页为本体的服务
+/// （视频号/红果/河马/AI 聊天站）。有桌面应用可能的站点（B站/抖音等）
+/// 不在此列——裸打开走 LLM→app_control 优先试本地应用（对等 Daisy
+/// 先应用后网址的顺序）。调用方保证关键词路由先行。
+pub fn match_site_home(text: &str) -> Option<String> {
+    const HOME_ONLY: &[(&[&str], &str)] = &[
+        (&["视频号", "微信视频号"], "https://channels.weixin.qq.com/"),
+        (&["红果", "红果短剧", "红果免费短剧"], "https://www.hongguoduanju.com/"),
+        (&["河马剧场", "河马短剧"], "https://www.kuaikaw.cn/"),
+        (&["kimi"], "https://kimi.moonshot.cn/"),
+        (&["豆包", "doubao"], "https://www.doubao.com/"),
+        (&["腾讯元宝", "元宝"], "https://yuanbao.tencent.com/"),
+    ];
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let tl = t.to_lowercase();
+    // 打开类动词是必要条件（"我爱B站"不触发）。
+    if !["打开", "启动", "进入", "访问", "上", "开"].iter().any(|v| tl.contains(v)) {
+        return None;
+    }
+    for (aliases, home) in HOME_ONLY {
+        if aliases.iter().any(|a| tl.contains(*a)) {
+            return Some(home.to_string());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod site_search_tests {
+    use super::{match_site_home, match_site_search};
+
+    #[test]
+    fn site_search_builds_douyin_and_bilibili_urls() {
+        let url = match_site_search("打开抖音搜索世界杯").unwrap();
+        assert!(url.starts_with("https://www.douyin.com/search/"), "{url}");
+        assert!(!url.contains("世界杯"), "{url}");
+        let url = match_site_search("在B站搜猫meme").unwrap();
+        assert!(url.starts_with("https://search.bilibili.com/all?keyword="), "{url}");
+    }
+
+    #[test]
+    fn site_search_rejects_mention_without_intent_or_query() {
+        assert_eq!(match_site_search("我爱刷抖音"), None);
+        assert_eq!(match_site_search("打开抖音"), None);
+        assert_eq!(match_site_search(""), None);
+        assert_eq!(match_site_search("搜一下红果短剧"), None);
+    }
+
+    #[test]
+    fn site_search_covers_xiaohongshu_zhihu_taobao() {
+        assert!(match_site_search("小红书搜露营装备")
+            .unwrap()
+            .starts_with("https://www.xiaohongshu.com/"));
+        assert!(match_site_search("知乎搜RAG")
+            .unwrap()
+            .contains("zhihu.com"));
+        assert!(match_site_search("淘宝搜机械键盘")
+            .unwrap()
+            .contains("taobao.com"));
+    }
+
+    #[test]
+    fn site_search_covers_english_providers() {
+        assert!(match_site_search("github搜tauri")
+            .unwrap()
+            .starts_with("https://github.com/search?"));
+        assert!(match_site_search("在B站搜猫meme")
+            .unwrap()
+            .starts_with("https://search.bilibili.com/"));
+    }
+
+    #[test]
+    fn site_home_opens_homepage_without_query() {
+        // 有桌面应用可能的站点不短路（走 LLM→app_control 优先试本地应用）。
+        assert_eq!(match_site_home("打开B站"), None);
+        assert_eq!(match_site_home("打开抖音"), None);
+        assert_eq!(
+            match_site_home("打开红果"),
+            Some("https://www.hongguoduanju.com/".to_string())
+        );
+        assert_eq!(match_site_home("打开豆包"), Some("https://www.doubao.com/".to_string()));
+        // 无打开动词不触发。
+        assert_eq!(match_site_home("我爱B站"), None);
     }
 }

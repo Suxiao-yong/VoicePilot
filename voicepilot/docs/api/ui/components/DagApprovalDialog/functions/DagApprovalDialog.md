@@ -8,7 +8,7 @@
 
 > **DagApprovalDialog**(`__namedParameters`): `Element`
 
-Defined in: components/DagApprovalDialog.tsx:43
+Defined in: components/DagApprovalDialog.tsx:32
 
 ## Parameters
 

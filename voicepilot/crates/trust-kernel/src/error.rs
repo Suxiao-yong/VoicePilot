@@ -73,6 +73,10 @@ pub enum KernelError {
     /// default-gated(voice_latency.rs 不依赖 voice feature)。
     #[error("voice latency error: {0}")]
     VoiceLatency(String),
+    /// Wave 3 Task 3.1: SecretStore 操作失败(keyring / in-memory)。
+    /// 错误信息不得包含任何 secret 值。
+    #[error("secret store error: {0}")]
+    Secret(String),
 }
 
 pub type Result<T> = std::result::Result<T, KernelError>;

@@ -8,4 +8,4 @@
 
 > **View** = `"main"` \| `"settings"` \| `"audit"` \| `"trust"` \| `"skills"` \| `"dag-history"`
 
-Defined in: types.ts:98
+Defined in: types.ts:126

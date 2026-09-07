@@ -8,7 +8,7 @@
 
 > **getDagPlan**(`planId`): `Promise`\<[`DagPlanDetail`](../../types/interfaces/DagPlanDetail.md) \| `null`\>
 
-Defined in: api.ts:238
+Defined in: api.ts:251
 
 查询单个 DAG 完整详情。
 

@@ -10,7 +10,7 @@
 
 Defined in: components/NodeEditor.tsx:13
 
-W9 Plan 4:单节点编辑器(供 DagApprovalDialog 编辑模式使用)。
+单节点编辑器（供 DagApprovalDialog 编辑模式使用）。
 
 ## Parameters
 

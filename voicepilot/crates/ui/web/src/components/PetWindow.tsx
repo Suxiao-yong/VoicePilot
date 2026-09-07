@@ -4,8 +4,11 @@ import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createDiting, type DitingHandle } from "../pet/ditingScene";
 import {
+  buildAppControlSlots,
   cancelVoice,
+  executeSkill,
   exitApp,
+  newExecuteInput,
   onAudioLevel,
   organizeFiles,
   petSetBubbleVisible,
@@ -255,6 +258,31 @@ export function PetWindow() {
           res.committed
             ? `已整理 ${res.moved_paths.length} 个文件`
             : "整理被拒绝或失败",
+        );
+      } else if (
+        route.kind === "routed" &&
+        route.skill_id.includes("app_control")
+      ) {
+        // Skill 执行接线 Phase 2：槽位齐（slot 或文本兜底解析出 app 名）直接调
+        // execute_skill_command，否则沿用 editInMain 改字流。
+        const appInput = buildAppControlSlots(route.slots, text);
+        if (!appInput) {
+          if (!aliveRef.current) return;
+          await editInMain(text);
+          return;
+        }
+        // 白名单内 launch 由 trust-kernel 直接放行；白名单外系统再弹一次
+        // PerStep 审批（approver 发射时已唤醒主界面）。
+        const res = await executeSkill(
+          newExecuteInput(route.skill_id, appInput, "pet"),
+        );
+        if (!aliveRef.current) return;
+        flashHint(
+          (
+            res.committed
+              ? `已执行：${appInput.app_name}`
+              : (res.error ?? "执行失败")
+          ).slice(0, 40),
         );
       } else {
         // 槽位不全 / 非 files.organize / Unmatched → 主界面完整交互

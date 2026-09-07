@@ -6,6 +6,6 @@
 
 # Type Alias: ModelStatus
 
-> **ModelStatus** = `"disabled"` \| `"present"` \| `"absent"`
+> **ModelStatus** = `"disabled"` \| `"missing"` \| `"downloading"` \| `"verifying"` \| `"ready"` \| `"failed"`
 
-Defined in: types.ts:157
+Defined in: types.ts:192

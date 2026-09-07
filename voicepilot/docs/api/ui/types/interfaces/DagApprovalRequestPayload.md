@@ -6,7 +6,7 @@
 
 # Interface: DagApprovalRequestPayload
 
-Defined in: types.ts:258
+Defined in: types.ts:299
 
 W8 §2.7:DAG 骨架审批请求 payload(后端 emit `dag-approval-request` 事件)。
 
@@ -16,7 +16,7 @@ W8 §2.7:DAG 骨架审批请求 payload(后端 emit `dag-approval-request` 事�
 
 > **approval\_request\_id**: `string`
 
-Defined in: types.ts:259
+Defined in: types.ts:300
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:259
 
 > **max\_total\_steps**: `number`
 
-Defined in: types.ts:262
+Defined in: types.ts:303
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:262
 
 > **node\_count**: `number`
 
-Defined in: types.ts:263
+Defined in: types.ts:304
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:263
 
 > **plan\_id**: `string`
 
-Defined in: types.ts:260
+Defined in: types.ts:301
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:260
 
 > **plan\_json**: [`DagPlanFull`](DagPlanFull.md)
 
-Defined in: types.ts:264
+Defined in: types.ts:305
 
 ***
 
@@ -56,4 +56,4 @@ Defined in: types.ts:264
 
 > **user\_goal**: `string`
 
-Defined in: types.ts:261
+Defined in: types.ts:302

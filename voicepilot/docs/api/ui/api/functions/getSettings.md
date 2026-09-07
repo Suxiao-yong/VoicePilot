@@ -8,7 +8,7 @@
 
 > **getSettings**(): `Promise`\<[`Settings`](../../types/interfaces/Settings.md)\>
 
-Defined in: api.ts:92
+Defined in: api.ts:93
 
 ## Returns
 

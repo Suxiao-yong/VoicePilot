@@ -6,7 +6,7 @@
 
 # Interface: DownloadProgressPayload
 
-Defined in: types.ts:159
+Defined in: types.ts:200
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:159
 
 > **downloaded\_bytes**: `number`
 
-Defined in: types.ts:160
+Defined in: types.ts:201
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:160
 
 > **percent**: `number` \| `null`
 
-Defined in: types.ts:162
+Defined in: types.ts:203
 
 ***
 
@@ -30,4 +30,4 @@ Defined in: types.ts:162
 
 > **total\_bytes**: `number` \| `null`
 
-Defined in: types.ts:161
+Defined in: types.ts:202

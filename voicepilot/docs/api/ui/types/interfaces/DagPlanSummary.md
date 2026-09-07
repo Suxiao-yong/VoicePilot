@@ -6,7 +6,7 @@
 
 # Interface: DagPlanSummary
 
-Defined in: types.ts:234
+Defined in: types.ts:275
 
 W8 §2.7:DAG 历史列表项。
 
@@ -16,7 +16,7 @@ W8 §2.7:DAG 历史列表项。
 
 > **completed\_at**: `string` \| `null`
 
-Defined in: types.ts:239
+Defined in: types.ts:280
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:239
 
 > **created\_at**: `string`
 
-Defined in: types.ts:238
+Defined in: types.ts:279
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:238
 
 > **node\_count**: `number`
 
-Defined in: types.ts:241
+Defined in: types.ts:282
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:241
 
 > **plan\_id**: `string`
 
-Defined in: types.ts:235
+Defined in: types.ts:276
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:235
 
 > **root\_task\_id**: `string` \| `null`
 
-Defined in: types.ts:240
+Defined in: types.ts:281
 
 ***
 
@@ -56,7 +56,7 @@ Defined in: types.ts:240
 
 > **status**: `string`
 
-Defined in: types.ts:237
+Defined in: types.ts:278
 
 ***
 
@@ -64,7 +64,7 @@ Defined in: types.ts:237
 
 > **success\_rate**: `number`
 
-Defined in: types.ts:242
+Defined in: types.ts:283
 
 ***
 
@@ -72,4 +72,4 @@ Defined in: types.ts:242
 
 > **user\_goal**: `string`
 
-Defined in: types.ts:236
+Defined in: types.ts:277

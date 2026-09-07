@@ -157,7 +157,7 @@ fn approval_registry_wait_for_dag_decision_times_out_to_deny() {
 
 #[test]
 fn approval_registry_wait_for_dag_decision_handles_sender_dropped() {
-    // sender 被丢弃 → 返回 Deny + None modified_plan
+    // sender 被丢�?�?返回 Deny + None modified_plan
     let registry = ApprovalRegistry::new();
     let (approval_id, rx) = registry.create_dag_request();
 
@@ -167,4 +167,35 @@ fn approval_registry_wait_for_dag_decision_handles_sender_dropped() {
     let payload = registry.wait_for_dag_decision(rx, Duration::from_secs(1));
     assert_eq!(payload.decision, ApprovalDecision::Deny);
     assert!(payload.modified_plan.is_none());
+}
+
+#[test]
+fn waits_are_safe_inside_tokio_runtime() {
+    // 回归：Tauri 命令协程内调 wait_* 曾因嵌套 block_on panic。
+    // multi-thread runtime 复刻命令执行上下文（async context）。
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    rt.block_on(async {
+        let registry = ApprovalRegistry::new();
+        // decision 通道：无人投递 → 超时 Deny。
+        let (_id, rx) = registry.create_request(&dummy_manifest());
+        assert_eq!(
+            registry.wait_for_decision(rx, Duration::from_millis(100)),
+            ApprovalDecision::Deny
+        );
+        // clarification 通道：无人投递 → 超时回 default。
+        let (_id, rx) = registry.create_clarify_request();
+        assert_eq!(
+            registry.wait_for_clarification(rx, Duration::from_millis(100), 2),
+            2
+        );
+        // dag 通道：无人投递 → 超时 Deny。
+        let (_id, rx) = registry.create_dag_request();
+        let payload =
+            registry.wait_for_dag_decision(rx, Duration::from_millis(100));
+        assert_eq!(payload.decision, ApprovalDecision::Deny);
+        assert!(payload.modified_plan.is_none());
+    });
 }

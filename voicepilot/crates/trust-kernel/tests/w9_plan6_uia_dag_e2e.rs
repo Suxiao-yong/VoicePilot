@@ -123,8 +123,39 @@ use trust_kernel::skills::dag_executor::{set_thread_local_uia_adapter, DagExecut
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagNodeStatus, DagPlan, DagStatus};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope};
-use trust_kernel::uiautomation::adapter::WindowsUiaAdapter;
+use trust_kernel::mcp::repo::McpServerRepo;
+use trust_kernel::uiautomation::adapter::McpUiaAdapter;
 use trust_kernel::uiautomation::UiaAdapter;
+
+/// 测试后端行复制（w7 smoke 同款）：seed 行的裸命令解析不到 exe，
+/// 复制一行指向仓库 tools 下的真实 exe。conn 守卫不出本函数（executor
+/// 内部还要锁 conn，同线程重锁会死锁）。
+fn register_test_backend(kernel: &TrustKernel) {
+    let mut exe = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    exe.extend([
+        "..",
+        "..",
+        "..",
+        "tools",
+        "mcp-windows",
+        "server",
+        "Sbroenne.WindowsMcp.exe",
+    ]);
+    let repo = McpServerRepo::new();
+    let conn = kernel.conn();
+    let _ = repo.delete(&conn, "mcp-windows-w9");
+    let mut rec = repo.get(&conn, "mcp-windows").unwrap().unwrap();
+    rec.server_id = "mcp-windows-w9".to_string();
+    rec.command = Some(exe.to_string_lossy().into_owned());
+    rec.enabled = true;
+    repo.create(&conn, &rec).unwrap();
+}
+
+/// 真实 adapter（mcp-windows 后端子进程；自研 COM 引擎已删）。
+fn test_adapter(kernel: &TrustKernel) -> Arc<dyn UiaAdapter> {
+    register_test_backend(kernel);
+    Arc::new(McpUiaAdapter::for_server(kernel, "mcp-windows-w9").expect("resolve test backend"))
+}
 
 // ===== CWD 串行化(复用 W7 Plan 4 / W9 Plan 5 模式)=====
 //
@@ -338,13 +369,9 @@ fn real_note_capture_dag_succeeds() {
         // 2. 启动 kernel + Stronghold vault
         let kernel = setup_kernel_with_stronghold();
 
-        // 3. 注入 thread-local WindowsUiaAdapter(真实 COM 初始化)
-        // W9 修复:WindowsUiaAdapter 是 !Send + !Sync(COM apartment 约束),
-        // Arc::new 会触发 clippy::arc_with_non_send_sync,此处故意为之 —
-        // thread-local 注入模式规避跨线程传递,无需 Send + Sync。
-        #[allow(clippy::arc_with_non_send_sync)]
-        let adapter: Arc<dyn UiaAdapter> =
-            Arc::new(WindowsUiaAdapter::new().expect("WindowsUiaAdapter::new"));
+        // 3. 注入 thread-local 真实 adapter（mcp-windows 后端子进程；
+        // 自研 COM 引擎已删，行复制见本文件 test_adapter）。
+        let adapter: Arc<dyn UiaAdapter> = test_adapter(&kernel);
         set_thread_local_uia_adapter(Some(adapter));
 
         // 4. 构造 DAG:[note.capture]
@@ -460,11 +487,8 @@ fn real_note_capture_files_organize_dag_succeeds() {
         // 2. 启动 kernel + Stronghold
         let kernel = setup_kernel_with_stronghold();
 
-        // 3. 注入 thread-local WindowsUiaAdapter
-        // W9 修复:同场景 1,WindowsUiaAdapter !Send + !Sync,thread-local 故意 Arc。
-        #[allow(clippy::arc_with_non_send_sync)]
-        let adapter: Arc<dyn UiaAdapter> =
-            Arc::new(WindowsUiaAdapter::new().expect("WindowsUiaAdapter::new"));
+        // 3. 注入 thread-local 真实 adapter（同场景 1）。
+        let adapter: Arc<dyn UiaAdapter> = test_adapter(&kernel);
         set_thread_local_uia_adapter(Some(adapter));
 
         // 4. 构造 DAG:[note.capture → files.organize]

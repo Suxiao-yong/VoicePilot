@@ -58,8 +58,8 @@ impl VoiceRecorder for MockVoiceRecorder {
 #[test]
 fn voice_listener_stops_on_silence_after_speech() {
     // 场景:500ms 语音 + 1000ms 静音(分 2 块,每块 750ms)。
-    // VAD 默认 max_silence_ms=700,所以在第 2 块结束时,silence_frame_count
-    // 会达到 35,触发 detect_end_of_speech 返回 Some。
+    // VAD 默认 max_silence_ms=300(Phase 1 与 buzz 同值),所以在第 2 块中段,
+    // silence_frame_count 达到 15 即触发 detect_end_of_speech 返回 Some。
     let chunk1 = {
         let mut v = generate_sine_wave(500, 16000, 200.0);
         v.extend(generate_silence(250, 16000));
@@ -80,11 +80,12 @@ fn voice_listener_stops_on_silence_after_speech() {
 
     match outcome {
         ListenOutcome::SpeechEnded { samples } => {
-            // speech_end_sample 应在静音超时触发点(第 60 帧 = 19200 样本)。
-            // 允许 ±1 帧容差(因为 chunk 边界可能不在帧边界上)。
+            // speech_end_sample 应在静音超时触发点(第 40 帧 = 12800 样本:
+            // 500ms 语音=25 帧 + 300ms 静音=15 帧)。允许 ±1 帧容差。
+            // (Phase 1 前默认 700ms,触发点为第 60 帧 = 19200 样本)
             assert!(
-                samples.len() >= 19000 && samples.len() <= 19520,
-                "expected ~19200 samples, got {}",
+                samples.len() >= 12480 && samples.len() <= 13120,
+                "expected ~12800 samples, got {}",
                 samples.len()
             );
         }
@@ -173,9 +174,9 @@ fn voice_listener_returns_no_speech_when_recorder_immediately_exhausted() {
 #[test]
 fn voice_listener_stops_immediately_when_cancel_flag_set_before_chunk() {
     // cancel flag 在 listen 开始前就为 true,应立即返回 NoSpeech(无音频采集)。
-    let recorder = Arc::new(MockVoiceRecorder::new(vec![
-        generate_sine_wave(750, 16000, 200.0),
-    ]));
+    let recorder = Arc::new(MockVoiceRecorder::new(vec![generate_sine_wave(
+        750, 16000, 200.0,
+    )]));
     let vad = VadDetector::new(VadConfig::default());
     let listener = VoiceListener::new(
         recorder,
@@ -226,9 +227,7 @@ fn voice_listener_stops_midway_when_cancel_flag_set_after_first_chunk() {
         Duration::from_secs(30),
         Duration::from_millis(750),
     );
-    let outcome = listener
-        .listen_with_cancel(&cancel_arc)
-        .expect("listen");
+    let outcome = listener.listen_with_cancel(&cancel_arc).expect("listen");
     match outcome {
         ListenOutcome::Timeout { samples } => {
             assert!(!samples.is_empty(), "should have 1 chunk of samples");
@@ -285,8 +284,6 @@ fn voice_listener_listen_with_cancel_still_works_without_partial() {
         Duration::from_millis(750),
     );
     let cancel = AtomicBool::new(false);
-    let outcome = listener
-        .listen_with_cancel(&cancel)
-        .expect("listen");
+    let outcome = listener.listen_with_cancel(&cancel).expect("listen");
     let _ = outcome;
 }

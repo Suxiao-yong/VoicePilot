@@ -8,7 +8,7 @@
 
 > **onTranscriptionPartial**(`handler`): `Promise`\<`UnlistenFn`\>
 
-Defined in: api.ts:84
+Defined in: api.ts:85
 
 Subscribe to `transcription-partial` events(W6b-2 issue #47)。
 listen 期间每 2s 发射一次,webview 实时显示 partial 转写。

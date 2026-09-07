@@ -8,13 +8,13 @@
 
 > **updateSettings**(`settings`): `Promise`\<`void`\>
 
-Defined in: api.ts:96
+Defined in: api.ts:97
 
 ## Parameters
 
 ### settings
 
-[`Settings`](../../types/interfaces/Settings.md)
+[`SettingsUpdate`](../../types/interfaces/SettingsUpdate.md)
 
 ## Returns
 

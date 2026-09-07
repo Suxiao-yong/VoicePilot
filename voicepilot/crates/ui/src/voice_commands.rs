@@ -376,6 +376,16 @@ impl VoiceListenImpl {
             eprintln!("[voice] seal_turn record failed: {e}");
         }
         let _ = self.kernel.prune_turns_older_than(30, now_ms);
+        // Phase B：封轮钩子触发长期记忆蒸馏（mem0 简化版）。
+        // 后台线程 fire-and-forget：LLM 调用慢，绝不阻塞本轮返回；
+        // maybe_distill 内部自检 privacy_mode / llm 可用 / 批量阈值，
+        // 任何失败静默收敛（记忆是增益不是依赖）。
+        let kernel = self.kernel.clone_arc();
+        std::thread::spawn(move || {
+            if let Err(e) = trust_kernel::memory::maybe_distill(&kernel) {
+                tracing::warn!(error = ?e, "memory distill failed (non-fatal)");
+            }
+        });
     }
 
     /// 收尾：转写 → 快照 → 路由 → 封轮。NoSpeech 不封轮（无信息量）。

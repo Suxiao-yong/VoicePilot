@@ -88,3 +88,20 @@ V1 不做 Authenticode 代码签名(ADR 0001 / spec §8.4 偏离):
 - spec §八 Plan 5 NSIS 打包
 - `.github/workflows/release.yml`
 - `voicepilot/crates/ui/tauri.conf.json`
+
+## V1 发布门禁状态（2026-08-19，内核平台化 Wave 5 后）
+
+> 只有对应命令有**新鲜退出码和结果**才勾选；未满足项保持未勾选。
+
+- [x] `cargo test --workspace --all-targets -j 1` — 全绿（含 rmcp parity 隔离测试）
+- [x] `cargo check --workspace --features voice,tauri,llm,uia,stronghold -j 1` — exit 0
+- [x] `cargo clippy --workspace --all-targets --features voice,tauri,llm,uia,stronghold -j 1 -- -D warnings` — exit 0（逐项修复真实死代码，无全局 allow）
+- [x] `cargo test -p cli --all-targets --features voice -j 1` — 8 passed（含 voice_list_models_smoke 回归）
+- [x] `npm test -- --run` / `npm run build` / `npm run lint` — 17 tests + build + lint 全绿
+- [x] 20 TOCTOU — `cargo test -p trust-kernel --test w11_toctou_block_smoke -j 1` → 20/20, exit 0
+- [x] 15 恶意 Server — `cargo test -p trust-kernel --test w11_malicious_server_smoke -j 1` → 15/15, exit 0
+- [x] 20 数据安全 — `cargo test -p trust-kernel --test w11_data_security_smoke -j 1` → 20/20, exit 0
+- [x] Configuration-only 扩展验收（范围收窄，如实记录）：新增只读 MCP Plugin → reload catalog → 文本/voice 经统一 PlannerPipeline 路由；MCP 链 dispatch 与 builtin 成功 dispatch 的 audit 断言 extension 元数据（`manifest_hash` / `source` / `snapshot_id`，MCP 另有 `server_id` / `tool_name`，见 `dispatch_snapshot_gate` / `mcp_plugin_config`）；policy hash 记录于 `approval_recorded` 审计事件；result status 即 step/tool 执行状态。完整成功执行 + 全字段断言的独立验收用例待后续补
+- [ ] 100 功能任务（Inspect AI）— 需要 Python venv + inspect-ai 工具链，本机未运行
+- [ ] 50 攻击样本（promptfoo redteam）— 需要 promptfoo 工具链，本机未运行
+- [ ] 真实语音 P95 首字延迟 ≤ 500 ms（`cargo test -p trust-kernel --features voice --test w10_voice_latency_smoke -- --ignored --nocapture`）— 需要安装实际 SenseVoice 模型（约 1 GB）+ WAV fixture；本机无模型，测试执行后跳过（exit 0，skip），未关闭门禁

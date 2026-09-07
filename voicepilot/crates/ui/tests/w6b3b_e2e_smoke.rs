@@ -12,7 +12,7 @@
 //! 不实际录音/合成(需麦克风 + 模型),仅验证数据流与序列化契约。
 
 use voicepilot_ui::commands::RouteTextResult;
-use voicepilot_ui::settings_commands::{flatten_to_kv, merge_from_kv, SettingsDto};
+use voicepilot_ui::settings_commands::{flatten_to_kv, merge_from_kv, SettingsView};
 use voicepilot_ui::slot_parser::{SlotKind, SlotParser};
 use voicepilot_ui::voice_commands::{
     build_transcription_final_payload, VoiceListenResult,
@@ -116,7 +116,7 @@ fn build_final_payload_includes_slots() {
 /// 修改后 flatten → merge 应保留自定义值。
 #[test]
 fn tts_settings_roundtrip() {
-    let dto = SettingsDto {
+    let dto = SettingsView {
         tts_enabled: false,
         tts_model_path: "/models/custom-tts".to_string(),
         ..Default::default()
@@ -130,7 +130,7 @@ fn tts_settings_roundtrip() {
 /// VP-FR-002 默认 tts_enabled = true(语音反馈默认开启)。
 #[test]
 fn default_tts_enabled_is_true() {
-    let dto = SettingsDto::default();
+    let dto = SettingsView::default();
     assert!(dto.tts_enabled, "tts_enabled should default to true (VP-FR-002)");
 }
 

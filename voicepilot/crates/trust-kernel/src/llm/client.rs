@@ -83,6 +83,10 @@ impl LlmClient {
 
         let system_prompt = self.build_system_prompt(candidate_skills);
         let tools = self.build_tool_schema();
+        // 注意:不得强制 tool_choice。实测 deepseek-v4-flash 等 thinking 模型
+        // 对强制 tool_choice 直接回 400("Thinking mode does not support
+        // this tool_choice"),而缺省(auto)下会主动发起 tool_calls。
+        // 缺 tool_calls 的响应由 parse 侧收敛为 Parse 错误,走既有回退链。
         let body = json!({
             "model": self.model,
             "messages": [
@@ -90,7 +94,6 @@ impl LlmClient {
                 {"role": "user", "content": text},
             ],
             "tools": tools,
-            "tool_choice": {"type": "function", "function": {"name": "route_skill"}},
             "temperature": 0.1,
         });
 
@@ -184,6 +187,12 @@ impl LlmClient {
                 skill.id, skill.title, skill.description, skill.intent_examples, input_keys
             ));
         }
+        // 应用目录：候选中含 quick.app_control 时，把显示名→可执行名映射喂给模型，
+        // 让 app_name 槽位直接输出可执行名（如 msedge.exe），不再靠各处手写关键词兜底。
+        // 后端 normalize_app_name 用同一张表做确定性复核，模型抽风也能接住。
+        if skills.iter().any(|s| s.id == "quick.app_control") {
+            s.push_str(&crate::skills::manifest::known_app_aliases_prompt());
+        }
         s.push_str(
             "\n若没有匹配的 Skill,返回 matched_skill_id=null + confidence<0.7。\nSlot 提取遵循 inputs 中的 input_type 约束。\n不得执行任何动作,只返回路由决策。",
         );
@@ -235,9 +244,14 @@ impl LlmClient {
         let args: serde_json::Value = serde_json::from_str(args_str)
             .map_err(|e| LlmError::Parse(format!("arguments parse: {e}")))?;
 
+        // 空字符串与 null 等价(实测模型偶发返回 "matched_skill_id": "")。
+        // 这里归一掉,调用方只需处理 None → 回退链,无需到处判空串。
+        // trim:填充空白串(" files.organize ")同样落空,否则精确匹配查候选失败静默走回退。
         let matched_skill_id = args
             .get("matched_skill_id")
             .and_then(|v| v.as_str())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
         let confidence = args
             .get("confidence")
@@ -299,15 +313,20 @@ impl LlmClient {
     /// system 提示内附候选功能清单（按 id 排序），回答功能介绍类问题时
     /// 只能引用清单内的功能 —— 空泛的“不要编造”指令无法执行，这是可落地的版本。
     /// 失败返回 LlmError，调用方收敛到 Unmatched；不写 DB、不记审计。
-    pub async fn chat_answer(&self, text: &str, candidate_skills: &[SkillManifest]) -> LlmResult<String> {
-        if !self.is_enabled() {
-            return Err(LlmError::NotConfigured);
-        }
+    /// 聊天兜底的 system 提示词（纯函数，可单测断言护栏文案）。
+    ///
+    /// 关键护栏：模型没有执行能力，不得声称正在/已经执行任何操作
+    /// （如“正在打开”“已整理好”）；用户要求操作时，指引其到主界面输入指令。
+    pub fn build_chat_system_prompt(candidate_skills: &[SkillManifest]) -> String {
         let mut ids: Vec<&str> = candidate_skills.iter().map(|s| s.id.as_str()).collect();
         ids.sort_unstable();
         let mut system = String::from(
             "你是 VoicePilot 桌面助手，用中文简短回答用户的问题（200字以内）。\
-             用户问的是日常问题或本软件功能介绍，直接回答。",
+             用户问的是日常问题或本软件功能介绍，直接回答。\
+             你没有执行操作的能力，不得声称正在执行或已经执行了任何操作\
+             （如“正在打开”“已打开”“正在整理”“已完成”）。用户要求打开/关闭应用时，\
+             不要复述他的原话当建议，直接给他可执行的说法：说“打开/关闭+应用名”\
+             （如“打开记事本”“打开Edge”“关闭计算器”），系统会弹出确认卡执行。"
         );
         if ids.is_empty() {
             system.push_str("\n当前无可用功能，不要编造功能名称。");
@@ -322,6 +341,63 @@ impl LlmClient {
                 system.push_str(&format!("- {id}: {title}\n"));
             }
         }
+        system
+    }
+
+    /// Phase B：通用 system+user 单轮补全（记忆蒸馏等内部任务用）。
+    /// temperature 0.1（提取类任务要稳定输出）；不套聊天系统提示词。
+    pub async fn complete_system_user(&self, user_text: &str, max_tokens: u32) -> LlmResult<String> {
+        if !self.is_enabled() {
+            return Err(LlmError::NotConfigured);
+        }
+        let body = json!({
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": user_text},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+        });
+        let url = format!("{}/chat/completions", self.base_url);
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LlmError::Timeout(self.timeout)
+                } else {
+                    LlmError::Http(e.to_string())
+                }
+            })?;
+        if !resp.status().is_success() {
+            return Err(LlmError::Http(format!("HTTP {}", resp.status())));
+        }
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(format!("response body parse: {e}")))?;
+        let answer = v
+            .pointer("/choices/0/message/content")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if answer.is_empty() {
+            Err(LlmError::Parse("empty completion".to_string()))
+        } else {
+            Ok(answer)
+        }
+    }
+
+    pub async fn chat_answer(&self, text: &str, candidate_skills: &[SkillManifest]) -> LlmResult<String> {
+        if !self.is_enabled() {
+            return Err(LlmError::NotConfigured);
+        }
+        let system = Self::build_chat_system_prompt(candidate_skills);
         let body = json!({
             "model": self.model,
             "messages": [
@@ -416,6 +492,8 @@ impl LlmClient {
 
         let system_prompt = self.build_decompose_system_prompt(candidate_skills, user_slots);
         let tools = self.build_decompose_tool_schema();
+        // tool_choice 不强制,理由同 classify_and_extract:thinking 模型对强制
+        // tool_choice 回 400,缺省 auto 下模型会主动发起 tool_calls。
         let body = json!({
             "model": self.model,
             "messages": [
@@ -423,7 +501,6 @@ impl LlmClient {
                 {"role": "user", "content": user_text},
             ],
             "tools": tools,
-            "tool_choice": {"type": "function", "function": {"name": "decompose_to_dag"}},
             "temperature": 0.1,
         });
 
@@ -668,6 +745,8 @@ impl LlmClient {
         let system_prompt = self.build_explain_system_prompt();
         let user_content = self.build_explain_user_content(step, audit_logs);
         let tools = self.build_explain_tool_schema();
+        // tool_choice 不强制,理由同 classify_and_extract:thinking 模型对强制
+        // tool_choice 回 400,缺省 auto 下模型会主动发起 tool_calls。
         let body = json!({
             "model": self.model,
             "messages": [
@@ -675,7 +754,6 @@ impl LlmClient {
                 {"role": "user", "content": user_content},
             ],
             "tools": tools,
-            "tool_choice": {"type": "function", "function": {"name": "explain_failure"}},
             "temperature": 0.1,
         });
 
@@ -980,6 +1058,27 @@ mod tests {
         assert!(!c.is_enabled());
     }
 
+    #[test]
+    fn classify_prompt_embeds_app_catalog_for_app_control() {
+        use crate::skills::manifest::app_control_manifest;
+        let client = LlmClient::new("https://x", "sk-test", "m");
+        let with_app = client.build_system_prompt(&[app_control_manifest()]);
+        assert!(with_app.contains("Microsoft Edge → msedge.exe"));
+        assert!(with_app.contains("记事本 → notepad"));
+        assert!(with_app.contains("浏览器 → msedge.exe"));
+        let without_app = client.build_system_prompt(&[files_organize_manifest()]);
+        assert!(!without_app.contains("msedge.exe"));
+    }
+
+    #[test]
+    fn chat_system_prompt_forbids_claiming_execution() {
+        // 回归：模型曾对操作类输入谎称“正在为您打开”，护栏必须在 prompt 内。
+        let prompt = LlmClient::build_chat_system_prompt(&[files_organize_manifest()]);
+        assert!(prompt.contains("不得声称正在执行或已经执行"));
+        assert!(prompt.contains("不要复述他的原话当建议"));
+        assert!(prompt.contains("确认卡执行"));
+    }
+
     #[tokio::test]
     async fn classify_and_extract_returns_not_configured_when_disabled() {
         let client = LlmClient::disabled();
@@ -1030,6 +1129,200 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn classify_request_omits_forced_tool_choice() {
+        // 回归：deepseek-v4-flash 等 thinking 模型对强制 tool_choice 直接回
+        // 400("Thinking mode does not support this tool_choice")，导致所有
+        // 非关键词指令集体掉进 Chat。请求体必须带 tools 但不得带 tool_choice。
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let body = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "route_skill",
+                            "arguments": "{\"matched_skill_id\":null,\"confidence\":0.1,\"slots\":[],\"reasoning\":\"no match\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let skills = vec![files_organize_manifest()];
+        let _ = client.classify_and_extract("test", &skills).await;
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let sent: serde_json::Value = requests[0].body_json().unwrap();
+        assert!(sent.get("tools").is_some(), "tools must still be sent");
+        assert!(
+            sent.get("tool_choice").is_none(),
+            "forced tool_choice breaks thinking models: {:?}",
+            sent.get("tool_choice")
+        );
+    }
+
+    #[tokio::test]
+    async fn classify_empty_skill_id_maps_to_none() {
+        // 回归：实测模型偶发返回 "matched_skill_id": ""，必须与 null 等价，
+        // 否则调用方把 Some("") 当有效命中继续走（历史上静默掉进回退链）。
+        // 空白填充串同理：trim 后为空同样归一（否则精确匹配查候选落空）。
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        for raw_id in ["", "   ", " \t "] {
+            let server = MockServer::start().await;
+            let args = serde_json::json!({
+                "matched_skill_id": raw_id,
+                "confidence": 0.9,
+                "slots": [],
+                "reasoning": "empty-ish",
+            })
+            .to_string();
+            let body = serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "route_skill", "arguments": args}
+                        }]
+                    }
+                }]
+            });
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(&server)
+                .await;
+
+            let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+            let skills = vec![files_organize_manifest()];
+            let resp = client
+                .classify_and_extract("test", &skills)
+                .await
+                .unwrap();
+            assert_eq!(resp.matched_skill_id, None, "raw id was {raw_id:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn decompose_request_omits_forced_tool_choice() {
+        // 回归（同 classify）：decompose 的强制 tool_choice 在 thinking 模型
+        // 上同样回 400。请求体必须带 tools 但不得带 tool_choice。
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let plan_args = serde_json::json!({
+            "plan_id": "p1",
+            "user_goal": "test",
+            "nodes": [{
+                "node_id": "n1",
+                "skill_id": "files.organize",
+                "input_template": {"kind": "text", "template": {"Literal": "hi"}},
+                "risk_ceiling": "E1",
+            }],
+            "edges": [],
+            "loop_specs": {},
+            "max_total_steps": 1,
+        })
+        .to_string();
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "decompose_to_dag", "arguments": plan_args}
+                    }]
+                }
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let skills = vec![files_organize_manifest()];
+        let (plan, _) = client
+            .decompose_to_dag_traced("test", &skills, &[])
+            .await
+            .unwrap();
+        assert_eq!(plan.plan_id, "p1");
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let sent: serde_json::Value = requests[0].body_json().unwrap();
+        assert!(sent.get("tools").is_some(), "tools must still be sent");
+        assert!(
+            sent.get("tool_choice").is_none(),
+            "forced tool_choice breaks thinking models: {:?}",
+            sent.get("tool_choice")
+        );
+    }
+
+    #[tokio::test]
+    async fn explain_request_omits_forced_tool_choice() {
+        // 回归（同 classify）：explain 的强制 tool_choice 在 thinking 模型
+        // 上同样回 400。请求体必须带 tools 但不得带 tool_choice。
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "explain_failure",
+                            "arguments": "{\"root_cause_zh\":\"x\",\"category\":\"unknown\",\"confidence\":0.3}"
+                        }
+                    }]
+                }
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
+        let step = crate::repo::step_repo::StepRecord::new("s1", "t1", 1);
+        let analysis = client
+            .explain_failure(&step, &[])
+            .await
+            .unwrap();
+        assert_eq!(analysis.root_cause_zh, "x");
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let sent: serde_json::Value = requests[0].body_json().unwrap();
+        assert!(sent.get("tools").is_some(), "tools must still be sent");
+        assert!(
+            sent.get("tool_choice").is_none(),
+            "forced tool_choice breaks thinking models: {:?}",
+            sent.get("tool_choice")
+        );
+    }
+
+    #[tokio::test]
     async fn classify_and_extract_returns_error_on_401() {
         use wiremock::matchers::method;
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1047,8 +1340,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn classify_and_extract_returns_parse_error_when_tool_calls_missing() {
-        use wiremock::matchers::method;
+    async fn classify_and_extract_returns_parse_error_when_tool_calls_missing() {        use wiremock::matchers::method;
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let server = MockServer::start().await;

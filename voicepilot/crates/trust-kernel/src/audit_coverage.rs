@@ -130,7 +130,11 @@ mod tests {
     #[test]
     fn covered_returns_only_expected_events() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        emit_events(&kernel, "t1", &["task_created", "state_transition", "unknown_event"]);
+        emit_events(
+            &kernel,
+            "t1",
+            &["task_created", "state_transition", "unknown_event"],
+        );
         let checker = AuditCoverageChecker::new(&kernel);
         let covered = checker.covered().unwrap();
         // unknown_event 不在 registry,被过滤
@@ -142,15 +146,15 @@ mod tests {
     #[test]
     fn uncovered_returns_missing_events() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        // 只 emit 一个事件,其余 28 种应出现在 uncovered
+        // 只 emit 一个事件,其余 29 种应出现在 uncovered
         emit_events(&kernel, "t1", &["task_created"]);
         let checker = AuditCoverageChecker::new(&kernel);
         let uncovered = checker.uncovered().unwrap();
         assert!(!uncovered.contains(&"task_created".to_string()));
         assert!(uncovered.contains(&"state_transition".to_string()));
         assert!(uncovered.contains(&"voice_started".to_string()));
-        // 总 registry 29 种,覆盖 1 种,未覆盖 28 种
-        assert_eq!(uncovered.len(), 28);
+        // 总 registry 31 种,覆盖 1 种,未覆盖 30 种
+        assert_eq!(uncovered.len(), 30);
     }
 
     #[test]
@@ -159,8 +163,12 @@ mod tests {
         emit_events(&kernel, "t1", &["task_created", "state_transition"]);
         let checker = AuditCoverageChecker::new(&kernel);
         let ratio = checker.coverage_ratio().unwrap();
-        // 2/29 ≈ 0.0690
-        assert!((ratio - 2.0 / 29.0).abs() < 1e-6, "ratio must be 2/29, got {}", ratio);
+        // 2/31 ≈ 0.0645
+        assert!(
+            (ratio - 2.0 / 31.0).abs() < 1e-6,
+            "ratio must be 2/31, got {}",
+            ratio
+        );
     }
 
     #[test]
@@ -171,9 +179,15 @@ mod tests {
         let subset: &[&str] = &["task_created", "state_transition"];
         let checker = AuditCoverageChecker::with_expected(&kernel, subset);
         let uncovered = checker.uncovered().unwrap();
-        assert!(uncovered.is_empty(), "uncovered must be empty for full subset coverage");
+        assert!(
+            uncovered.is_empty(),
+            "uncovered must be empty for full subset coverage"
+        );
         let ratio = checker.coverage_ratio().unwrap();
-        assert!((ratio - 1.0).abs() < 1e-6, "ratio must be 1.0 for full coverage");
+        assert!(
+            (ratio - 1.0).abs() < 1e-6,
+            "ratio must be 1.0 for full coverage"
+        );
     }
 
     #[test]

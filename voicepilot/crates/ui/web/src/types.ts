@@ -1,102 +1,124 @@
 export interface EffectManifest {
-    sources: FileSnapshot[];
-    destination: string;
-    conflicts: string[];
-    total_bytes: number;
+      sources: FileSnapshot[];
+      destination: string;
+      conflicts: string[];
+      total_bytes: number;
 }
 
 export interface FileSnapshot {
-    canonical_path: string;
-    file_id: string;
-    size: number;
-    last_write_time: string;
-    sha256: string;
+      canonical_path: string;
+      file_id: string;
+      size: number;
+      last_write_time: string;
+      sha256: string;
 }
 
 export type ApprovalDecision = "allow" | "deny" | "modify";
 
 export interface ApprovalRequestPayload {
-    approval_request_id: string;
-    manifest: EffectManifest;
+      approval_request_id: string;
+      manifest: EffectManifest;
+}
+
+/** 追问卡 payload（与审批语义分离：点选下标，超时回 default_index）。 */
+export interface ClarificationRequestPayload {
+      clarification_request_id: string;
+      question: string;
+      options: string[];
+      default_index: number;
 }
 
 export type RouteTextResult =
-    // 桌宠化改造:补上后端一直序列化的 slots(W7 起存在;keyword 路径为空数组),
-    // PetWindow 气泡"执行"据此判断槽位是否齐全。
-    | { kind: "routed"; skill_id: string; slots: Slot[] }
-    | { kind: "unmatched"; text: string }
-    | { kind: "chat"; text: string }
-    | { kind: "empty" };
+      // 桌宠化改造:补上后端一直序列化的 slots(W7 起存在;keyword 路径为空数组),
+      // PetWindow 气泡"执行"据此判断槽位是否齐全。
+      | { kind: "routed"; skill_id: string; slots: Slot[] }
+      | { kind: "unmatched"; text: string }
+      | { kind: "chat"; text: string }
+      | { kind: "empty" };
 
 export interface OrganizeInput {
-    task_id: string;
-    step_id: string;
-    source: string;
-    filter: string;
-    destination: string;
+      task_id: string;
+      step_id: string;
+      source: string;
+      filter: string;
+      destination: string;
 }
 
 export interface OrganizeResult {
-    committed: boolean;
-    moved_paths: [string, string][];
-    evidence_strength: string;
-    compensation_ref: string | null;
-    error: string | null;
+      committed: boolean;
+      moved_paths: [string, string][];
+      evidence_strength: string;
+      compensation_ref: string | null;
+      error: string | null;
+}
+
+// ===== Skill 执行接线 Phase 2：通用执行命令 DTO（后端 ExecuteSkillInput/Result 镜像） =====
+export interface ExecuteSkillInput {
+      task_id: string;
+      step_id: string;
+      skill_id: string;
+      slots_json: Record<string, unknown>;
+}
+
+export interface ExecuteSkillResult {
+      committed: boolean;
+      summary: string;
+      error: string | null;
 }
 
 export type VoiceListenResult =
-    | {
-          kind: "success";
-          transcription: string;
-          route_outcome: RouteTextResult;
-          stopped_by_vad: boolean;
-      }
-    | { kind: "no_speech" }
-    | {
-          kind: "timeout";
-          transcription: string | null;
-          route_outcome: RouteTextResult;
-      }
-    | { kind: "error"; message: string };
+      | {
+              kind: "success";
+              transcription: string;
+              route_outcome: RouteTextResult;
+              stopped_by_vad: boolean;
+        }
+      | { kind: "no_speech" }
+      | {
+              kind: "timeout";
+              transcription: string | null;
+              route_outcome: RouteTextResult;
+        }
+      | { kind: "error"; message: string };
 
 export interface TranscriptionFinalPayload {
-    transcription: string;
-    route_outcome: RouteTextResult;
-    stopped_by_vad: boolean;
-    slots: Slot[];
+      transcription: string;
+      route_outcome: RouteTextResult;
+      stopped_by_vad: boolean;
+      slots: Slot[];
 }
 
 export interface TranscriptionPartialPayload {
-    partial: string;
-    timestamp_ms: number;
-    slots: Slot[];
+      partial: string;
+      timestamp_ms: number;
+      slots: Slot[];
 }
 
 export interface Settings {
-    voice_model_path: string;
-    voice_language: string | null;
-    voice_threads: number;
-    vad_energy_threshold: number;
-    vad_max_silence_ms: number;
-    vad_min_speech_ms: number;
-    voice_max_duration_ms: number;
-    voice_chunk_duration_ms: number;
-    privacy_mode: boolean;
-    compensation_ttl_hours: number;
-    // W6c P1 #1:TTS 配置(VP-FR-002 语音反馈),与后端 SettingsDto 对齐
-    tts_enabled: boolean;
-    tts_model_path: string;
-    // W7:云端 LLM 配置(OpenAI 兼容,默认 DeepSeek)。
-    // llm_enabled=false 或 privacy_mode=true 时,后端 LlmClient::disabled()。
-    llm_enabled: boolean;
-    // Wave 3:读取接口只返回"是否已配置 key",绝不返回 key 值(SecretStore 持有)。
-    llm_api_key_present: boolean;
-    llm_base_url: string;
-    llm_model: string;
-    llm_provider_url: string;
-    // W7 Plan 4: UIA allowed_apps 白名单(默认 ["notepad", "explorer", "calc"])。
-    // 逗号分隔输入,后端 KV 存 JSON 数组字符串。uia feature 关闭时仍可编辑(数据无害)。
-    uia_allowed_apps: string[];
+      voice_model_path: string;
+      voice_language: string | null;
+      voice_threads: number;
+      vad_energy_threshold: number;
+      vad_max_silence_ms: number;
+      vad_min_speech_ms: number;
+      voice_max_duration_ms: number;
+      voice_chunk_duration_ms: number;
+      privacy_mode: boolean;
+      compensation_ttl_hours: number;
+      // W6c P1 #1:TTS 配置(VP-FR-002 语音反馈),与后端 SettingsDto 对齐
+      tts_enabled: boolean;
+      tts_model_path: string;
+      // W7:云端 LLM 配置(OpenAI 兼容,默认 DeepSeek)。
+      // llm_enabled=false 或 privacy_mode=true 时,后端 LlmClient::disabled()。
+      llm_enabled: boolean;
+      // Wave 3:读取接口只返回"是否已配置 key",绝不返回 key 值(SecretStore 持有)。
+      llm_api_key_present: boolean;
+      llm_base_url: string;
+      llm_model: string;
+      llm_provider_url: string;
+      // W7 Plan 4: UIA allowed_apps 白名单(默认 ["notepad", "explorer", "calc"])。
+      // 逗号分隔输入,后端 KV 存 JSON 数组字符串。uia feature 关闭时仍可编辑(数据无害)。
+      uia_allowed_apps: string[];
 }
 
 /**
@@ -105,111 +127,154 @@ export interface Settings {
  * 为 true 时删除已存储的 key。
  */
 export interface SettingsUpdate {
-    voice_model_path: string;
-    voice_language: string | null;
-    voice_threads: number;
-    vad_energy_threshold: number;
-    vad_max_silence_ms: number;
-    vad_min_speech_ms: number;
-    voice_max_duration_ms: number;
-    voice_chunk_duration_ms: number;
-    privacy_mode: boolean;
-    compensation_ttl_hours: number;
-    tts_enabled: boolean;
-    tts_model_path: string;
-    llm_enabled: boolean;
-    llm_base_url: string;
-    llm_model: string;
-    llm_provider_url: string;
-    llm_api_key: string | null;
-    clear_llm_api_key: boolean;
-    uia_allowed_apps: string[];
+      voice_model_path: string;
+      voice_language: string | null;
+      voice_threads: number;
+      vad_energy_threshold: number;
+      vad_max_silence_ms: number;
+      vad_min_speech_ms: number;
+      voice_max_duration_ms: number;
+      voice_chunk_duration_ms: number;
+      privacy_mode: boolean;
+      compensation_ttl_hours: number;
+      tts_enabled: boolean;
+      tts_model_path: string;
+      llm_enabled: boolean;
+      llm_base_url: string;
+      llm_model: string;
+      llm_provider_url: string;
+      llm_api_key: string | null;
+      clear_llm_api_key: boolean;
+      uia_allowed_apps: string[];
 }
 
 /** 测试连接输入：用表单当前值测（保存前可测）；api_key 为空则测已存 key。 */
 export interface LlmTestInput {
-    base_url: string;
-    model: string;
-    api_key: string | null;
+      base_url: string;
+      model: string;
+      api_key: string | null;
 }
 
 /** 测试连接结果（绝不含 key）。失败原因见后端 LlmTestFailure 注释。 */
 export type LlmTestResult =
-    | { kind: "ok"; latency_ms: number; model: string }
-    | {
-          kind: "failed";
-          reason:
-              | "not_configured"
-              | "unauthorized"
-              | "not_found"
-              | "timeout"
-              | "network"
-              | "parse";
-          message: string;
-      };
+      | { kind: "ok"; latency_ms: number; model: string }
+      | {
+              kind: "failed";
+              reason:
+                    | "not_configured"
+                    | "unauthorized"
+                    | "not_found"
+                    | "timeout"
+                    | "network"
+                    | "parse";
+              message: string;
+        };
 
 export type View =
-    | "main"
-    | "settings"
-    | "audit"
-    | "trust"
-    | "skills"
-    | "dag-history";
+      | "main"
+      | "settings"
+      | "audit"
+      | "trust"
+      | "skills"
+      | "dag-history";
 
 export interface AuditEvent {
-    log_id: string;
-    task_id: string;
-    step_id: string | null;
-    event_type: string;
-    details: unknown;
-    timestamp: string;
-    prev_hash: string | null;
-    hash: string;
+      log_id: string;
+      task_id: string;
+      step_id: string | null;
+      event_type: string;
+      details: unknown;
+      timestamp: string;
+      prev_hash: string | null;
+      hash: string;
 }
 
 export interface McpServer {
-    server_id: string;
-    name: string;
-    version: string;
-    transport: string;
-    enabled: boolean;
-    trusted: boolean;
-    protocol_version: string | null;
-    allowed_origins: string | null;
-    allowed_paths: string | null;
-    /** 拉起子进程的命令(如 npx);`null` = 进程内 server。 */
-    command: string | null;
-    /** JSON 字符串数组(如 `["-y","@playwright/mcp@latest"]`)。 */
-    args: string | null;
-    /** JSON 字符串→字符串对象;值是配置机密,绝不写入审计/日志。 */
-    env: string | null;
+      server_id: string;
+      name: string;
+      version: string;
+      transport: string;
+      enabled: boolean;
+      trusted: boolean;
+      protocol_version: string | null;
+      allowed_origins: string | null;
+      allowed_paths: string | null;
+      /** 拉起子进程的命令(如 npx);`null` = 进程内 server。 */
+      command: string | null;
+      /** JSON 字符串数组(如 `["-y","@playwright/mcp@latest"]`)。 */
+      args: string | null;
+      /** JSON 字符串→字符串对象;值是配置机密,绝不写入审计/日志。 */
+      env: string | null;
 }
 
 export interface Skill {
-    skill_id: string;
-    version: string;
-    enabled: boolean;
-    success_count: number;
-    avg_latency_ms: number;
-    risk_label: string;
+      skill_id: string;
+      version: string;
+      enabled: boolean;
+      success_count: number;
+      avg_latency_ms: number;
+      risk_label: string;
 }
 
 // ===== Agent Skills 开放标准(2026-08-24 统一,目录式 {name}/SKILL.md) =====
 
 export interface UserSkill {
-    skill_id: string;
-    title: string;
-    description: string;
-    /** 是否绑定 MCP 工具可执行(标准技能无绑定 = 展示型)。 */
-    executable: boolean;
-    /** 源文件绝对路径(`%APPDATA%\voicepilot\skills\<name>\SKILL.md`)。 */
-    source_path: string;
+      skill_id: string;
+      title: string;
+      description: string;
+      /** 是否绑定 MCP 工具可执行(标准技能无绑定 = 展示型)。 */
+      executable: boolean;
+      /** 源文件绝对路径(`%APPDATA%\voicepilot\skills\<name>\SKILL.md`)。 */
+      source_path: string;
+      /** 导入时从伴随 .env 收编进 keyring 的凭据 key 名（仅名称）。 */
+      migrated_env_keys?: string[];
 }
 
 /** MCP 标准 JSON 导入结果(逐条报错不整体回滚)。 */
 export interface ImportMcpResult {
-    imported: number;
-    errors: { name: string; error: string }[];
+      imported: number;
+      errors: { name: string; error: string }[];
+}
+
+/** 外部发现 Skill 候选项（只读扫描结果，不代表已安装/已启用）。
+ * description + 执行绑定随附：导入启用前用户能看见它会说什么、会调谁。 */
+export interface ExternalSkill {
+      source: string;
+      /** 跨源去重后的来源列表（同 id 同内容多来源合并为一个候选）。 */
+      sources: string[];
+      dir: string;
+      id: string;
+      title: string;
+      description: string;
+      executable: boolean;
+      exec_server: string | null;
+      exec_tool: string | null;
+}
+
+/** 外部发现 MCP 候选项（只读扫描结果，不代表已注册/已启用）。
+ * 只有 env key 名，没有值：值是第三方密钥，绝不进 renderer。 */
+export interface ExternalMcp {
+      source_file: string;
+      /** 跨文件去重后的来源列表（`"<file> (<format>)"`），同内容多来源合并。 */
+      sources: string[];
+      format: string;
+      server_id: string;
+      name: string;
+      command: string;
+      args: string[];
+      env_keys: string[];
+}
+
+/** 被跳过的 MCP 条目（带原因，不再静默消失）。 */
+export interface McpSkipped {
+      server_id: string;
+      reason: string;
+}
+
+/** 外部 MCP 扫描结果：命中 + 跳过记账。 */
+export interface ExternalMcpScanResult {
+      hits: ExternalMcp[];
+      skipped: McpSkipped[];
 }
 
 // ===== W6b-3a Task 4: Diff Preview =====
@@ -217,51 +282,83 @@ export interface ImportMcpResult {
 export type FileKind = "new_file" | "text" | "binary";
 
 export interface DiffResult {
-    source_path: string;
-    dest_path: string;
-    file_kind: FileKind;
-    diff_text: string | null;
-    truncated: boolean;
-    truncate_reason: string | null;
+      source_path: string;
+      dest_path: string;
+      file_kind: FileKind;
+      diff_text: string | null;
+      truncated: boolean;
+      truncate_reason: string | null;
 }
 
 // ===== W6b-3a Task 8: ModelDownloadBar =====
 
 // Wave 3 Task 3.2:模型状态机(后端 ModelStatus 对齐)。
 export type ModelStatus =
-    | "disabled"
-    | "missing"
-    | "downloading"
-    | "verifying"
-    | "ready"
-    | "failed";
+      | "disabled"
+      | "missing"
+      | "downloading"
+      | "verifying"
+      | "ready"
+      | "failed";
 
 export interface DownloadProgressPayload {
-    downloaded_bytes: number;
-    total_bytes: number | null;
-    percent: number | null;
+      downloaded_bytes: number;
+      total_bytes: number | null;
+      percent: number | null;
 }
 
 // ===== W6b-3b Task 16: Slot + SlotKind (§8.4 Chip 修改) =====
 
 export type SlotKind =
-    | "path"
-    | "app"
-    | "number"
-    | "recipient"
-    | "delete_target"
-    // W7 新增:LLM 提取的 Slot 类型(regex 不覆盖)
-    | "time_range"
-    | "url";
+      | "path"
+      | "app"
+      | "number"
+      | "recipient"
+      | "delete_target"
+      // W7 新增:LLM 提取的 Slot 类型(regex 不覆盖)
+      | "time_range"
+      | "url"
+      // 2026 原子快路由扩展:与后端 Skill input 名 1:1 对应，槽位直达执行器
+      | "action"
+      | "app_name"
+      | "audio_only"
+      | "body"
+      | "command"
+      | "content"
+      | "days"
+      | "days_ahead"
+      | "destination"
+      | "direction"
+      | "end"
+      | "filter"
+      | "format"
+      | "keys"
+      | "label"
+      | "limit"
+      | "operation"
+      | "query"
+      | "save_path"
+      | "seconds"
+      | "source"
+      | "source_filter"
+      | "start"
+      | "subject"
+      | "target"
+      | "target_step_id"
+      | "target_task_id"
+      | "text"
+      | "time"
+      | "title"
+      | "to";
 
 export interface Slot {
-    kind: SlotKind;
-    raw: string;
-    start: number;
-    end: number;
-    high_risk: boolean;
-    // W6c P1 #2:前端状态标记,后端 Rust 不需要(用户修改后置 true,Apply 后清空)
-    modified?: boolean;
+      kind: SlotKind;
+      raw: string;
+      start: number;
+      end: number;
+      high_risk: boolean;
+      // W6c P1 #2:前端状态标记,后端 Rust 不需要(用户修改后置 true,Apply 后清空)
+      modified?: boolean;
 }
 
 // ===== W7: LLM ExtractedSlot =====
@@ -269,89 +366,89 @@ export interface Slot {
 // LLM 路由返回的原始 Slot(open kind 字符串,无字符位置)。
 // route_text 将 ExtractedSlot 转换为 Slot 后再返回前端。
 export interface ExtractedSlot {
-    kind: string;
-    raw: string;
-    high_risk: boolean;
+      kind: string;
+      raw: string;
+      high_risk: boolean;
 }
 
 // ===== W8 Plan 5: DAG 相关类型 =====
 
 /** W8 §2.3:DAG 节点(前端镜像,与后端 DagNodeDetailDto 对齐)。 */
 export interface DagNode {
-    node_id: string;
-    skill_id: string;
-    risk_ceiling: string; // "E0" | "E1" | "E2" | "E3"
-    status: string;
-    input_template_json: string;
-    output_json: string | null;
-    error_message: string | null;
-    task_id: string | null;
-    step_id: string | null;
-    started_at: string | null;
-    completed_at: string | null;
+      node_id: string;
+      skill_id: string;
+      risk_ceiling: string; // "E0" | "E1" | "E2" | "E3"
+      status: string;
+      input_template_json: string;
+      output_json: string | null;
+      error_message: string | null;
+      task_id: string | null;
+      step_id: string | null;
+      started_at: string | null;
+      completed_at: string | null;
 }
 
 /** W8 §2.3:DAG 边。 */
 export interface DagEdge {
-    from: string;
-    to: string;
-    port_binding: string | null;
+      from: string;
+      to: string;
+      port_binding: string | null;
 }
 
 /** W8 §2.3:DAG 完整详情。 */
 export interface DagPlanDetail {
-    plan_id: string;
-    user_goal: string;
-    status: string;
-    created_at: string;
-    completed_at: string | null;
-    max_total_steps: number;
-    nodes: DagNode[];
-    edges: DagEdge[];
+      plan_id: string;
+      user_goal: string;
+      status: string;
+      created_at: string;
+      completed_at: string | null;
+      max_total_steps: number;
+      nodes: DagNode[];
+      edges: DagEdge[];
 }
 
 /** W8 §2.7:DAG 历史列表项。 */
 export interface DagPlanSummary {
-    plan_id: string;
-    user_goal: string;
-    status: string;
-    created_at: string;
-    completed_at: string | null;
-    root_task_id: string | null;
-    node_count: number;
-    success_rate: number;
+      plan_id: string;
+      user_goal: string;
+      status: string;
+      created_at: string;
+      completed_at: string | null;
+      root_task_id: string | null;
+      node_count: number;
+      success_rate: number;
 }
 
 /** W8 §2.5:task.explain LLM 归因。 */
 export interface TaskExplanation {
-    explanation_id: string;
-    step_id: string;
-    root_cause_zh: string;
-    category: string;
-    suggested_fix: string | null;
-    confidence: number;
-    llm_model: string | null;
-    created_at: string;
+      explanation_id: string;
+      step_id: string;
+      root_cause_zh: string;
+      category: string;
+      suggested_fix: string | null;
+      confidence: number;
+      llm_model: string | null;
+      created_at: string;
 }
 
 /** W8 §2.7:DAG 骨架审批请求 payload(后端 emit `dag-approval-request` 事件)。 */
 export interface DagApprovalRequestPayload {
-    approval_request_id: string;
-    plan_id: string;
-    user_goal: string;
-    max_total_steps: number;
-    node_count: number;
-    plan_json: DagPlanFull;
+      approval_request_id: string;
+      plan_id: string;
+      user_goal: string;
+      max_total_steps: number;
+      node_count: number;
+      plan_json: DagPlanFull;
 }
 
 /** W9 Plan 4:完整 DagPlan(供 Modify 时构造 modified_plan 用)。 */
 export interface DagPlanFull {
-    plan_id: string;
-    user_goal: string;
-    nodes: DagNode[];
-    edges: DagEdge[];
-    loop_specs: Record<string, unknown>;
-    max_total_steps: number;
+      plan_id: string;
+      user_goal: string;
+      nodes: DagNode[];
+      edges: DagEdge[];
+      loop_specs: Record<string, unknown>;
+      max_total_steps: number;
 }
 
 /** W8 §2.7:DAG 审批决策。 */
@@ -359,23 +456,23 @@ export type DagApprovalDecision = "allow" | "deny" | "modify";
 
 /** W8 §2.7:DAG 状态过滤。 */
 export type DagStatusFilter =
-    | "all"
-    | "running"
-    | "succeeded"
-    | "failed"
-    | "cancelled";
+      | "all"
+      | "running"
+      | "succeeded"
+      | "failed"
+      | "cancelled";
 
 /** W8 §2.5:失败工具调用摘要(后端 task.explain 输出的一部分)。 */
 export interface FailedToolCall {
-    tool_name: string;
-    error_message: string;
-    timestamp: string | null;
+      tool_name: string;
+      error_message: string;
+      timestamp: string | null;
 }
 
 /** W8 §2.5:task.explain 完整输出(包含 LLM 归因)。 */
 export interface TaskExplainFull {
-    step_id: string;
-    status: string;
-    failed_tool_calls: FailedToolCall[];
-    llm_analysis: TaskExplanation | null;
+      step_id: string;
+      status: string;
+      failed_tool_calls: FailedToolCall[];
+      llm_analysis: TaskExplanation | null;
 }

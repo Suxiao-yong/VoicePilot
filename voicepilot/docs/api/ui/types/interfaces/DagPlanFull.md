@@ -6,7 +6,7 @@
 
 # Interface: DagPlanFull
 
-Defined in: types.ts:268
+Defined in: types.ts:309
 
 W9 Plan 4:完整 DagPlan(供 Modify 时构造 modified_plan 用)。
 
@@ -16,7 +16,7 @@ W9 Plan 4:完整 DagPlan(供 Modify 时构造 modified_plan 用)。
 
 > **edges**: [`DagEdge`](DagEdge.md)[]
 
-Defined in: types.ts:272
+Defined in: types.ts:313
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:272
 
 > **loop\_specs**: `Record`\<`string`, `unknown`\>
 
-Defined in: types.ts:273
+Defined in: types.ts:314
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:273
 
 > **max\_total\_steps**: `number`
 
-Defined in: types.ts:274
+Defined in: types.ts:315
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:274
 
 > **nodes**: [`DagNode`](DagNode.md)[]
 
-Defined in: types.ts:271
+Defined in: types.ts:312
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:271
 
 > **plan\_id**: `string`
 
-Defined in: types.ts:269
+Defined in: types.ts:310
 
 ***
 
@@ -56,4 +56,4 @@ Defined in: types.ts:269
 
 > **user\_goal**: `string`
 
-Defined in: types.ts:270
+Defined in: types.ts:311

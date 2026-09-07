@@ -35,12 +35,14 @@ export function DiffViewer({ sourcePath, destPath, onClose }: Props): JSX.Elemen
   }, [sourcePath, destPath]);
 
   return (
-    <div className="diff-viewer" role="dialog" aria-label="文件 Diff 预览">
-      <div className="diff-header">
-        <h3>文件 Diff</h3>
+    <div className="diff-card" role="dialog" aria-label="文件 Diff 预览">
+      <div className="card-title head-gap">
+        <span className="tick" aria-hidden="true" />
+        文件 Diff
+        <span className="flex-spacer" />
         <button
           type="button"
-          className="diff-close-btn"
+          className="icon-btn icon-btn-sm"
           onClick={onClose}
           aria-label="关闭 Diff"
         >
@@ -48,15 +50,11 @@ export function DiffViewer({ sourcePath, destPath, onClose }: Props): JSX.Elemen
         </button>
       </div>
       <div className="diff-paths">
-        <div>
-          <strong>源:</strong> <code>{sourcePath}</code>
-        </div>
-        <div>
-          <strong>目标:</strong> <code>{destPath}</code>
-        </div>
+        <div><span className="field-label">源：</span>{sourcePath}</div>
+        <div><span className="field-label">目标：</span>{destPath}</div>
       </div>
-      {loading && <p className="diff-loading">加载中…</p>}
-      {error && <p className="diff-error">错误:{error}</p>}
+      {loading && <p className="diff-note">加载中…</p>}
+      {error && <p className="diff-note diff-error">错误：{error}</p>}
       {result && !loading && !error && <DiffContent result={result} />}
     </div>
   );
@@ -65,24 +63,24 @@ export function DiffViewer({ sourcePath, destPath, onClose }: Props): JSX.Elemen
 function DiffContent({ result }: { result: DiffResult }): JSX.Element {
   if (result.truncated) {
     return (
-      <p className="diff-truncated" role="status">
+      <p className="diff-note" role="status">
         ⚠ {result.truncate_reason}
       </p>
     );
   }
   if (result.file_kind === "binary") {
-    return <p className="diff-binary">二进制文件,不展示 diff</p>;
+    return <p className="diff-note">二进制文件，不展示 diff</p>;
   }
   if (result.file_kind === "new_file" && result.diff_text) {
     return (
-      <pre className="diff-text diff-new-file">
+      <pre className="diff-text">
         <code>{result.diff_text}</code>
       </pre>
     );
   }
   return (
     <pre className="diff-text">
-      <code>{result.diff_text ?? "(无差异)"}</code>
+      <code>{result.diff_text ?? "（无差异）"}</code>
     </pre>
   );
 }

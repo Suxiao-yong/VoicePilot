@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
-import { checkModel, downloadModel, isVoiceEnabled, onModelDownloadProgress } from "../api";
+import {
+  checkModel,
+  downloadModel,
+  isVoiceEnabled,
+  onModelDownloadProgress,
+} from "../api";
 import type { DownloadProgressPayload, ModelStatus } from "../types";
 
-type Phase = "checking" | "present" | "absent" | "downloading" | "done" | "error";
+type Phase =
+  | "checking"
+  | "present"
+  | "absent"
+  | "downloading"
+  | "verifying"
+  | "done"
+  | "error";
 
 interface State {
   phase: Phase;
@@ -18,10 +30,31 @@ const INITIAL: State = {
   error: null,
 };
 
+/** 后端 ModelStatus → 前端 phase。 */
+function statusToPhase(status: ModelStatus): Phase {
+  switch (status) {
+    case "ready":
+      return "present";
+    case "missing":
+      return "absent";
+    case "downloading":
+      return "downloading";
+    case "verifying":
+      return "verifying";
+    case "failed":
+      return "error";
+    case "disabled":
+      return "present";
+  }
+}
+
+/**
+ * 语音模型下载横幅 —— 模型缺失时浮出提示,下载时显示进度。
+ * voice 未启用或模型已就绪(Ready)时完全不渲染。
+ */
 export function ModelDownloadBar(): JSX.Element | null {
   const [state, setState] = useState<State>(INITIAL);
 
-  // 启动时检测 voice 是否启用 + 模型是否存在
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -34,11 +67,12 @@ export function ModelDownloadBar(): JSX.Element | null {
         }
         const status: ModelStatus = await checkModel();
         if (cancelled) return;
-        if (status === "present") {
-          setState({ phase: "present", voiceEnabled: true, progress: null, error: null });
-        } else {
-          setState({ phase: "absent", voiceEnabled: true, progress: null, error: null });
-        }
+        setState({
+          phase: statusToPhase(status),
+          voiceEnabled: true,
+          progress: null,
+          error: null,
+        });
       } catch (e) {
         if (!cancelled) {
           setState({
@@ -55,33 +89,47 @@ export function ModelDownloadBar(): JSX.Element | null {
     };
   }, []);
 
-  // 监听下载进度
   useEffect(() => {
     if (state.phase !== "downloading") return;
     const promise = onModelDownloadProgress((payload) => {
       setState((s) => ({ ...s, progress: payload }));
     });
     return () => {
-      promise.then((fn) => fn()).catch((e) => {
-        console.error("Failed to unlisten model-download-progress:", e);
-      });
+      promise.then((fn) => fn()).catch(console.error);
     };
   }, [state.phase]);
 
-  // voice 未启用 → 不渲染
-  if (!state.voiceEnabled) return null;
-  // 模型已存在 → 不渲染(无需打扰用户)
-  if (state.phase === "present") return null;
+  // B7:done → present 的 2s 计时器挂到 effect 生命周期,卸载/阶段变化时清理
+  useEffect(() => {
+    if (state.phase !== "done") return;
+    const t = window.setTimeout(() => {
+      setState((s) => ({
+        ...s,
+        phase: "present",
+        progress: null,
+        error: null,
+      }));
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, [state.phase]);
 
-  async function handleDownload() {
-    setState((s) => ({ ...s, phase: "downloading", progress: null, error: null }));
+  if (!state.voiceEnabled || state.phase === "present") return null;
+
+  async function handleDownload(): Promise<void> {
+    // 3-3:防连点——下载中(含断点续传入口)忽略重复点击,避免并发发起多个同步下载
+    if (state.phase === "downloading") return;
+    setState((s) => ({
+      ...s,
+      phase: "downloading",
+      progress: null,
+      error: null,
+    }));
     try {
       await downloadModel();
       setState((s) => ({ ...s, phase: "done", progress: null, error: null }));
-      // 2 秒后隐藏 bar
-      window.setTimeout(() => {
-        setState((s) => ({ ...s, phase: "present", progress: null, error: null }));
-      }, 2000);
+      // 通知 MainView 重新探测模型状态(解锁麦克风按钮)。
+      // 定时器改由 done-phase effect 管理(B7),此处只触发一次事件
+      window.dispatchEvent(new CustomEvent("voicepilot:model-ready"));
     } catch (e) {
       setState((s) => ({
         ...s,
@@ -92,29 +140,29 @@ export function ModelDownloadBar(): JSX.Element | null {
     }
   }
 
-  function handleRetry() {
-    handleDownload();
-  }
-
-  // checking → 简短 loading
   if (state.phase === "checking") {
     return (
-      <div className="model-download-bar checking" role="status">
-        <span>检查语音模型状态…</span>
+      <div className="model-banner" role="status">
+        <span className="msg">检查语音模型状态…</span>
       </div>
     );
   }
 
-  // absent → 询问用户是否下载
   if (state.phase === "absent") {
     return (
-      <div className="model-download-bar absent" role="alert" aria-labelledby="model-download-title">
-        <span id="model-download-title" className="model-download-message">
-          ⚠ 语音模型未安装(ggml-tiny.bin,~75MB),需要下载后才能使用语音输入。
+      <div
+        className="model-banner absent"
+        role="alert"
+        aria-labelledby="model-download-title"
+      >
+        <span className="status-dot warn pulse" aria-hidden="true" />
+        <span id="model-download-title" className="msg">
+          语音模型未安装（sherpa-onnx SenseVoice，约 1
+          GB），下载后才能使用语音输入
         </span>
         <button
           type="button"
-          className="btn btn-primary model-download-btn"
+          className="btn btn-primary"
           onClick={handleDownload}
         >
           下载模型
@@ -123,7 +171,14 @@ export function ModelDownloadBar(): JSX.Element | null {
     );
   }
 
-  // downloading → 进度条
+  if (state.phase === "verifying") {
+    return (
+      <div className="model-banner" role="status">
+        <span className="msg">校验模型归档…</span>
+      </div>
+    );
+  }
+
   if (state.phase === "downloading") {
     const percent = state.progress?.percent ?? 0;
     const downloadedMb = state.progress
@@ -132,48 +187,55 @@ export function ModelDownloadBar(): JSX.Element | null {
     const totalMb = state.progress?.total_bytes
       ? (state.progress.total_bytes / 1024 / 1024).toFixed(1)
       : "?";
+    // progress 为 null 表示检测到残留 .part(上次下载中断):提供"继续下载"续传入口。
+    const hasResumablePart = state.progress === null;
     return (
-      <div className="model-download-bar downloading" role="status">
-        <div className="model-download-progress-info">
-          下载中…{downloadedMb} / {totalMb} MB({percent.toFixed(1)}%)
+      <div className="model-banner downloading" role="status">
+        <div className="progress">
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-valuenow={Math.round(percent)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div className="progress-fill" style={{ width: `${percent}%` }} />
+          </div>
+          <span className="progress-info">
+            {hasResumablePart
+              ? "检测到未完成的下载，可断点续传"
+              : `下载中…${downloadedMb} / ${totalMb} MB（${percent.toFixed(1)}%）`}
+          </span>
         </div>
-        <div
-          className="model-download-progress-bar"
-          role="progressbar"
-          aria-valuenow={Math.round(percent)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div className="model-download-progress-fill" style={{ width: `${percent}%` }} />
-        </div>
+        {hasResumablePart && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleDownload}
+          >
+            继续下载
+          </button>
+        )}
       </div>
     );
   }
 
-  // done → 下载完成提示(2 秒后自动消失)
   if (state.phase === "done") {
     return (
-      <div className="model-download-bar done" role="status">
-        <span className="model-download-message">✓ 下载完成,可以开始使用语音输入</span>
+      <div className="model-banner done" role="status">
+        <span className="status-dot ok" aria-hidden="true" />
+        <span className="msg">下载完成，可以开始使用语音输入</span>
       </div>
     );
   }
 
-  // error → 错误信息 + 重试
-  if (state.phase === "error") {
-    return (
-      <div className="model-download-bar error" role="alert">
-        <span className="model-download-message">⨯ 下载失败:{state.error}</span>
-        <button
-          type="button"
-          className="btn btn-secondary model-download-btn"
-          onClick={handleRetry}
-        >
-          重试
-        </button>
-      </div>
-    );
-  }
-
-  return null;
+  return (
+    <div className="model-banner error" role="alert">
+      <span className="status-dot bad" aria-hidden="true" />
+      <span className="msg">下载失败：{state.error}</span>
+      <button type="button" className="btn" onClick={handleDownload}>
+        重试
+      </button>
+    </div>
+  );
 }

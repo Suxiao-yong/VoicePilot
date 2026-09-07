@@ -34,6 +34,7 @@
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
+use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::policy::transaction::EffectManifest;
@@ -43,7 +44,6 @@ use crate::skills::common::{
     create_post_commit_compensation_with_payload, finalize_step_success, invoke_mcp_tool,
     record_approval_decision, validate_input_against_manifest, ApprovalContext,
 };
-use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::skills::manifest::research_save_manifest;
 use crate::skills::verifiers::{verify_research_save, VerificationContext, VerificationOutcome};
 use sha2::{Digest, Sha256};
@@ -67,8 +67,7 @@ pub struct ResearchSaveInput {
 /// JavaScript snippet to extract the main textual content of a page.
 /// Prefers `<main>` element, falls back to `<body>`. Returns innerText
 /// which preserves line breaks.
-const EVAL_SCRIPT: &str =
-    "document.querySelector('main')?.innerText || document.body.innerText";
+const EVAL_SCRIPT: &str = "document.querySelector('main')?.innerText || document.body.innerText";
 
 /// Execute the `research.save_markdown` Skill.
 ///
@@ -107,10 +106,7 @@ pub fn execute_research_save(
     validate_input_against_manifest(&input_map, &research_save_manifest())?;
 
     // Step 3: create new task + step.
-    kernel.create_task(
-        &input.task_id,
-        &format!("research_save:{}", input.url),
-    )?;
+    kernel.create_task(&input.task_id, &format!("research_save:{}", input.url))?;
     let step = StepRecord::new(input.step_id.clone(), input.task_id.clone(), 1);
     kernel.create_step(&step)?;
 
@@ -141,39 +137,47 @@ pub fn execute_research_save(
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
     };
-    let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
+    // Step 6: 审批门 —— research.save_markdown 不在审批白名单，不弹窗直接执行。
+    // 审计留痕由任务/步骤落库提供；分支代码保留便于日后重新加入白名单。
+    if crate::skills::simple::approval_required("research.save_markdown") {
+        let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
 
-    // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    match approval.user_decision {
-        ApprovalDecision::Deny => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill("user denied research_save".to_string()));
+        // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
+        match approval.user_decision {
+            ApprovalDecision::Deny => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill("user denied research_save".to_string()));
+            }
+            ApprovalDecision::Modify => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill(
+                    "modify not supported for research_save".to_string(),
+                ));
+            }
+            ApprovalDecision::Allow => { /* proceed to MCP calls */ }
         }
-        ApprovalDecision::Modify => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill(
-                "modify not supported for research_save".to_string(),
-            ));
-        }
-        ApprovalDecision::Allow => { /* proceed to MCP calls */ }
     }
 
     // Step 7: invoke_mcp_tool(navigate, {url}) — navigate to the URL.
     // On MCP failure, mark step Failed and propagate the error so the
     // SkillRouter can map it to error_code = "mcp_playwright_unavailable".
-    invoke_mcp_tool(kernel, "playwright", "navigate", serde_json::json!({"url": input.url}))
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    invoke_mcp_tool(
+        kernel,
+        "playwright",
+        "navigate",
+        serde_json::json!({"url": input.url}),
+    )
+    .inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     // Step 8: invoke_mcp_tool(snapshot, {}) — get accessibility tree.
     // Required by spec §2.7 to establish browser session state. The
     // returned tree is unused in this minimal implementation but the
     // call must succeed (verifies the page is interactive).
-    invoke_mcp_tool(kernel, "playwright", "snapshot", serde_json::json!({}))
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    invoke_mcp_tool(kernel, "playwright", "snapshot", serde_json::json!({})).inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     // Step 9: invoke_mcp_tool(eval, {script}) — extract main content.
     // The returned ToolResult.data is a JSON object like {"text": "..."}.
@@ -290,12 +294,11 @@ mod tests {
     use crate::kernel::TrustKernel;
     use crate::mcp::repo::McpServerRepo;
     use std::process::Command;
-    use std::sync::Mutex;
 
-    // Serialize tests that mutate CWD via a global mutex. CWD is
-    // process-global, so parallel test threads racing on
+    // Serialize tests that mutate CWD via the crate-shared test mutex
+    // (common.rs). CWD is process-global: each mod's private mutex cannot
+    // stop cross-module races, parallel test threads racing on
     // set_current_dir would corrupt each other's file writes.
-    static CWD_MUTEX: Mutex<()> = Mutex::new(());
 
     struct CwdGuard {
         prev: std::path::PathBuf,
@@ -314,7 +317,9 @@ mod tests {
     }
 
     fn with_temp_cwd<F: FnOnce(&std::path::Path)>(body: F) {
-        let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::skills::common::TEST_CWD_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(temp.path().join("Documents")).expect("create Documents dir");
         let _cwd = CwdGuard::enter(temp.path());
@@ -430,8 +435,7 @@ for line in sys.stdin:
 
             // File exists with correct content.
             let file_path = temp_root.join(&input.save_path);
-            let content = std::fs::read_to_string(&file_path)
-                .expect("markdown file must exist");
+            let content = std::fs::read_to_string(&file_path).expect("markdown file must exist");
             assert!(content.contains("Example Domain"));
             assert!(content.contains("illustrative examples"));
 
@@ -440,25 +444,28 @@ for line in sys.stdin:
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
             // W10 Plan 2: compensation_ref 必须指向 research.reverse_save 记录。
-            let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+            let comp_ref = step
+                .compensation_ref
+                .as_ref()
+                .expect("compensation_ref must be set");
             let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
             assert_eq!(comp.compensate_fn, "research.reverse_save");
             assert_eq!(comp.level, CompensationLevel::Strong);
 
-            // Approval was recorded (PerStep).
+            // 2026 免审批：不落审批记录。
             let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
-            assert_eq!(approvals[0].e_level, ELevel::E2);
+            assert!(approvals.is_empty(), "got {} records", approvals.len());
         });
     }
 
     #[test]
-    fn test_research_save_user_denies_cancels_step() {
+    fn test_research_save_denier_still_writes_file() {
+        // 2026 免审批：AutoDenier 不再拦截，research.save_markdown 照常执行写文件。
         if !python_available() {
             eprintln!("skipping: python not on PATH");
             return;
         }
-        with_temp_cwd(|_temp_root| {
+        with_temp_cwd(|temp_root| {
             let kernel = TrustKernel::open_in_memory().unwrap();
             install_python_mock(&kernel, MOCK_SCRIPT);
             let approver = AutoDenier;
@@ -466,23 +473,21 @@ for line in sys.stdin:
             let input = make_input(&save_path);
             let result = execute_research_save(&kernel, &input, &approver);
 
-            let err = result.unwrap_err();
-            assert!(
-                matches!(err, KernelError::Skill(ref m) if m.contains("user denied")),
-                "expected Skill 'user denied' error, got {:?}",
-                err
-            );
+            assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+            assert_eq!(result.unwrap(), "t1");
 
-            // Step is Cancelled, not Failed.
+            // File WAS written.
+            let file_path = temp_root.join(&input.save_path);
+            let content = std::fs::read_to_string(&file_path)
+                .expect("markdown file must exist after approval-free run");
+            assert!(content.contains("Example Domain"));
+
+            // Step Succeeded.
             let step = kernel.get_step("s1").unwrap().unwrap();
-            assert_eq!(step.status, StepStatus::Cancelled);
+            assert_eq!(step.status, StepStatus::Succeeded);
 
-            // No file written.
-            assert!(!std::path::Path::new(&input.save_path).exists());
-
-            // Approval was still recorded (user saw the prompt).
-            let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
+            // 免审批：不落审批记录。
+            assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
         });
     }
 

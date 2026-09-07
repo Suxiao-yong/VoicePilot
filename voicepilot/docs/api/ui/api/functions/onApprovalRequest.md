@@ -8,7 +8,7 @@
 
 > **onApprovalRequest**(`handler`): `Promise`\<`UnlistenFn`\>
 
-Defined in: api.ts:49
+Defined in: api.ts:50
 
 ## Parameters
 

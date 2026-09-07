@@ -8,7 +8,7 @@
 
 > **listDagHistory**(`limit?`, `offset?`, `filter?`): `Promise`\<[`DagPlanSummary`](../../types/interfaces/DagPlanSummary.md)[]\>
 
-Defined in: api.ts:225
+Defined in: api.ts:238
 
 分页 + 状态过滤查询 DAG 历史。
 

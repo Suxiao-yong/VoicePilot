@@ -45,7 +45,7 @@ fn find_sample_wav() -> Option<PathBuf> {
 }
 
 /// 读取 WAV 文件为 16kHz mono i16 PCM 样本。使用 trust_kernel::voice::wav::read_wav。
-fn read_wav_samples(path: &PathBuf) -> Vec<i16> {
+fn read_wav_samples(path: &std::path::Path) -> Vec<i16> {
     let (samples, sample_rate) = read_wav(path).expect("failed to read WAV fixture");
     assert_eq!(sample_rate, 16000, "fixture must be 16kHz, got {}", sample_rate);
     samples
@@ -54,8 +54,9 @@ fn read_wav_samples(path: &PathBuf) -> Vec<i16> {
 /// 定位 sherpa-rs SenseVoice 模型目录。若不存在返回 None,测试 skip。
 ///
 /// 模型下载由 `voice model download` CLI 命令触发,默认存于
-/// `%LOCALAPPDATA%\voicepilot\models\sense_voice\`(实际目录名见 SENSE_VOICE_DIR_NAME)。
-/// 这里用 ModelRegistry::resolve 复用既有的解析逻辑(支持 VOICEPILOT_HOME 等环境变量)。
+/// `%USERPROFILE%\.voicepilot\models\<SENSE_VOICE_DIR_NAME>`(Wave 0 冻结的
+/// canonical 路径;旧 `%LOCALAPPDATA%\voicepilot\models` 由 ModelRegistry 兼容探测)。
+/// 这里用 ModelRegistry::resolve 复用既有的解析逻辑。
 fn resolve_sense_voice_model() -> Option<PathBuf> {
     let registry = ModelRegistry::new();
     registry.resolve(SENSE_VOICE_DIR_NAME).ok()

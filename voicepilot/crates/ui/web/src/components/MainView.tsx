@@ -5,6 +5,10 @@ import { stopTtsPlayback, selectSpeakText } from "./ttsPlayback";
 import {
   routeText,
   organizeFiles,
+  executeSkill,
+  newExecuteInput,
+  buildAppControlSlots,
+  buildGenericSlots,
   voiceListen,
   cancelVoice,
   onTranscriptionPartial,
@@ -44,6 +48,7 @@ function safeConvertFileSrc(path: string): string {
 import type {
   RouteTextResult,
   OrganizeResult,
+  ExecuteSkillResult,
   VoiceListenResult,
   TranscriptionFinalPayload,
   Slot,
@@ -567,7 +572,20 @@ export function MainView() {
           )}
 
         {/* ===== 文本路由结果 ===== */}
-        {routeResult && <RouteResultCard result={routeResult} />}
+        {/* Routed 且非 organize → Skill 执行确认卡；其余沿用只读路由卡 */}
+        {routeResult &&
+        routeResult.kind === "routed" &&
+        !routeResult.skill_id.includes("organize") ? (
+          <SkillExecuteCard
+            key={`${routeResult.skill_id}-${text}-${routeResult.slots.map((s) => `${s.kind}:${s.raw}`).join(",")}`}
+            skillId={routeResult.skill_id}
+            slots={routeResult.slots}
+            sourceText={text}
+            onDismiss={() => setRouteResult(null)}
+          />
+        ) : (
+          routeResult && <RouteResultCard result={routeResult} />
+        )}
         {error && (
           <div className="alert alert-error" role="alert">
             <span className="alert-icon">⨯</span>
@@ -694,6 +712,130 @@ export function RouteOutcomeFeedback({
         </>
       )}
       {outcome.kind === "empty" && <span className="pill">空输入</span>}
+    </div>
+  );
+}
+
+/**
+ * Skill 执行确认卡（Skill 执行接线 Phase 2）。
+ *
+ * Routed 且非 organize 时渲染：skill 名 + slots + 执行/取消。确认调
+ * `execute_skill_command`，结果回显成功/拒绝/失败三种态。注意这是第一道门
+ * （“我要执行吗”）；需要审批的操作（fs 写/删、shell、form.submit）由
+ * trust-kernel 再弹一次审批卡，其余直接执行。
+ *
+ * slots_json 组装：`quick.app_control` 走专用组装器（含别名归一+动作推断）；
+ * 其余 Skill 走通用组装器（slot.kind 即 manifest input 名，直接映射）。
+ */
+export function SkillExecuteCard({
+  skillId,
+  slots,
+  sourceText,
+  onDismiss,
+}: {
+  skillId: string;
+  slots: Slot[];
+  sourceText: string;
+  onDismiss: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ExecuteSkillResult | null>(null);
+  // app_control 走专用组装器（别名归一+动作推断，取不到 app 返回 null）；
+  // 其余 Skill 走通用组装器（kind 即 input 名），恒为对象，执行键常开。
+  const slotsJson = skillId.includes("app_control")
+    ? buildAppControlSlots(slots, sourceText)
+    : buildGenericSlots(slots);
+
+  async function onExecute(): Promise<void> {
+    if (!slotsJson) return;
+    setBusy(true);
+    try {
+      const r = await executeSkill(newExecuteInput(skillId, slotsJson));
+      setResult(r);
+    } catch (e) {
+      setResult({
+        committed: false,
+        summary: "",
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const denied =
+    result && !result.committed && /denied/i.test(result.error ?? "");
+  return (
+    <div className="result-stack">
+      <div className="result-card ok">
+        <div className="result-kicker">确认执行</div>
+        <div className="result-main">
+          已路由到 Skill：<span className="mono-sm">{skillId}</span>
+        </div>
+        {slots.length > 0 && (
+          <div className="chips" aria-label="识别到的参数">
+            {slots.map((slot, idx) => (
+              <span
+                key={`${slot.kind}-${slot.start}-${idx}`}
+                className="mono-sm"
+              >
+                {slot.kind}: {slot.raw}
+              </span>
+            ))}
+          </div>
+        )}
+        {slotsJson && (
+          <div className="result-sub">
+            <span className="mono-sm">{JSON.stringify(slotsJson)}</span>
+          </div>
+        )}
+        <div className="composer-meta">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={onExecute}
+            disabled={busy || !slotsJson}
+            title={
+              slotsJson
+                ? undefined
+                : "缺少执行参数：换个说法或去主界面补槽位后重试"
+            }
+          >
+            {busy ? "执行中…" : "执行"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={onDismiss}
+            disabled={busy}
+          >
+            取消
+          </button>
+        </div>
+        {!slotsJson && (
+          <div className="result-sub">
+            <span className="pill pill-warn">缺少执行参数，无法一键执行</span>
+          </div>
+        )}
+        {result && result.committed && (
+          <div className="result-sub">
+            <span className="pill pill-on">执行成功</span>
+            <span className="mono-sm">{result.summary}</span>
+          </div>
+        )}
+        {result && !result.committed && denied && (
+          <div className="result-sub">
+            <span className="pill pill-warn">已拒绝</span>
+            <span className="mono-sm">{result.error}</span>
+          </div>
+        )}
+        {result && !result.committed && !denied && (
+          <div className="result-sub">
+            <span className="pill pill-warn">执行失败</span>
+            <span className="mono-sm">{result.error ?? "未知错误"}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,17 @@
+{
+  "server_id": "example-readonly",
+  "name": "Example Readonly Server",
+  "version": "1.0.0",
+  "transport": "stdio",
+  "enabled": true,
+  "trusted": true,
+  "protocol_version": "2025-11-25",
+  "allowed_origins": [],
+  "allowed_paths": ["E:/readonly-data"],
+  "command": "python",
+  "args": [
+    "-c",
+    "import sys,json\ndef emit(o):\n  sys.stdout.write(json.dumps(o)+'\\n'); sys.stdout.flush()\nfor line in sys.stdin:\n  m=json.loads(line)\n  method=m.get('method')\n  if method=='initialize':\n    emit({'jsonrpc':'2.0','id':m.get('id'),'result':{'protocolVersion':'2025-11-25','capabilities':{},'serverInfo':{'name':'example-readonly','version':'1.0.0'}}})\n  elif method=='notifications/initialized':\n    pass\n  elif method=='tools/list':\n    emit({'jsonrpc':'2.0','id':m.get('id'),'result':{'tools':[{'name':'read_item','description':'Read one read-only item (never writes)','inputSchema':{'type':'object','properties':{'id':{'type':'string'}}}}]}})\n  elif method=='tools/call':\n    args=m.get('params',{}).get('arguments',{})\n    if m.get('params',{}).get('name')=='read_item':\n      emit({'jsonrpc':'2.0','id':m.get('id'),'result':{'content':[{'type':'text','text':json.dumps({'id':args.get('id'),'value':'readonly-value'})}],'isError':False}})\n    else:\n      emit({'jsonrpc':'2.0','id':m.get('id'),'error':{'code':-32601,'message':'unknown tool'}})\n  else:\n    emit({'jsonrpc':'2.0','id':m.get('id'),'error':{'code':-32601,'message':'method not found'}})"
+  ],
+  "env": {}
+}

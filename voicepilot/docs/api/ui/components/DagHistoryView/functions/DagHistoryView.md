@@ -8,7 +8,7 @@
 
 > **DagHistoryView**(): `Element`
 
-Defined in: components/DagHistoryView.tsx:57
+Defined in: components/DagHistoryView.tsx:44
 
 ## Returns
 

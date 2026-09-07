@@ -26,6 +26,7 @@
 - [OrganizeInput](interfaces/OrganizeInput.md)
 - [OrganizeResult](interfaces/OrganizeResult.md)
 - [Settings](interfaces/Settings.md)
+- [SettingsUpdate](interfaces/SettingsUpdate.md)
 - [Skill](interfaces/Skill.md)
 - [Slot](interfaces/Slot.md)
 - [TaskExplainFull](interfaces/TaskExplainFull.md)

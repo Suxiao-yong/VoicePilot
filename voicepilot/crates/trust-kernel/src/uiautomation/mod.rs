@@ -1,52 +1,57 @@
 //! UIA adapter — Windows UI Automation abstraction.
 //!
-//! W7 Plan 4 Task 2: define a `UiaAdapter` trait + `WindowsUiaAdapter` impl so
-//! the trust kernel can drive Windows GUI applications (launch, find, click,
-//! read/set text, screenshot) without leaking `uiautomation` crate types to
-//! callers. The trait is object-safe so unit tests can swap in a mock without
-//! touching real UIA / Windows GUI.
+//! W7 Plan 4 Task 2: define a `UiaAdapter` trait so the trust kernel can
+//! drive Windows GUI applications (launch, find, click, read/set text,
+//! screenshot). The trait is object-safe so unit tests can swap in a mock
+//! without touching real Windows GUI.
+//!
+//! Execution backend is the external `mcp-windows` MCP server
+//! (`McpUiaAdapter` in `adapter.rs`, MIT): the kernel keeps the whole trust
+//! shell (whitelist → PerStep approval → audit), the child process does the
+//! UIA driving. Handles are opaque server-side window/element references
+//! (`String`), so this adapter is plain data — no COM apartment, no
+//! thread affinity beyond the existing thread-local injection convention.
 //!
 //! Platform / feature gate: this module is only compiled under
-//! `cfg(all(windows, feature = "uia"))` (see `lib.rs`). The `uiautomation`
-//! crate is Windows-only and `UIAutomation` / `UIElement` are `!Send`/`!Sync`
-//! (COM apartment model), so `UiaElementHandle` and `WindowsUiaAdapter` are
-//! also `!Send`/`!Sync` — they must live on the thread that created them.
+//! `cfg(all(windows, feature = "uia"))` (see `lib.rs`).
 
-use crate::error::Result;
-use uiautomation::core::UIElement;
+use crate::error::{KernelError, Result};
 
 pub mod adapter;
 
 /// Opaque wrapper around a UI Automation element.
 ///
-/// Holds an `Option<UIElement>` so unit tests can construct a placeholder
-/// handle (`None`) without instantiating the real UIA client. The real
-/// `WindowsUiaAdapter` always produces handles wrapping `Some(element)`.
+/// Holds the server-side reference (`Some(handle)`) returned by
+/// `mcp-windows`, or `None` for mock handles. The real `McpUiaAdapter`
+/// always produces handles wrapping `Some(handle)`.
 ///
-/// Field is private to avoid leaking `uiautomation` types through the public
-/// API; access goes through `as_element` (crate-visible) and `from_element`.
+/// Field is private; access goes through `mcp_handle` (crate-visible)
+/// and `from_mcp_handle`.
 pub struct UiaElementHandle {
-    inner: Option<UIElement>,
+    mcp: Option<String>,
 }
 
 impl std::fmt::Debug for UiaElementHandle {
-    /// Manual impl — don't require `UIElement: Debug` (we only surface whether
-    /// the handle wraps an element). Needed so `Result<UiaElementHandle>::unwrap_err`
-    /// works in tests.
+    /// Manual impl — we only surface whether the handle wraps a reference
+    /// (never the reference itself, it can name user windows).
+    /// Needed so `Result<UiaElementHandle>::unwrap_err` works in tests.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UiaElementHandle")
-            .field("has_element", &self.inner.is_some())
+            .field("has_handle", &self.mcp.is_some())
             .finish()
     }
 }
 
 impl UiaElementHandle {
-    /// Wrap a real `UIElement` returned by the UIAutomation crate.
-    pub fn from_element(element: UIElement) -> Self {
-        Self { inner: Some(element) }
+    /// Wrap a server-side reference returned by `mcp-windows`
+    /// (window handle, or window + element selector — see `adapter.rs`).
+    pub fn from_mcp_handle(handle: impl Into<String>) -> Self {
+        Self {
+            mcp: Some(handle.into()),
+        }
     }
 
-    /// Construct a mock handle with no underlying `UIElement`. Test-only —
+    /// Construct a mock handle with no underlying reference. Test-only —
     /// production code should always obtain a handle from `launch_app` /
     /// `find_window` / `find_element`. Exposed as `pub` (rather than
     /// `pub(crate)`) so integration tests in `tests/` can construct mock
@@ -58,13 +63,13 @@ impl UiaElementHandle {
     /// the symbol.
     #[cfg(any(test, feature = "uia"))]
     pub fn mock() -> Self {
-        Self { inner: None }
+        Self { mcp: None }
     }
 
-    /// Borrow the underlying `UIElement`, if any. Crate-visible so the
-    /// `WindowsUiaAdapter` can pull the element back out for API calls.
-    pub(crate) fn as_element(&self) -> Option<&UIElement> {
-        self.inner.as_ref()
+    /// Borrow the underlying server-side reference, if any. Crate-visible so
+    /// the `McpUiaAdapter` can pull it back out for tool calls.
+    pub(crate) fn mcp_handle(&self) -> Option<&str> {
+        self.mcp.as_deref()
     }
 }
 
@@ -110,6 +115,31 @@ pub trait UiaAdapter {
 
     /// Capture a screenshot of `element` and return it as PNG bytes.
     fn screenshot(&self, element: &UiaElementHandle) -> Result<Vec<u8>>;
+
+    /// Close a top-level window (WM_CLOSE semantics).
+    ///
+    /// `discard_changes=false` never dismisses save dialogs: a dirty window
+    /// pops its dialog and the backend reports a timeout-style failure
+    /// instead of losing user data. Default body rejects — mock adapters
+    /// inherit it; real backends override.
+    fn close_window(&self, _window: &UiaElementHandle, _discard_changes: bool) -> Result<()> {
+        Err(KernelError::Uia(
+            "close_window not supported by this adapter".to_string(),
+        ))
+    }
+
+    /// Find a window like `find_window`, but also return its resolved title.
+    ///
+    /// focus/close resolve BEFORE the approval prompt so the approval binds
+    /// the exact window (`{action, app_name, title}`), not just the query
+    /// that may have matched several windows. Default body degrades to
+    /// `find_window` with an empty title — real backends override.
+    fn find_window_titled(
+        &self,
+        query: &str,
+    ) -> Result<Option<(UiaElementHandle, String)>> {
+        Ok(self.find_window(query)?.map(|h| (h, String::new())))
+    }
 }
 
 #[cfg(test)]
@@ -187,8 +217,13 @@ mod tests {
             let mut s = self.state.borrow_mut();
             // Tag the root by whether it wraps a real element — mocks wrap
             // `None`, real `WindowsUiaAdapter` handles wrap `Some(_)`.
-            let root_tag = if root.as_element().is_none() { "mock" } else { "real" };
-            s.find_element_calls.push((root_tag.to_string(), selector.clone()));
+            let root_tag = if root.mcp_handle().is_none() {
+                "mock"
+            } else {
+                "real"
+            };
+            s.find_element_calls
+                .push((root_tag.to_string(), selector.clone()));
             if let Some(msg) = s.next_error {
                 return Err(crate::error::KernelError::Uia(msg.to_string()));
             }
@@ -275,7 +310,10 @@ mod tests {
         let app_handle = adapter
             .launch_app("notepad.exe")
             .expect("launch should succeed");
-        assert!(app_handle.as_element().is_none(), "mock handle wraps no element");
+        assert!(
+            app_handle.mcp_handle().is_none(),
+            "mock handle wraps no reference"
+        );
         assert_eq!(state.borrow().launch_calls.len(), 1);
         assert_eq!(state.borrow().launch_calls[0], "notepad.exe");
 
@@ -284,7 +322,7 @@ mod tests {
             .find_window("Untitled")
             .expect("find_window should succeed")
             .expect("find_window should return Some");
-        assert!(window.as_element().is_none());
+        assert!(window.mcp_handle().is_none());
         assert_eq!(state.borrow().find_window_calls.len(), 1);
         assert_eq!(state.borrow().find_window_calls[0], "Untitled");
 
@@ -294,7 +332,7 @@ mod tests {
             .find_element(&window, &selector)
             .expect("find_element should succeed")
             .expect("find_element should return Some");
-        assert!(edit.as_element().is_none());
+        assert!(edit.mcp_handle().is_none());
         assert_eq!(state.borrow().find_element_calls.len(), 1);
         // Clone the recorded entry out of the RefCell so the borrow is released
         // before we call any further adapter methods (otherwise `borrow_mut`
@@ -348,7 +386,10 @@ mod tests {
         let find_element_err = adapter
             .find_element(&handle, &UiaSelector::ByName("y".to_string()))
             .unwrap_err();
-        assert!(matches!(find_element_err, crate::error::KernelError::Uia(_)));
+        assert!(matches!(
+            find_element_err,
+            crate::error::KernelError::Uia(_)
+        ));
 
         let click_err = adapter.click(&handle).unwrap_err();
         assert!(matches!(click_err, crate::error::KernelError::Uia(_)));

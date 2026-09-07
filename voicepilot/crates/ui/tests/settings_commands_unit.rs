@@ -2,11 +2,11 @@
 
 //! settings_commands 单元测试 —— get_settings/update_settings Tauri command 逻辑。
 
-use voicepilot_ui::settings_commands::{SettingsDto, flatten_to_kv, merge_from_kv};
+use voicepilot_ui::settings_commands::{flatten_to_kv, merge_from_kv, SettingsView};
 
 #[test]
 fn settings_dto_default_has_sensible_values() {
-    let dto = SettingsDto::default();
+    let dto = SettingsView::default();
     // W6b-3b Fix 3:voice_model_path 默认空字符串(用 ModelRegistry 解析默认模型),
     // tts_model_path 默认空字符串(未配置时 tts_command 返回友好错误)。
     assert_eq!(dto.voice_model_path, "");
@@ -19,7 +19,7 @@ fn settings_dto_default_has_sensible_values() {
 
 #[test]
 fn settings_dto_roundtrip_through_kv() {
-    let dto = SettingsDto {
+    let dto = SettingsView {
         voice_model_path: "/models/base.bin".to_string(),
         voice_language: Some("zh".to_string()),
         voice_threads: 8,
@@ -33,7 +33,7 @@ fn settings_dto_roundtrip_through_kv() {
         tts_enabled: false,
         tts_model_path: "/models/tts-test".to_string(),
         // W7: 新增 5 字段用 Default 填充,本测试只验证原有字段往返。
-        ..SettingsDto::default()
+        ..SettingsView::default()
     };
     let kv = flatten_to_kv(&dto);
     assert!(kv.iter().any(|(k, _)| k == "voice.model_path"));
@@ -41,9 +41,9 @@ fn settings_dto_roundtrip_through_kv() {
     assert!(kv.iter().any(|(k, _)| k == "privacy.mode"));
     assert!(kv.iter().any(|(k, _)| k == "tts.enabled"));
     assert!(kv.iter().any(|(k, _)| k == "tts.model_path"));
-    // W7: 验证 LLM KV 也被展平
+    // W7: 验证 LLM 非 secret KV 也被展平;`llm.api_key` 绝不落盘。
     assert!(kv.iter().any(|(k, _)| k == "llm.enabled"));
-    assert!(kv.iter().any(|(k, _)| k == "llm.api_key"));
+    assert!(!kv.iter().any(|(k, _)| k == "llm.api_key"));
     let restored = merge_from_kv(&kv).expect("merge");
     assert_eq!(restored.voice_model_path, "/models/base.bin");
     assert_eq!(restored.voice_threads, 8);
@@ -61,4 +61,32 @@ fn settings_merge_from_partial_kv_uses_defaults_for_missing() {
     // W6b-3b Fix 3:缺失 voice.model_path 时默认空字符串(而非模型名)。
     assert_eq!(dto.voice_model_path, "");
     assert_eq!(dto.compensation_ttl_hours, 24);
+}
+
+#[test]
+fn flatten_to_kv_does_not_serialize_llm_api_key() {
+    let dto = SettingsView::default();
+
+    let kv = flatten_to_kv(&dto);
+
+    assert!(
+        !kv.iter().any(|(k, _)| k == "llm.api_key"),
+        "flatten_to_kv must never serialize llm.api_key"
+    );
+}
+
+#[test]
+fn merge_from_kv_clamps_out_of_range_numerics() {
+    // 2026-08-24 3-5:后端对越界数值收敛,防 UI 之外的写入路径存下非法值。
+    let kv = vec![
+        ("voice.threads".to_string(), "0".to_string()),
+        ("voice.vad.max_silence_ms".to_string(), "999999".to_string()),
+        ("voice.chunk_duration_ms".to_string(), "1".to_string()),
+        ("compensation.ttl_hours".to_string(), "99999".to_string()),
+    ];
+    let dto = merge_from_kv(&kv).expect("merge");
+    assert_eq!(dto.voice_threads, 1);
+    assert_eq!(dto.vad_max_silence_ms, 30_000);
+    assert_eq!(dto.voice_chunk_duration_ms, 10);
+    assert_eq!(dto.compensation_ttl_hours, 8_760);
 }

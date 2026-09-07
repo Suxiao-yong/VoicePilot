@@ -8,7 +8,7 @@
 
 > **toggleMcpServer**(`serverId`, `enabled`): `Promise`\<`void`\>
 
-Defined in: api.ts:112
+Defined in: api.ts:113
 
 ## Parameters
 

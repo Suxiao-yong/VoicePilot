@@ -6,7 +6,7 @@
 
 # Interface: AuditEvent
 
-Defined in: types.ts:100
+Defined in: types.ts:128
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: types.ts:100
 
 > **details**: `unknown`
 
-Defined in: types.ts:105
+Defined in: types.ts:133
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: types.ts:105
 
 > **event\_type**: `string`
 
-Defined in: types.ts:104
+Defined in: types.ts:132
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: types.ts:104
 
 > **hash**: `string`
 
-Defined in: types.ts:108
+Defined in: types.ts:136
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: types.ts:108
 
 > **log\_id**: `string`
 
-Defined in: types.ts:101
+Defined in: types.ts:129
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: types.ts:101
 
 > **prev\_hash**: `string` \| `null`
 
-Defined in: types.ts:107
+Defined in: types.ts:135
 
 ***
 
@@ -54,7 +54,7 @@ Defined in: types.ts:107
 
 > **step\_id**: `string` \| `null`
 
-Defined in: types.ts:103
+Defined in: types.ts:131
 
 ***
 
@@ -62,7 +62,7 @@ Defined in: types.ts:103
 
 > **task\_id**: `string`
 
-Defined in: types.ts:102
+Defined in: types.ts:130
 
 ***
 
@@ -70,4 +70,4 @@ Defined in: types.ts:102
 
 > **timestamp**: `string`
 
-Defined in: types.ts:106
+Defined in: types.ts:134

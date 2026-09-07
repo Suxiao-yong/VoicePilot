@@ -28,7 +28,7 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true, optional = true, features = ["time"] }
-tauri = { workspace = true, optional = true }
+tauri = { workspace = true, optional = true, features = ["tray-icon"] }
 tauri-plugin-global-shortcut = { workspace = true }
 tauri-plugin-dialog = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -53,6 +53,10 @@ tauri = ["dep:tauri", "dep:tauri-build", "dep:tokio", "dep:tracing-subscriber", 
 # Opt-in voice subsystem (sherpa-rs with download-binaries feature,无需 CMake/bindgen)。
 # Enables voice-listen and related Tauri commands that bridge to trust-kernel/voice.
 voice = ["tauri", "trust-kernel/voice", "llm"]
+# 打包模式:内嵌 web/dist 资源(tauri build 默认开启)。不开时 debug 二进制
+# 会加载 devUrl(http://localhost:5173)—— 运行时测试必须开这个,
+# 否则测的是某个 vite dev server 的代码,不是构建产物。
+custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 tempfile = "3"

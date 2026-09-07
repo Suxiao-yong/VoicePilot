@@ -8,7 +8,7 @@
 
 > **TaskExplainPanel**(`__namedParameters`): `Element`
 
-Defined in: components/TaskExplainPanel.tsx:46
+Defined in: components/TaskExplainPanel.tsx:27
 
 ## Parameters
 

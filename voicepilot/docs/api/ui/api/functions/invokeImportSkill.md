@@ -8,7 +8,7 @@
 
 > **invokeImportSkill**(`sourcePath`): `Promise`\<[`UserSkill`](../../types/interfaces/UserSkill.md)\>
 
-Defined in: api.ts:191
+Defined in: api.ts:204
 
 校验 + 复制 .md 到 skills 目录 + reload。
 source_path 由前端通过 `@tauri-apps/plugin-dialog` 的 `open()` 选择。

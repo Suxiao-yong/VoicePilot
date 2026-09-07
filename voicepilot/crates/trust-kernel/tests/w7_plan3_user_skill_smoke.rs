@@ -1,10 +1,10 @@
 //! W7 Plan 3 Task 7 — end-to-end smoke tests for user-custom Skill loading.
 //!
 //! Test 1 (`scan_loads_valid_skill_into_router`): tempdir + 写一个合法
-//! `my-test.md` → `scan_user_skills` 返回 1 个 manifest → 注册到
+//! `my-test/SKILL.md` → `scan_user_skills` 返回 1 个 manifest → 注册到
 //! `SkillRouter` 后 `route` 命中(keyword 匹配)。
 //!
-//! Test 2 (`scan_skips_malformed_yaml`): tempdir + 写一个 `bad.md`
+//! Test 2 (`scan_skips_malformed_yaml`): tempdir + 写一个 `bad-skill/SKILL.md`
 //! (无效 YAML)→ `scan_user_skills` 返回 0 个 manifest。
 //!
 //! Test 3 (`user_skill_overrides_built_in_same_id`): 先注册 built-in
@@ -27,58 +27,50 @@ fn tmp_dir() -> PathBuf {
     dir
 }
 
-/// 构造一个合法的 Skill .md 内容,id/title/keywords 可定制。
-fn build_md(id: &str, title: &str, keyword: &str) -> String {
+/// 构造一个合法的标准 SKILL.md 内容(name/description 可定制)。
+/// 关键词由 derive_keywords 从 description 派生(CJK 串 ≥2 字)。
+fn build_md(name: &str, description: &str) -> String {
     format!(
-        "---\n\
-id: {id}\n\
-version: \"1.0.0\"\n\
-title: {title}\n\
-description: smoke-test skill\n\
-intent_examples:\n  - 部署项目到生产环境\n\
-keywords:\n  - {keyword}\n\
-inputs: {{}}\n\
-risk_ceiling: E2\n\
-data_class_ceiling: D2\n\
-egress: local_only\n\
-max_steps: 3\n\
-tools: []\n\
-approval:\n  mode: none\n  required_for: commit\n  show_effect_manifest: false\n  max_approval_scope: 0\n\
-compensation:\n  level: none\n  ttl_seconds: 0\n  conflict_policy: auto_reverse\n\
-verifier:\n  strategy: weak\n  recheck_after_seconds: 0\n\
-failure_policy:\n  max_retries: 0\n  allow_replan: false\n  on_fail: stop\n\
----\n\n# {title}\n\n这是一个 smoke-test 用途的用户自定义 Skill body。\n",
-        id = id,
-        title = title,
-        keyword = keyword,
+        "---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\n这是一个 smoke-test 用途的用户自定义 Skill body。\n",
+        name = name,
+        description = description,
     )
 }
 
 #[test]
 fn scan_loads_valid_skill_into_router() {
     let dir = tmp_dir();
-    fs::write(dir.join("my-test.md"), build_md("my.test", "My Test", "部署")).unwrap();
-    // 干扰文件:非 .md 应被忽略。
+    let skill_dir = dir.join("my-test");
+    fs::create_dir_all(&skill_dir).unwrap();
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        build_md("my-test", "部署 项目 smoke test skill"),
+    )
+    .unwrap();
+    // 干扰文件:非 SKILL.md 目录应被忽略。
     fs::write(dir.join("notes.txt"), "ignore me").unwrap();
 
     let manifests = scan_user_skills(&dir);
     assert_eq!(manifests.len(), 1, "expected exactly 1 valid manifest");
-    assert_eq!(manifests[0].id, "my.test");
-    assert_eq!(manifests[0].title, "My Test");
-    // description_body 应被填充(包含 "# My Test" heading)。
+    assert_eq!(manifests[0].id, "my-test");
+    assert_eq!(manifests[0].title, "my-test");
+    // description_body 应被填充(包含 "# my-test" heading)。
     assert!(
-        manifests[0].description_body.as_deref().unwrap().contains("# My Test"),
+        manifests[0]
+            .description_body
+            .as_deref()
+            .unwrap()
+            .contains("# my-test"),
         "description_body must contain markdown body"
     );
 
-    // 注册到 SkillRouter 后 route 命中。
+    // 注册到 SkillRouter 后 route 命中(关键词从 description 派生)。
     let mut router = SkillRouter::new();
     router.register(manifests.into_iter().next().unwrap());
     let decision = router.route("部署项目");
     match decision {
         RouteDecision::Skill(m) => {
-            assert_eq!(m.id, "my.test");
-            assert_eq!(m.title, "My Test");
+            assert_eq!(m.id, "my-test");
         }
         other => panic!("expected Skill decision, got {:?}", other),
     }
@@ -89,9 +81,11 @@ fn scan_loads_valid_skill_into_router() {
 #[test]
 fn scan_skips_malformed_yaml() {
     let dir = tmp_dir();
-    // bad.md: frontmatter 缺关键字段 + 未闭合的 YAML 序列。
-    let bad_md = "---\nid: bad.skill\nbad: [unclosed\n---\nbody\n";
-    fs::write(dir.join("bad.md"), bad_md).unwrap();
+    // bad 目录:SKILL.md frontmatter 未闭合的 YAML 序列,应被跳过。
+    let bad_dir = dir.join("bad-skill");
+    fs::create_dir_all(&bad_dir).unwrap();
+    let bad_md = "---\nname: bad-skill\nbad: [unclosed\n---\nbody\n";
+    fs::write(bad_dir.join("SKILL.md"), bad_md).unwrap();
 
     let manifests = scan_user_skills(&dir);
     assert!(
@@ -114,21 +108,21 @@ fn user_skill_overrides_built_in_same_id() {
 
     // 2. 构造一个同 id 的用户版本,但 title 不同。
     //    使用 parse_skill_md 从字符串解析,确保真实走 user_loader 路径。
-    let user_md = build_md("files.organize", "User Override Title", "整理");
+    let user_md = build_md("files.organize", "整理 文件归档 override skill");
     let (user_manifest, _) = parse_skill_md(&user_md).expect("user md must parse");
     assert_eq!(user_manifest.id, "files.organize");
-    assert_eq!(user_manifest.title, "User Override Title");
+    assert_eq!(user_manifest.title, "files.organize");
 
     // 3. 注册用户版本(同 id,应覆盖 built-in)。
     router.register(user_manifest);
 
-    // 4. route 命中后应返回用户版本(title = "User Override Title")。
+    // 4. route 命中后应返回用户版本(标准技能 title 即其 name)。
     let decision = router.route("整理下载目录");
     match decision {
         RouteDecision::Skill(m) => {
             assert_eq!(m.id, "files.organize");
             assert_eq!(
-                m.title, "User Override Title",
+                m.title, "files.organize",
                 "user manifest must override built-in"
             );
         }
@@ -152,23 +146,29 @@ async fn user_skill_appears_as_llm_candidate_via_route_with_llm() {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     let dir = tmp_dir();
-    fs::write(dir.join("my-test.md"), build_md("my.test", "My Test Skill", "test")).unwrap();
+    let skill_dir = dir.join("my-test");
+    fs::create_dir_all(&skill_dir).unwrap();
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        build_md("my-test", "运行 my-test 的 smoke test skill"),
+    )
+    .unwrap();
 
     let manifests = scan_user_skills(&dir);
     assert_eq!(manifests.len(), 1, "expected exactly 1 valid manifest");
     let user_manifest = manifests.into_iter().next().unwrap();
-    assert_eq!(user_manifest.id, "my.test");
-    assert_eq!(user_manifest.title, "My Test Skill");
+    assert_eq!(user_manifest.id, "my-test");
+    assert_eq!(user_manifest.title, "my-test");
 
     // Mount wiremock returning the user skill id with high confidence.
     // If the user manifest is in the candidate list, the router will
     // find it by id and return RouteDecision::Skill.
     let server = MockServer::start().await;
     let arguments = serde_json::json!({
-        "matched_skill_id": "my.test",
+        "matched_skill_id": "my-test",
         "confidence": 0.9,
         "slots": [],
-        "reasoning": "user wants to run my.test"
+        "reasoning": "user wants to run my-test"
     })
     .to_string();
     let body = serde_json::json!({
@@ -200,8 +200,8 @@ async fn user_skill_appears_as_llm_candidate_via_route_with_llm() {
     let decision = router.route_with_llm("请执行操作").await;
     match decision {
         RouteDecision::Skill(m) => {
-            assert_eq!(m.id, "my.test");
-            assert_eq!(m.title, "My Test Skill");
+            assert_eq!(m.id, "my-test");
+            assert_eq!(m.title, "my-test");
         }
         other => panic!("expected Skill decision, got {:?}", other),
     }
@@ -224,9 +224,11 @@ async fn user_skill_overrides_built_in_when_llm_returns_same_id() {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     let dir = tmp_dir();
+    let skill_dir = dir.join("files-organize");
+    fs::create_dir_all(&skill_dir).unwrap();
     fs::write(
-        dir.join("files-organize.md"),
-        build_md("files.organize", "User Custom Organize", "整理"),
+        skill_dir.join("SKILL.md"),
+        build_md("files.organize", "整理 文件归档自定义 skill"),
     )
     .unwrap();
 
@@ -234,7 +236,7 @@ async fn user_skill_overrides_built_in_when_llm_returns_same_id() {
     assert_eq!(manifests.len(), 1, "expected exactly 1 valid manifest");
     let user_manifest = manifests.into_iter().next().unwrap();
     assert_eq!(user_manifest.id, "files.organize");
-    assert_eq!(user_manifest.title, "User Custom Organize");
+    assert_eq!(user_manifest.title, "files.organize");
 
     // Mount wiremock returning the shared id with high confidence.
     let server = MockServer::start().await;
@@ -279,7 +281,7 @@ async fn user_skill_overrides_built_in_when_llm_returns_same_id() {
         RouteDecision::Skill(m) => {
             assert_eq!(m.id, "files.organize");
             assert_eq!(
-                m.title, "User Custom Organize",
+                m.title, "files.organize",
                 "user manifest must override built-in when LLM returns same id"
             );
         }

@@ -8,7 +8,7 @@
 
 > **checkModel**(): `Promise`\<[`ModelStatus`](../../types/type-aliases/ModelStatus.md)\>
 
-Defined in: api.ts:142
+Defined in: api.ts:155
 
 ## Returns
 

@@ -11,10 +11,24 @@
 //! voicepilot-filesystem) leave these as `None`.
 
 use crate::allowed_paths::AllowedPaths;
-use crate::error::Result;
+use crate::error::{KernelError, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+/// Transport allowlist for registered MCP plugins (Wave 2 Task 2.2).
+/// Only `stdio` is currently supported; extending the protocol means adding
+/// an entry here — an explicit allowlist, never a free-form string.
+pub const MCP_TRANSPORT_ALLOWLIST: &[&str] = &["stdio"];
+
+/// The locked MCP protocol version (V1.1 §8.1 `mcp_servers.protocol_version`).
+/// A registered plugin's `protocol_version`, when present, must equal this
+/// exactly — the same value every seeded server row uses.
+pub const MCP_PROTOCOL_VERSION_LOCKED: &str = "2025-11-25";
+
+/// The existing `mcp_servers` row is the single source of truth for MCP
+/// configuration; do not duplicate it in a separate extension/plugin table.
+/// Environment values are configuration secrets and must never be emitted in
+/// audit or log output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerRecord {
     pub server_id: String,
@@ -31,6 +45,7 @@ pub struct McpServerRecord {
     /// W7 Plan 5: JSON array of args (e.g. `["-y","@playwright/mcp@latest"]`).
     pub args: Option<String>,
     /// W7 Plan 5: JSON object of env overrides (e.g. `{"FOO":"bar"}`).
+    /// Values must never be emitted into audit or log output.
     pub env: Option<String>,
 }
 
@@ -130,7 +145,10 @@ impl McpServerRepo {
     }
 
     pub fn delete(&self, conn: &Connection, server_id: &str) -> Result<()> {
-        conn.execute(r#"DELETE FROM mcp_servers WHERE server_id = ?1"#, params![server_id])?;
+        conn.execute(
+            r#"DELETE FROM mcp_servers WHERE server_id = ?1"#,
+            params![server_id],
+        )?;
         Ok(())
     }
 
@@ -201,25 +219,92 @@ impl McpServerRepo {
     /// behavior is "if playwright row does not exist" — matches the
     /// `seed_builtin_filesystem` pattern and preserves user customizations.
     pub fn insert_default_servers(&self, conn: &Connection) -> Result<()> {
-        if self.get(conn, "playwright")?.is_some() {
-            return Ok(());
+        if self.get(conn, "playwright")?.is_none() {
+            let rec = McpServerRecord {
+                server_id: "playwright".to_string(),
+                name: "Playwright MCP".to_string(),
+                version: "latest".to_string(),
+                transport: "stdio".to_string(),
+                enabled: true,
+                trusted: false,
+                protocol_version: Some("2025-11-25".to_string()),
+                allowed_origins: None,
+                // Empty array — Playwright MCP has no filesystem access.
+                allowed_paths: Some("[]".to_string()),
+                command: Some("npx".to_string()),
+                args: Some(r#"["-y","@playwright/mcp@latest"]"#.to_string()),
+                env: Some("{}".to_string()),
+            };
+            self.create(conn, &rec)?;
         }
-        let rec = McpServerRecord {
-            server_id: "playwright".to_string(),
-            name: "Playwright MCP".to_string(),
-            version: "latest".to_string(),
-            transport: "stdio".to_string(),
-            enabled: true,
-            trusted: false,
-            protocol_version: Some("2025-11-25".to_string()),
-            allowed_origins: None,
-            // Empty array — Playwright MCP has no filesystem access.
-            allowed_paths: Some("[]".to_string()),
-            command: Some("npx".to_string()),
-            args: Some(r#"["-y","@playwright/mcp@latest"]"#.to_string()),
-            env: Some("{}".to_string()),
-        };
-        self.create(conn, &rec)
+        // UIA backend (sbroenne/mcp-windows, MIT): the `McpUiaAdapter`
+        // spawns this command per call. The exe is NOT bundled — download
+        // `Sbroenne.WindowsMcp.exe` (releases) onto PATH, or edit this row
+        // in Trust Center with the full path. Missing exe fails closed at
+        // spawn with a readable error; never silently.
+        if self.get(conn, MCP_WINDOWS_SERVER_ID)?.is_none() {
+            let rec = McpServerRecord {
+                server_id: MCP_WINDOWS_SERVER_ID.to_string(),
+                name: "Windows UI Automation (mcp-windows)".to_string(),
+                version: "1.3.22".to_string(),
+                transport: "stdio".to_string(),
+                enabled: true,
+                trusted: false,
+                protocol_version: Some("2025-11-25".to_string()),
+                allowed_origins: None,
+                allowed_paths: Some("[]".to_string()),
+                command: Some("Sbroenne.WindowsMcp.exe".to_string()),
+                args: Some("[]".to_string()),
+                env: Some("{}".to_string()),
+            };
+            self.create(conn, &rec)?;
+        }
+        Ok(())
+    }
+}
+
+/// `mcp_servers.server_id` convention for the bundled UIA backend
+/// (sbroenne/mcp-windows). Single source of truth for the adapter,
+/// seed, docs, and setup-hint error strings.
+pub const MCP_WINDOWS_SERVER_ID: &str = "mcp-windows";
+
+impl McpServerRepo {
+    /// Resolve a stdio spawn spec `(command, args, env)` for `server_id`.
+    ///
+    /// Shared by `invoke_mcp_tool`, the dispatcher MCP arm, and the UIA
+    /// adapter so the lookup + error wording exists exactly once.
+    /// Error strings are pinned by existing tests — keep them verbatim.
+    pub fn spawn_config(
+        &self,
+        conn: &Connection,
+        server_id: &str,
+    ) -> Result<(String, Vec<String>, serde_json::Value)> {
+        let rec = self.get(conn, server_id)?.ok_or_else(|| {
+            KernelError::Mcp(format!(
+                "MCP server '{server_id}' not found in mcp_servers table"
+            ))
+        })?;
+        if !rec.enabled {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{server_id}' is disabled"
+            )));
+        }
+        let command = rec.command.clone().ok_or_else(|| {
+            KernelError::Mcp(format!("MCP server '{server_id}' missing command field"))
+        })?;
+        let args_vec: Vec<String> = serde_json::from_str(
+            rec.args
+                .clone()
+                .unwrap_or_else(|| "[]".to_string())
+                .as_str(),
+        )
+        .map_err(|e| KernelError::Mcp(format!("MCP server '{server_id}' args parse error: {e}")))?;
+        let env_json: serde_json::Value =
+            serde_json::from_str(rec.env.clone().unwrap_or_else(|| "{}".to_string()).as_str())
+                .map_err(|e| {
+                    KernelError::Mcp(format!("MCP server '{server_id}' env parse error: {e}"))
+                })?;
+        Ok((command, args_vec, env_json))
     }
 }
 
@@ -227,6 +312,99 @@ impl Default for McpServerRepo {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Wave 2 Task 2.2: validate a plugin record before it is written to
+/// `mcp_servers`. Called by `TrustKernel::register_mcp_server` before any
+/// write — failure leaves the DB and the runtime catalog untouched.
+///
+/// Rules:
+/// - `server_id` / `name` / `version` / `transport` non-blank
+/// - `transport` in `MCP_TRANSPORT_ALLOWLIST` ("stdio" only)
+/// - `protocol_version`, when present, must be exactly
+///   `MCP_PROTOCOL_VERSION_LOCKED` ("2025-11-25")
+/// - `command` required for stdio spawn servers (non-blank)
+/// - `args` must parse as a JSON array of strings
+/// - `env` must parse as a JSON string→string object
+/// - `allowed_paths` / `allowed_origins` must parse as JSON string arrays
+///
+/// Security: env values are configuration secrets. This function never logs
+/// the record and never writes audit events, so env never appears in audit or
+/// log output (redaction is by omission — nothing here emits env).
+pub fn validate_mcp_server_record(rec: &McpServerRecord) -> Result<()> {
+    if rec.server_id.trim().is_empty() {
+        return Err(KernelError::Mcp("server_id must not be blank".to_string()));
+    }
+    if rec.name.trim().is_empty() {
+        return Err(KernelError::Mcp("name must not be blank".to_string()));
+    }
+    if rec.version.trim().is_empty() {
+        return Err(KernelError::Mcp("version must not be blank".to_string()));
+    }
+    if rec.transport.trim().is_empty() {
+        return Err(KernelError::Mcp("transport must not be blank".to_string()));
+    }
+    if !MCP_TRANSPORT_ALLOWLIST.contains(&rec.transport.as_str()) {
+        return Err(KernelError::Mcp(format!(
+            "MCP server '{}' uses unsupported transport '{}' (allowlist: {})",
+            rec.server_id,
+            rec.transport,
+            MCP_TRANSPORT_ALLOWLIST.join(", "),
+        )));
+    }
+    if let Some(protocol_version) = &rec.protocol_version {
+        if protocol_version != MCP_PROTOCOL_VERSION_LOCKED {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{}' protocol_version '{}' does not match locked value '{}'",
+                rec.server_id, protocol_version, MCP_PROTOCOL_VERSION_LOCKED
+            )));
+        }
+    }
+    if rec
+        .command
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err(KernelError::Mcp(format!(
+            "MCP server '{}' missing command field (required for stdio spawn servers)",
+            rec.server_id
+        )));
+    }
+    if let Some(raw) = &rec.args {
+        if serde_json::from_str::<Vec<String>>(raw).is_err() {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{}' args must be a JSON array of strings",
+                rec.server_id
+            )));
+        }
+    }
+    if let Some(raw) = &rec.env {
+        if serde_json::from_str::<std::collections::HashMap<String, String>>(raw).is_err() {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{}' env must be a JSON object of string→string values",
+                rec.server_id
+            )));
+        }
+    }
+    if let Some(raw) = &rec.allowed_paths {
+        if serde_json::from_str::<Vec<String>>(raw).is_err() {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{}' allowed_paths must be a JSON array of strings",
+                rec.server_id
+            )));
+        }
+    }
+    if let Some(raw) = &rec.allowed_origins {
+        if serde_json::from_str::<Vec<String>>(raw).is_err() {
+            return Err(KernelError::Mcp(format!(
+                "MCP server '{}' allowed_origins must be a JSON array of strings",
+                rec.server_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<McpServerRecord> {

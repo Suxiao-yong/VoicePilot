@@ -3,7 +3,7 @@
 //! 3 个 default-gated 测试:
 //! 1. `audit_registry_all_lower_snake_case` — registry 命名规范(编译时常量)
 //! 2. `audit_emit_warns_on_unknown_event_type` — emit "unknown_event" 触发 warn
-//! 3. `audit_coverage_default_full` — default feature 26/26 = 100% 覆盖
+//! 3. `audit_coverage_default_full` — default feature 28/28 = 100% 覆盖
 //!
 //! **不写文件级 cfg gate** —— 让 default 组合(--no-default-features)也能编译运行此文件。
 //! tracing_test dev-dep 在 default 下可用(不依赖任何 feature)。
@@ -77,11 +77,11 @@ fn audit_emit_warns_on_unknown_event_type() {
     );
 }
 
-/// W10 Plan 5 测试 3:default feature 25/25 = 100% 覆盖(分母=25)。
+/// W10 Plan 5 测试 3:default feature 27/27 = 100% 覆盖(分母=27)。
 ///
-/// spec §7.4:default feature 可触发 25 种事件(排除 voice_started /
+/// spec §7.4:default feature 可触发 27 种事件(排除 voice_started /
 /// stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed 三个
-/// 需其他 feature 的)。本测试通过 `audit_append_external` 直接 emit 25 种,
+/// 需其他 feature 的)。本测试通过 `audit_append_external` 直接 emit 27 种,
 /// 验证 AuditCoverageChecker 报告 100% 覆盖。
 ///
 /// **注意:** 本测试用直接 emit 方式,不通过复杂 E2E 路径触发(那些路径已在
@@ -89,7 +89,7 @@ fn audit_emit_warns_on_unknown_event_type() {
 /// "registry 完整性 + coverage 机制",E2E 触发已有测试。
 #[test]
 fn audit_coverage_default_full() {
-    // default feature 可达的 25 种 event_type(28 - 3 不可达)
+    // default feature 可达的 28 种 event_type(31 - 3 不可达)
     const DEFAULT_REACHABLE: &[&str] = &[
         // W1-W3 基础(kernel.rs)
         "task_created",
@@ -123,11 +123,15 @@ fn audit_coverage_default_full() {
         // W10 Plan 4
         "kill_switch_triggered",
         "task_cancelled",
+        // Wave 3 Task 3.1: secret_migration(启动迁移,default-gated,可达)
+        "secret_migration",
+        // Phase B: memory_injected(router_bridge LLM 路径,default-gated,可达)
+        "memory_injected",
     ];
     assert_eq!(
         DEFAULT_REACHABLE.len(),
-        26,
-        "default-reachable event types must be exactly 26 (29 - 3 unreachable)"
+        28,
+        "default-reachable event types must be exactly 28 (31 - 3 unreachable)"
     );
 
     let kernel = TrustKernel::open_in_memory().unwrap();
@@ -138,18 +142,18 @@ fn audit_coverage_default_full() {
         let task = TaskRecord::new(task_id, "coverage full test placeholder");
         TaskRepo::new().create(&conn, &task).unwrap();
     }
-    // 直接 emit 25 种事件
+    // 直接 emit 28 种事件
     for et in DEFAULT_REACHABLE {
         kernel
             .audit_append_external(task_id, None, et, serde_json::json!({"test": et}))
             .unwrap();
     }
-    // 用 with_expected 传入 25 种子集断言 100% 覆盖
+    // 用 with_expected 传入 28 种子集断言 100% 覆盖
     let checker = AuditCoverageChecker::with_expected(&kernel, DEFAULT_REACHABLE);
     let uncovered = checker.uncovered().unwrap();
     assert!(
         uncovered.is_empty(),
-        "default feature must cover all 25 reachable event types, uncovered: {:?}",
+        "default feature must cover all 28 reachable event types, uncovered: {:?}",
         uncovered
     );
     let ratio = checker.coverage_ratio().unwrap();
@@ -159,13 +163,13 @@ fn audit_coverage_default_full() {
         ratio
     );
 
-    // 额外验证:全量 registry(28 种)checker 报告 25/28
+    // 额外验证:全量 registry(31 种)checker 报告 28/31
     let full_checker = AuditCoverageChecker::new(&kernel);
     let full_uncovered = full_checker.uncovered().unwrap();
     assert_eq!(
         full_uncovered.len(),
         3,
-        "full registry (28) must have 3 uncovered (voice_started / stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed), got: {:?}",
+        "full registry (31) must have 3 uncovered (voice_started / stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed), got: {:?}",
         full_uncovered
     );
     assert!(

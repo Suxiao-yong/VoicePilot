@@ -25,6 +25,7 @@ ureq = { workspace = true, optional = true }
 dirs = { workspace = true }
 sherpa-rs = { workspace = true, optional = true }
 cpal = { workspace = true, optional = true }
+rubato = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
 bzip2 = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
@@ -60,12 +61,20 @@ wiremock = "0.6"
 # 只捕获测试 crate 本身的日志,会过滤掉 trust_kernel 库的 tracing::warn!。
 # tracing-test 官方文档 "Per-crate Filtering" 章节明确说明:集成测试必须启用此 feature。
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
+# Wave 4 Task 4.1:官方 Rust MCP SDK(rmcp)parity 验证 —— 仅 dev-dependency,
+# 只在 `tests/rmcp_parity.rs` 使用;生产构建不依赖它。许可证 Apache-2.0。
+# `client` feature 提供客户端;`transport-child-process` 提供 TokioChildProcess。
+rmcp = { version = "3.1.3", default-features = false, features = ["client", "transport-child-process"] }
 
 [features]
 default = ["llm"]
-voice = ["dep:sherpa-rs", "dep:cpal", "dep:hound", "dep:ureq", "dep:bzip2", "dep:tar"]
+voice = ["dep:sherpa-rs", "dep:cpal", "dep:rubato", "dep:hound", "dep:ureq", "dep:bzip2", "dep:tar"]
 llm = ["dep:reqwest"]
-uia = ["dep:uiautomation"]
+# UIA 能力开关：执行后端是外部 mcp-windows 子进程（MIT），不再链接
+# `uiautomation` crate（COM 自研引擎已删除）。flag 名保留，所有
+# `cfg(all(windows, feature = "uia"))` 门控与下游 `uia = ["trust-kernel/uia"]`
+# 接线不动。
+uia = []
 # W9 Plan 1: Stronghold 加密基础(spec §2.1 feature flag)。
 # 与 voice / tauri / llm feature 正交,可独立编译(spec §10 第 7 条)。
 # 启用方式:cargo check --features stronghold / cargo test --features stronghold
@@ -75,6 +84,7 @@ uia = ["dep:uiautomation"]
 stronghold = ["dep:tauri-plugin-stronghold", "dep:iota_stronghold", "dep:argon2", "dep:rand", "dep:zeroize"]
 
 [target.'cfg(windows)'.dependencies]
-# W7 Plan 4: Windows UIA 自动化(opt-in via `uia` feature, Windows-only)。
-# crates.io 上 crate 名为 `uiautomation`(repo 名才是 uiautomation-rs)。
-uiautomation = { version = "0.16", optional = true }
+# Wave 3 Task 3.1: Windows Credential Manager via `keyring` (SecretStore).
+# Windows-only (target-gated) so the default build has no keyring on other
+# platforms; the SecretStore trait + in-memory impl are unconditional.
+keyring = { workspace = true }

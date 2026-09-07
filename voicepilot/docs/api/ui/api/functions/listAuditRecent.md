@@ -8,7 +8,7 @@
 
 > **listAuditRecent**(`limit`): `Promise`\<[`AuditEvent`](../../types/interfaces/AuditEvent.md)[]\>
 
-Defined in: api.ts:100
+Defined in: api.ts:101
 
 ## Parameters
 

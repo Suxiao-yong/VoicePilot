@@ -4,6 +4,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalDecision,
   AuditEvent,
+  ClarificationRequestPayload,
   DagApprovalDecision,
   DagApprovalRequestPayload,
   DagPlanDetail,
@@ -14,6 +15,11 @@ import type {
   McpServer,
   OrganizeInput,
   OrganizeResult,
+  ExecuteSkillInput,
+  ExecuteSkillResult,
+  ExternalMcpScanResult,
+  ExternalSkill,
+  Slot,
   RouteTextResult,
   Skill,
   TaskExplanation,
@@ -130,6 +136,141 @@ export async function organizeFiles(
   return tauriInvoke<OrganizeResult>("organize_files_command", { input });
 }
 
+// ===== Skill 执行接线 Phase 2：通用执行命令 =====
+
+export async function executeSkill(
+  input: ExecuteSkillInput,
+): Promise<ExecuteSkillResult> {
+  return tauriInvoke<ExecuteSkillResult>("execute_skill_command", { input });
+}
+
+/**
+ * 组装 `ExecuteSkillInput`：task/step id 由调用方生成
+ * （`ui-${timestamp}` / `pet-${timestamp}`，沿用 PetWindow 模式）。
+ * 放模块级：调用方（React 组件）在事件 handler 里直接用，不触 purity 规则。
+ */
+// newExecuteInput 进程内序列号（ms 粒度下连点防撞）。
+let nonceSeq = 0;
+
+export function newExecuteInput(
+  skillId: string,
+  slotsJson: Record<string, unknown>,
+  prefix = "ui",
+): ExecuteSkillInput {
+  // ms 粒度下连点会撞 id：进程内序列号保证同一毫秒内唯一。
+  nonceSeq = (nonceSeq + 1) % 65536;
+  const now = Date.now();
+  const nonce = `${now.toString(36)}${nonceSeq.toString(36)}`;
+  return {
+    task_id: `${prefix}-${now}-${nonce}`,
+    step_id: `s-${now}-${nonce}`,
+    skill_id: skillId,
+    slots_json: slotsJson,
+  };
+}
+
+/**
+ * 已知应用表（显示名 → 可执行名）。与后端 `manifest::known_app_aliases`
+ * 同一张表——加新应用两边各加一行。多词名（Microsoft Edge）必须走这张表，
+ * 正则抓不出带空格的名字。
+ */
+const KNOWN_APPS: ReadonlyArray<readonly [string, string]> = [
+  ["记事本", "notepad"],
+  ["计算器", "calc"],
+  ["资源管理器", "explorer"],
+  ["文件资源管理器", "explorer"],
+  ["Microsoft Edge", "msedge.exe"],
+  ["Edge", "msedge.exe"],
+  ["浏览器", "msedge.exe"],
+  ["飞书", "Feishu.exe"],
+  ["Feishu", "Feishu.exe"],
+  ["notepad", "notepad"],
+  ["calc", "calc"],
+  ["explorer", "explorer"],
+  ["msedge", "msedge.exe"],
+];
+
+export function normalizeAppName(raw: string): string {
+  const name = raw.trim();
+  for (const [display, exe] of KNOWN_APPS) {
+    if (name === display || name.toLowerCase() === display.toLowerCase())
+      return exe;
+  }
+  return name;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 文本里找已知应用（最长匹配优先）。ASCII 名要求词边界（防 Edge 误中
+ * Knowledge 这类包含），中文直判子串。找不到返回 undefined，调用方再走
+ * ASCII 正则兜底（覆盖表外 exe 名）。
+ */
+function scanKnownApp(text: string): string | undefined {
+  const sorted = [...KNOWN_APPS].sort((a, b) => b[0].length - a[0].length);
+  for (const [display] of sorted) {
+    if (/^[\u0020-\u007E]+$/.test(display)) {
+      if (new RegExp(`\\b${escapeRegExp(display)}\\b`, "i").test(text))
+        return display;
+    } else if (text.includes(display)) {
+      return display;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 为 `quick.app_control` 组装 slots_json。
+ *
+ * app 名优先取路由 slots 里第一个 `app`（LLM 路径）；keyword 路径 slots 为空
+ * 时从文本兜底解析（ASCII 名镜像后端 `app_regex`，中文名走别名表）。
+ * action 从文本推断：含关闭/close → close，含切换/聚焦 → focus，其余默认
+ * launch（后端缺失时同样默认 launch）。取不到 app 名返回 null，调用方走改字流。
+ */
+export function buildAppControlSlots(
+  slots: Slot[],
+  text: string,
+): Record<string, string> | null {
+  const fromSlot = slots.find((s) => s.kind === "app")?.raw?.trim();
+  const fromTextAscii = text.match(
+    /(?:打开应用|启动应用|打开|启动|关闭应用|关闭|切换应用|切换|聚焦|launch|open|close|focus)(?:到)?\s*([A-Za-z][\w\-.]*)/i,
+  )?.[1];
+  // 别名归一化后再比对：slot“记事本” vs 文本“notepad”是同一目标，不算错位。
+  const slotApp = fromSlot ? normalizeAppName(fromSlot) : undefined;
+  // 文本侧：先查已知表（多词名/中文名），再 ASCII 正则兜底表外 exe。
+  const scanned = scanKnownApp(text);
+  const textApp =
+    scanned !== undefined ? normalizeAppName(scanned) : fromTextAscii;
+  // 两源都有且不一致 → fail closed，走改字流，不拼错位的 action+app。
+  if (slotApp && textApp && slotApp.toLowerCase() !== textApp.toLowerCase())
+    return null;
+  const appName = slotApp || textApp;
+  if (!appName) return null;
+  let action = "launch";
+  if (/关闭|close|quit/i.test(text)) action = "close";
+  else if (/切换|聚焦|focus/i.test(text)) action = "focus";
+  return { action, app_name: appName };
+}
+
+/**
+ * 通用 slots_json 组装器（除 quick.app_control 外的所有 Skill）。
+ *
+ * 后端 `dispatch_skill_executor` 按 manifest input 名取字段
+ * （`extract_string(resolved_input, "xxx")`），而 LLM 抽取的 slot.kind
+ * 本来就是 input 名（classify prompt 把 input keys 喂给模型），
+ * 所以直接 `{[kind]: raw}` 映射即可；缺字段由后端报可读错误。
+ * keyword 路径 slots 为空时返回 `{}`，执行键可用，缺啥后端会明说。
+ */
+export function buildGenericSlots(slots: Slot[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const s of slots) {
+    if (s.kind && !(s.kind in out)) out[s.kind] = s.raw;
+  }
+  return out;
+}
+
 export async function submitApproval(
   approvalRequestId: string,
   decision: ApprovalDecision,
@@ -146,6 +287,29 @@ export function onApprovalRequest(
   return tauriListen<ApprovalRequestPayload>("approval-request", (event) => {
     handler(event.payload);
   });
+}
+
+/** 提交追问卡点选（一次性）；后端超时回 default_index。 */
+export async function submitClarification(
+  clarificationRequestId: string,
+  selectedIndex: number,
+): Promise<boolean> {
+  return tauriInvoke<boolean>("submit_clarification_command", {
+    clarificationId: clarificationRequestId,
+    selectedIndex,
+  });
+}
+
+/** 监听 `clarification-request` 事件（后端 TauriApprover::request_clarification emit）。 */
+export function onClarificationRequest(
+  handler: (payload: ClarificationRequestPayload) => void,
+): Promise<UnlistenFn> {
+  return tauriListen<ClarificationRequestPayload>(
+    "clarification-request",
+    (event) => {
+      handler(event.payload);
+    },
+  );
 }
 
 export async function voiceListen(): Promise<VoiceListenResult> {
@@ -327,6 +491,39 @@ export async function invokeReloadSkills(): Promise<UserSkill[]> {
 /** 列出当前用户自定义 Skill(重新扫描 skills 目录)。 */
 export async function invokeListUserSkills(): Promise<UserSkill[]> {
   return tauriInvoke<UserSkill[]>("list_user_skills_command");
+}
+
+// ===== 外部发现：全局第三方 Skills / MCP 配置（只读扫描，导入默认不启用） =====
+
+/** 扫描全局 Skill 目录（Claude Code / Agent Skills 标准位置），只读不写。 */
+export async function scanExternalSkills(): Promise<ExternalSkill[]> {
+  return tauriInvoke<ExternalSkill[]>("scan_external_skills_command");
+}
+
+/** 导入外部 Skill 目录（仅复制 SKILL.md，默认关闭，需手动启用）。 */
+export async function importExternalSkill(dir: string): Promise<UserSkill> {
+  return tauriInvoke<UserSkill>("import_external_skill_command", { dir });
+}
+
+/** 扫描全局 MCP 配置（Claude Desktop / Cursor / VS Code），只读不写。
+ * 返回命中 + 跳过记账；跳过条目带原因，不再静默消失。 */
+export async function scanExternalMcp(): Promise<ExternalMcpScanResult> {
+  return tauriInvoke<ExternalMcpScanResult>("scan_external_mcp_command");
+}
+
+/** 按引用导入外部 MCP（source_file + format + server_id）。
+ * secret 由后端从源文件重读，绝不经过 renderer：受损前端只能引用
+ * 扫描见过的条目，换不了 command/env。姿势与手动导入一致。 */
+export async function importExternalMcp(
+  source_file: string,
+  format: string,
+  server_id: string,
+): Promise<void> {
+  await tauriInvoke("import_external_mcp_command", {
+    source_file,
+    format,
+    server_id,
+  });
 }
 
 // ===== W8 Plan 5: DAG 相关 API =====

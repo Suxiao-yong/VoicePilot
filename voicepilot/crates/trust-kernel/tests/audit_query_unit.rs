@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use trust_kernel::audit::{AuditEvent, AuditLogger, SqliteAuditLogger};
+use trust_kernel::audit::{AuditEvent, SqliteAuditLogger};
 use trust_kernel::db;
 use trust_kernel::repo::step_repo::{StepRecord, StepRepo};
 use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
@@ -58,10 +58,18 @@ fn list_recent_returns_events_in_desc_order() {
 #[test]
 fn list_for_task_returns_all_events_for_task() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "task_created")).expect("append");
-    logger.append(&make_event("task-2", None, "task_created")).expect("append");
-    logger.append(&make_event("task-1", Some("step-1"), "step_started")).expect("append");
-    logger.append(&make_event("task-1", Some("step-1"), "step_succeeded")).expect("append");
+    logger
+        .append(&make_event("task-1", None, "task_created"))
+        .expect("append");
+    logger
+        .append(&make_event("task-2", None, "task_created"))
+        .expect("append");
+    logger
+        .append(&make_event("task-1", Some("step-1"), "step_started"))
+        .expect("append");
+    logger
+        .append(&make_event("task-1", Some("step-1"), "step_succeeded"))
+        .expect("append");
 
     let events = logger.list_for_task("task-1").expect("list_for_task");
     assert_eq!(events.len(), 3);
@@ -73,7 +81,9 @@ fn list_for_task_returns_all_events_for_task() {
 #[test]
 fn list_for_task_returns_empty_for_unknown_task() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "task_created")).expect("append");
+    logger
+        .append(&make_event("task-1", None, "task_created"))
+        .expect("append");
     let events = logger.list_for_task("nonexistent").expect("list_for_task");
     assert!(events.is_empty());
 }
@@ -81,7 +91,9 @@ fn list_for_task_returns_empty_for_unknown_task() {
 #[test]
 fn list_recent_with_zero_limit_returns_empty() {
     let logger = setup();
-    logger.append(&make_event("task-1", None, "task_created")).expect("append");
+    logger
+        .append(&make_event("task-1", None, "task_created"))
+        .expect("append");
     let events = logger.list_recent(0).expect("list_recent");
     assert!(events.is_empty());
 }

@@ -6,7 +6,7 @@
 
 # Interface: TaskExplainFull
 
-Defined in: types.ts:296
+Defined in: types.ts:337
 
 W8 §2.5:task.explain 完整输出(包含 LLM 归因)。
 
@@ -16,7 +16,7 @@ W8 §2.5:task.explain 完整输出(包含 LLM 归因)。
 
 > **failed\_tool\_calls**: [`FailedToolCall`](FailedToolCall.md)[]
 
-Defined in: types.ts:299
+Defined in: types.ts:340
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:299
 
 > **llm\_analysis**: [`TaskExplanation`](TaskExplanation.md) \| `null`
 
-Defined in: types.ts:300
+Defined in: types.ts:341
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:300
 
 > **status**: `string`
 
-Defined in: types.ts:298
+Defined in: types.ts:339
 
 ***
 
@@ -40,4 +40,4 @@ Defined in: types.ts:298
 
 > **step\_id**: `string`
 
-Defined in: types.ts:297
+Defined in: types.ts:338

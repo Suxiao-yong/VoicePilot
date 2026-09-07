@@ -56,52 +56,53 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
         // 冲突时(典型:上一实例未退出仍占用热键)插件只打内部日志、不 panic ——
         // 此前用 expect 反而制造了一条"定义非法即静默退出"的路径。
         // 是否真的注册成功由下方 setup 钩子的 is_registered 诊断输出确认。
-        let gs_builder = tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(move |app, shortcut, event| {
-                    // 调试：每次热键事件都打日志，定位"V 无反应"是注册失败还是前端监听失败
-                    eprintln!(
-                        "[voice] shortcut event id={} state={:?} is_toggle={} is_ptt={}",
-                        shortcut.id(),
-                        event.state,
-                        shortcut.id() == toggle_id,
-                        shortcut.id() == ptt_id
-                    );
-                    if shortcut.id() == toggle_id {
-                        // 桌宠化改造:Ctrl+Alt+V = 显示/隐藏主界面。
-                        // Rust 直控窗口显隐,不再 emit 给前端(悬浮球时代的
-                        // toggle-main-window 前端链路已随双窗口架构移除)。
-                        if event.state == ShortcutState::Pressed {
-                            use tauri::Manager;
-                            if let Some(win) = app.get_webview_window("main") {
-                                let visible = win.is_visible().unwrap_or(false);
-                                if visible {
-                                    eprintln!("[voice] Ctrl+Alt+V -> hide main");
-                                    let _ = win.hide();
-                                } else {
-                                    eprintln!("[voice] Ctrl+Alt+V -> show main");
-                                    let _ = win.unminimize();
-                                    let _ = win.show();
-                                    let _ = win.set_focus();
-                                }
+        let gs_builder = tauri_plugin_global_shortcut::Builder::new().with_handler(
+            move |app, shortcut, event| {
+                // 调试：每次热键事件都打日志，定位"V 无反应"是注册失败还是前端监听失败
+                eprintln!(
+                    "[voice] shortcut event id={} state={:?} is_toggle={} is_ptt={}",
+                    shortcut.id(),
+                    event.state,
+                    shortcut.id() == toggle_id,
+                    shortcut.id() == ptt_id
+                );
+                if shortcut.id() == toggle_id {
+                    // 桌宠化改造:Ctrl+Alt+V = 显示/隐藏主界面。
+                    // Rust 直控窗口显隐,不再 emit 给前端(悬浮球时代的
+                    // toggle-main-window 前端链路已随双窗口架构移除)。
+                    if event.state == ShortcutState::Pressed {
+                        use tauri::Manager;
+                        if let Some(win) = app.get_webview_window("main") {
+                            let visible = win.is_visible().unwrap_or(false);
+                            if visible {
+                                eprintln!("[voice] Ctrl+Alt+V -> hide main");
+                                let _ = win.hide();
+                            } else {
+                                eprintln!("[voice] Ctrl+Alt+V -> show main");
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
                             }
                         }
-                        return;
                     }
-                    if shortcut.id() == ptt_id {
-                        // Ctrl+Alt+Space:按住说话（既有行为）
-                        if event.state == ShortcutState::Pressed {
-                            if let Err(e) = app.emit("push-to-talk-start", ()) {
-                                eprintln!("[voice] emit push-to-talk-start failed: {}", e);
-                            }
-                        } else if event.state == ShortcutState::Released {
-                            if let Err(e) = app.emit("push-to-talk-stop", ()) {
-                                eprintln!("[voice] emit push-to-talk-stop failed: {}", e);
-                            }
+                    return;
+                }
+                if shortcut.id() == ptt_id {
+                    // Ctrl+Alt+Space:按住说话（既有行为）
+                    if event.state == ShortcutState::Pressed {
+                        if let Err(e) = app.emit("push-to-talk-start", ()) {
+                            eprintln!("[voice] emit push-to-talk-start failed: {}", e);
                         }
-                        return;
+                    } else if event.state == ShortcutState::Released {
+                        if let Err(e) = app.emit("push-to-talk-stop", ()) {
+                            eprintln!("[voice] emit push-to-talk-stop failed: {}", e);
+                        }
                     }
-                    eprintln!("[voice] unknown shortcut id={}", shortcut.id());
-                });
+                    return;
+                }
+                eprintln!("[voice] unknown shortcut id={}", shortcut.id());
+            },
+        );
         let gs_builder = match gs_builder
             .with_shortcut(ptt)
             .and_then(|b| b.with_shortcut(toggle))
@@ -127,6 +128,34 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
             // 桌宠化改造:启动鼠标穿透看门狗(pet 透明区放行桌面点击,
             // 光标进入兽身/气泡热区时才恢复交互)
             crate::pet_commands::spawn_pet_cursor_watchdog(app.handle().clone());
+
+            // Phase C: 启动进程内后台作业调度器。完成经 Tauri 事件
+            // "agent-job-done" 投递（现有通知通道，R4 核 5）；历史落
+            // agent_job_runs 表（job.history 可溯）。
+            {
+                use tauri::{Emitter, Manager};
+                let state: tauri::State<AppState> = app.state();
+                let kernel = state.kernel.clone_arc();
+                let handle = app.handle().clone();
+                let notify: trust_kernel::scheduler::NotifyFn =
+                    std::sync::Arc::new(move |job, run| {
+                        let payload = serde_json::json!({
+                            "job_id": job.job_id,
+                            "prompt": job.prompt,
+                            "outcome": run.outcome,
+                            "result": run.result,
+                            "finished_at_ms": run.finished_at_ms,
+                        });
+                        if let Err(e) = handle.emit("agent-job-done", payload) {
+                            eprintln!("[scheduler] emit agent-job-done failed: {}", e);
+                        }
+                    });
+                let _ = trust_kernel::scheduler::spawn_scheduler(kernel, notify);
+                eprintln!(
+                    "[scheduler] background scheduler started (tick={}s)",
+                    trust_kernel::scheduler::TICK_SECS
+                );
+            }
 
             // 系统托盘(用户反馈:关掉主窗口后后台不可见、无图标)。
             // 托盘 = 生命周期第二入口:打开主界面 / 退出程序。
@@ -171,10 +200,11 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
                         .outer_size()
                         .map(|s| format!("{}x{}", s.width, s.height))
                         .unwrap_or_else(|e| format!("query failed: {}", e));
-                    let scale = win
-                        .scale_factor()
-                        .unwrap_or(f64::NAN);
-                    eprintln!("[voice] main window outer_size={} scale_factor={}", size, scale);
+                    let scale = win.scale_factor().unwrap_or(f64::NAN);
+                    eprintln!(
+                        "[voice] main window outer_size={} scale_factor={}",
+                        size, scale
+                    );
                 } else {
                     eprintln!("[voice] main window not found at setup");
                 }
@@ -197,7 +227,9 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
                     if let Ok(Some(monitor)) = app.primary_monitor() {
                         let sz = monitor.size();
                         let pos = monitor.position();
-                        let pet_sz = pet.outer_size().unwrap_or(tauri::PhysicalSize::new(450, 540));
+                        let pet_sz = pet
+                            .outer_size()
+                            .unwrap_or(tauri::PhysicalSize::new(450, 540));
                         let x = pos.x + sz.width as i32 - pet_sz.width as i32 - 24;
                         let y = pos.y + sz.height as i32 - pet_sz.height as i32 - 48;
                         let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
@@ -209,7 +241,7 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
                 }
             }
             let _ = app; // voice off 时消除 unused 警告
-            // W6b:按需通过 app.get_webview_window("approval") 打开 Approval 窗口
+                         // W6b:按需通过 app.get_webview_window("approval") 打开 Approval 窗口
             Ok(())
         })
         .run(tauri::generate_context!())

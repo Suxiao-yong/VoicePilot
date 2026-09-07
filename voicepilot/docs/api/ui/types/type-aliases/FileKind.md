@@ -8,4 +8,4 @@
 
 > **FileKind** = `"new_file"` \| `"text"` \| `"binary"`
 
-Defined in: types.ts:144
+Defined in: types.ts:178

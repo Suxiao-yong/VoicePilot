@@ -413,7 +413,7 @@ mod tests {
             )
             .unwrap();
         assert!(
-            latency_ms >= 100 && latency_ms <= 200,
+            (100..=200).contains(&latency_ms),
             "latency_ms should be ~120ms, got {}",
             latency_ms
         );

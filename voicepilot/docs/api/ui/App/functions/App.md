@@ -8,7 +8,7 @@
 
 > **App**(): `Element`
 
-Defined in: App.tsx:30
+Defined in: App.tsx:38
 
 ## Returns
 

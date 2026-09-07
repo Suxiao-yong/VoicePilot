@@ -46,12 +46,14 @@ ureq = { version = "2", features = ["tls"] }
 dirs = "5"
 sherpa-rs = { version = "0.6.8", features = ["download-binaries", "tts"] }
 cpal = { version = "0.15" }
+# 抗混叠重采样(麦克风 48k → ASR 16k),替代 W5 PoC 线性插值
+rubato = "0.15"
 hound = { version = "3.5" }
 bzip2 = "0.4"
 tar = "0.4"
 tauri = { version = "2", features = ["wry"] }
 tauri-build = { version = "2" }
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 regex = "1"
@@ -67,3 +69,8 @@ tauri-plugin-stronghold = "2"
 iota_stronghold = "2"
 argon2 = "0.5"
 rand = "0.8"
+# Wave 3 Task 3.1: Windows Credential Manager via `keyring` (SecretStore).
+# `windows-native` backend is enabled; the dependency itself is declared only
+# under `[target.'cfg(windows)'.dependencies]` in trust-kernel so the default
+# build has no keyring on non-Windows targets.
+keyring = { version = "3", features = ["windows-native"] }

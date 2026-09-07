@@ -13,7 +13,8 @@ const MIGRATION_003: &str = include_str!("migrations/003_mcp_servers_command.sql
 // W8 Plan 1 Task 1: DAG orchestration tables (dag_plans + dag_nodes + task_explanations).
 const MIGRATION_004: &str = include_str!("migrations/004_dag_plans.sql");
 // W9 Plan 2 Task 3a: adds reverse_payload + compensate_fn real columns to compensations.
-const MIGRATION_005: &str = include_str!("migrations/005_compensations_reverse_payload_columns.sql");
+const MIGRATION_005: &str =
+    include_str!("migrations/005_compensations_reverse_payload_columns.sql");
 // W9 Plan 3 Task 1: taints 表 value_hash UNIQUE 约束(供 TaintRepo::upsert 的
 // ON CONFLICT(value_hash) DO UPDATE 路径依赖)。CREATE UNIQUE INDEX IF NOT EXISTS
 // 幂等,可重复执行。
@@ -21,7 +22,8 @@ const MIGRATION_006: &str = include_str!("migrations/006_taints_unique_index.sql
 // W10 清理项 3: audit_logs.event_type 历史数据 SCREAMING_SNAKE_CASE → lower_snake_case。
 // 单条 UPDATE ... CASE WHEN 语句,无 schema 变更。CASE WHEN 不匹配 lower_snake_case
 // 值,重复执行影响 0 行,天然幂等。
-const MIGRATION_007: &str = include_str!("migrations/007_audit_logs_event_type_lower_snake_case.sql");
+const MIGRATION_007: &str =
+    include_str!("migrations/007_audit_logs_event_type_lower_snake_case.sql");
 // W10 Plan 3: voice_latency_samples 表 + idx_voice_latency_started 索引。
 // CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
 const MIGRATION_008: &str = include_str!("migrations/008_voice_latency_samples.sql");
@@ -29,6 +31,12 @@ const MIGRATION_008: &str = include_str!("migrations/008_voice_latency_samples.s
 // CREATE ... IF NOT EXISTS 幂等,单次 execute_batch 足够。
 const MIGRATION_009: &str = include_str!("migrations/009_turns.sql");
 const MIGRATION_010: &str = include_str!("migrations/010_llm_route_cache.sql");
+// Phase B: memory_facts 表（跨会话长期记忆，mem0 最小子集）。
+// CREATE ... IF NOT EXISTS 幂等，单次 execute_batch 足够。
+const MIGRATION_011: &str = include_str!("migrations/011_memory_facts.sql");
+// Phase C: agent_jobs + agent_job_runs 表（进程内后台作业）。
+// CREATE ... IF NOT EXISTS 幂等，单次 execute_batch 足够。
+const MIGRATION_012: &str = include_str!("migrations/012_agent_jobs.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -118,6 +126,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(MIGRATION_009)?;
     // Task 6: 010 创建 llm_route_cache 表 + idx_route_cache_expiry 索引。幂等，单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_010)?;
+    // Phase B: 011 创建 memory_facts 表。幂等，单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_011)?;
+    // Phase C: 012 创建 agent_jobs + agent_job_runs 表。幂等，单次 execute_batch 足够。
+    conn.execute_batch(MIGRATION_012)?;
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -218,7 +230,11 @@ mod tests {
             "table must have latency_ms column: {}",
             sql
         );
-        assert!(sql.contains("model"), "table must have model column: {}", sql);
+        assert!(
+            sql.contains("model"),
+            "table must have model column: {}",
+            sql
+        );
         assert!(
             sql.contains("privacy_mode"),
             "table must have privacy_mode column: {}",

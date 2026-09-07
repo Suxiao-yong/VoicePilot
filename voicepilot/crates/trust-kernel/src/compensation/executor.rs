@@ -66,6 +66,10 @@ impl ReverseFnRegistry {
             "form.reverse_prepare".to_string(),
             crate::skills::reverse_fns::reverse_form_prepare,
         );
+        fns.insert(
+            "media.reverse_clip_chorus".to_string(),
+            crate::skills::reverse_fns::reverse_media_clip_chorus,
+        );
         Self { fns }
     }
 

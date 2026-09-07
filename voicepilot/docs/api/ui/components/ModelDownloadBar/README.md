@@ -8,4 +8,4 @@
 
 ## Functions
 
-- [ModelDownloadBar](functions/ModelDownloadBar.md)
+- [ModelDownloadBanner](functions/ModelDownloadBanner.md)

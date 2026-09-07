@@ -6,7 +6,7 @@
 
 # Interface: DagEdge
 
-Defined in: types.ts:215
+Defined in: types.ts:256
 
 W8 §2.3:DAG 边。
 
@@ -16,7 +16,7 @@ W8 §2.3:DAG 边。
 
 > **from**: `string`
 
-Defined in: types.ts:216
+Defined in: types.ts:257
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:216
 
 > **port\_binding**: `string` \| `null`
 
-Defined in: types.ts:218
+Defined in: types.ts:259
 
 ***
 
@@ -32,4 +32,4 @@ Defined in: types.ts:218
 
 > **to**: `string`
 
-Defined in: types.ts:217
+Defined in: types.ts:258

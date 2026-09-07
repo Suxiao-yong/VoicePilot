@@ -11,6 +11,16 @@ pub mod task_compensate;
 pub mod task_explain;
 pub mod task_repeat;
 pub mod user_loader;
+// Daisy 移植：共用骨架 + 系统组。
+pub mod simple;
+pub mod sys_ops;
+pub mod clip_ops;
+pub mod fs_ops;
+pub mod web_ops;
+pub mod shell_run;
+pub mod media_ops;
+pub mod pim;
+pub mod doc_office;
 
 // W10 Plan 1: Strong Verifier 函数集合(6 个有副作用 Skill 的 verify 函数)。
 // files.organize 已在 W3a 实现 verify_move,task.explain 是只读 Skill(strategy="none"),
@@ -29,6 +39,8 @@ pub mod explanation_repo;
 pub mod dispatcher;
 // W8 Plan 2 Task 3: DagExecutor 简单节点调度
 pub mod dag_executor;
+// 原子快路由：意图匹配 + 参数提取一步完成（对标 Daisy tryLocalCommand）。
+pub mod fastroute;
 
 // W7 Plan 4 Task 3: quick.app_control executor (launch/focus/close).
 // `cfg(all(windows, feature = "uia"))` (rather than just `feature = "uia"`)

@@ -8,7 +8,7 @@
 
 > **invokeCancelTts**(): `Promise`\<`void`\>
 
-Defined in: api.ts:176
+Defined in: api.ts:189
 
 ## Returns
 

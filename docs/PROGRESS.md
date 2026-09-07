@@ -30,7 +30,7 @@
 ## 一、总体里程碑状态
 
 | 周次 | 名称 | 状态 | 测试数 | 完成时间 | Merge Commit |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | W1 | Trust Kernel Skeleton | ✅ 已合并 | 26 | 2026-07-19 | (squash into W2 merge) |
 | W2 | Policy + Action Gateway | ✅ 已合并 | 53 | 2026-07-19 | `59a5999` |
 | W3a | Filesystem Adapter + Compensation + Verifier | ✅ 已合并 | 38 | 2026-07-19 | `d8bd4b5` |
@@ -63,7 +63,7 @@
 | W9 Plan 6 | PostCommitCompensation + reverse 函数(spec §2.11) | ✅ 已完成 | create_post_commit_compensation + reverse_compensation + compensations 表 snapshot_encrypted / reverse_payload 列 + CWD_MUTEX 串行化 | 2026-07-29 | `0d69304` |
 | W9 Plan 7 | 集成验收 + Fitness Functions 闭合(spec §5) | ✅ 已完成 | +19 default 测试(w9_default_boundary_smoke 16 + w9_audit_chain_smoke 3 default-gated 2 + stronghold-gated 1);7 套 feature 组合 cargo check 全 PASS;clippy `-D warnings` 0 警告(default + 全特性);npm build PASS;非门控测试 506 ≥ 286;default cargo test 505 passed 0 failed | 2026-08-01 | `e467038` |
 | W9 | Stronghold + Taint + DAG Modify + UserSlot + 审计扩展 + PostCommitCompensation + 集成验收 | ✅ 已完成 | 7 个 Plan 全部完成(Plan 1 Stronghold + Plan 2 Taint + Plan 3 DAG Modify + Plan 4 UserSlot + Plan 5 审计扩展 + Plan 6 PostCommitCompensation + Plan 7 集成验收) | 2026-08-01 | `e467038`(W9 head) |
-| W10 | V1 发布门禁闭合(Strong Verifier / Compensation / P95 延迟 / Kill Switch / 审计覆盖率)| ✅ 已完成 | 613 default cargo test | 2026-08-06 | (direct on master) |
+| W10 | V1 发布门禁闭合(Strong Verifier / Compensation / P95 延迟 / Kill Switch / 审计覆盖率) | ✅ 已完成 | 613 default cargo test | 2026-08-06 | (direct on master) |
 | W11 Plan 1 | 评测骨架 + Inspect AI 集成 + 100 功能任务 | ✅ 已完成 | +3 default (eval_subcommand_smoke) → 616 default;+5 Python scorer 单元测试 | 2026-08-11 | (direct on master) |
 | W11 Plan 2 | promptfoo red team 50 攻击样本 + 拦截率 | ✅ 已完成 | +8 redteam smoke (w11_redteam_block_smoke)+ 4 eval CLI 恶意输入契约测试 | 2026-08-16 | `ad5016a` |
 | W11 Plan 3 | 20 TOCTOU 场景 + Rust 单测 | ✅ 已完成 | +20 default (w11_toctou_block_smoke) | 2026-08-16 | `544f3ab` |
@@ -78,6 +78,8 @@
 | W12 Plan 5 | NSIS 安装包配置完善 + release.yml | ✅ 已完成 | 测试数不变(打包配置,无新测试);webview2 bootstrapper + release.yml + docs/release.md | 2026-08-16 | `975f4ea` |
 | W12 Plan 6 | 集成验收 + audit + 5 Fitness Functions | ✅ 已完成 | +5 default (w12_default_boundary_smoke);audit.sh + audit.yml(每周一) | 2026-08-16 | `32c96a5` |
 | W12 | 工程规范(spec §10.4 未就绪项) | ✅ 已完成 | 6 个 Plan 全部完成(Plan 1 cargo-deny+edition 2024 / Plan 2 CI / Plan 3 API docs / Plan 4 ADR / Plan 5 NSIS / Plan 6 audit+Fitness) | 2026-08-16 | (direct on master) |
+| W12b | 录音链路修复(常驻流 + rubato 重采样 + VAD 增量喂入) | ✅ 已完成 | +5 audio 单元测试(resample/downmix/ring-buffer);voice 全绿(58 lib + 8 listener + 集成);default check PASS | 2026-09-03 | (direct on master,未 commit) |
+| W12b-Phase 1 | 对标 buzz 端点策略(300ms 静音/hysteresis/onset/pre-roll/TTS 自激防护) | ✅ 已完成 | +6 新单测(hysteresis/onset/pre-roll/取段/TTS×2);voice 全绿(64 lib + 8 listener + 集成);ui --features voice check PASS | 2026-09-03 | (direct on master,未 commit) |
 
 **累计测试数:** 506 (default `cargo test --workspace --no-default-features`,W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40 + W7 default tests 87 + W8 Plan 1 新增 56 + W8 Plan 2 新增 43 + W8 Plan 3 新增 39 + W8 Plan 4 新增 4 non-gated + W9 Plan 7 新增 18 default-gated:16 w9_default_boundary_smoke + 2 w9_audit_chain_smoke);+1 via `-p trust-kernel --features stronghold`(W9 Plan 7 w9_audit_chain_smoke stronghold-gated 1);+48 via `-p voicepilot-ui --features tauri`(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit);+78 via `-p voicepilot-ui --features voice`(W6b-3b 完成 sherpa-rs 迁移,issue #49 已解决,voice feature 测试全 PASS,含 w6b3b_e2e_smoke 6 个 E2E);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 4 w8_plan4_router_bridge_dag);+14 via `-p voicepilot-ui --features tauri`(W8 Plan 5 w8_dag_commands_unit);+8 via `-p trust-kernel --features voice,llm`(W8 Plan 6 w8_e2e_dag_smoke scenarios 1-8)
 
@@ -88,6 +90,7 @@
 ### W1: Trust Kernel Skeleton (26 tests)
 
 **实现内容:**
+
 - `crates/trust-kernel/src/` 单一 Rust 信任内核骨架
 - SQLite 数据库迁移(`db/mod.rs`)
 - `TaskRepo` + `StepRepo` CRUD(级联删除)
@@ -97,6 +100,7 @@
 - `cli` crate(text command entry: create/cancel/show/quit)
 
 **关键修复:**
+
 - Rust lifetime:`query_map` 闭包不能引用 `&Row<'_>`,改为提取为 owned 类型
 - CLI EOF:无 `if n == 0 { break; }` 导致死循环
 - Audit test FK 失败:`task_id` 引用必须先创建 parent task
@@ -104,6 +108,7 @@
 ### W2: Policy + Action Gateway (53 tests)
 
 **实现内容:**
+
 - §4.1 E×D 二维风险矩阵(`policy/risk_matrix.rs`)
 - §4.2 Cedar 授权引擎 + Rust Constraint Engine 双层决策
 - `ActionGateway` 编排 Cedar + Constraint + E×D + Egress
@@ -111,12 +116,14 @@
 - V1.1.1 规格修订(W2 反馈)
 
 **关键偏离:**
+
 - Cedar 4.11.2 API 调整(`EntityUid::from_type_name` 等)
 - Token 过期检查修复
 
 ### W3a: Filesystem Tool Adapter + Compensation + Strong Verifier (38 tests)
 
 **实现内容:**
+
 - §4.4 step 1 `fs_paths::canonicalize` 路径规范化(纯字符串,不触碰文件系统)
 - §6.1 `FilesystemTool` 原生 Rust 适配器(无 MCP SDK 依赖)
 - §6.2 `prepare_move` + `commit_move` + TOCTOU 防护(`preconditions_hash`)
@@ -128,6 +135,7 @@
 - CLI `move` 命令端到端冒烟(prepare → commit → verify → compensation placeholder)
 
 **新增模块结构:**
+
 ```
 crates/trust-kernel/src/
 ├── tools/
@@ -144,8 +152,9 @@ crates/trust-kernel/src/
 ```
 
 **W3a commits (按时序):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `2bf7b5c` | Task 1: walkdir dep + path canonicalization |
 | `2e1b3bc` | Task 2: file snapshot helpers |
 | `c482bd5` | Task 3: FilesystemTool::prepare_move |
@@ -159,9 +168,11 @@ crates/trust-kernel/src/
 | `d8bd4b5` | Merge W3a (--no-ff) |
 
 **关键修复(CRITICAL):**
+
 - Task 8 rollback rename 方向反转:plan 的 `rename(curr, orig)` 是反的,改为 `rename(orig, curr)`
 
 **已知偏离(已记录规格 issue 17-26):**
+
 - §6.1 计划用 Node `@modelcontextprotocol/server-filesystem`,但 V1.1 要求单一 Rust 内核 → W3a 改为原生 Rust
 - §7.2 `snapshot_encrypted` 须用 tauri-plugin-stronghold,但 W3a-W7 用明文 PoC,W8 才上 Stronghold
 - §6.2 `file_id` 构造未规定,Windows 用 `volume_serial + file_index`,Unix 用 `dev + ino`
@@ -176,6 +187,7 @@ crates/trust-kernel/src/
 ### W3b: files.organize Skill + 端到端审批流 (39 tests)
 
 **实现内容:**
+
 - §5.1 `SkillRouter` 纯关键词匹配路由(intent_examples + curated keywords,无 LLM)
 - §5.2/§5.3 `SkillManifest` 完整 schema + `files.organize` 内置 manifest(E2/D2/local_only/4 steps)
 - §6.2 prepare → approve → commit → verify → compensate 全链路 `FilesOrganizeSkill` 编排器
@@ -189,6 +201,7 @@ crates/trust-kernel/src/
 - `w3b_e2e_smoke.rs` 完整端到端集成测试(含 auto_reverse_move 往返)
 
 **新增模块结构:**
+
 ```
 crates/trust-kernel/src/
 ├── skills/
@@ -209,8 +222,9 @@ crates/trust-kernel/src/
 ```
 
 **W3b commits (按时序):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `09554af` | Task 1: kernel compensation + step 公开 accessors |
 | `15f66a9` | Task 2: approval types + repo + Approver trait |
 | `0fa1eb3` | Task 2 fix: DRY row parsing + ELevel as_str/parse |
@@ -232,6 +246,7 @@ crates/trust-kernel/src/
 | `e9aa5ca` | Merge W3b (--no-ff) |
 
 **关键修复(CRITICAL):**
+
 - Task 7 错误路径正确性:`commit_move` / `verify_move` / `create_compensation` 任一失败时必须先 `update_step_status(Failed)` 再传播错误
 - Task 7 verify-fail 后必须合成 CompensationRecord(否则已 commit 的 move 无法回滚)
 - Task 7 `create_compensation` 失败后必须显式上报错误(否则 commit 已落盘但无补偿记录 → 数据丢失)
@@ -239,6 +254,7 @@ crates/trust-kernel/src/
 - Task 8 `McpToolSchema` / `McpAnnotations` 字段需 `#[serde(rename_all = "camelCase")]` 以匹配 W4 JSON-RPC 序列化
 
 **已知偏离(已记录规格 issue 27-35):**
+
 - §5.3 Skill Manifest 用 YAML 但 V1.1 技术栈未指定 `serde_yaml` → W3b 用 Rust struct literal,W7 加 YAML 支持
 - §6.2 `approval_token` 提及但格式未定义 → 与 `approval_id` 语义重叠,建议合并
 - §8.1 `approvals` 表同时有 `risk_level`(V1.0 legacy)和 `E_level`/`D_level` → 冗余,建议 V1.2 弃用
@@ -253,6 +269,7 @@ crates/trust-kernel/src/
 ### W4: MCP Server Wrapping (38 tests)
 
 **实现内容:**
+
 - §6.1 JSON-RPC 2.0 wire 协议(`mcp/transport.rs`)— Request/Response/Error/Notification + NDJSON 行分隔帧
 - §6.1 `McpServer` 调度器(`mcp/server.rs`)— `handle_request` 分发 initialize/tools.list/tools.call
 - §6.1 MCP 2025-11-25 协议握手(`initialize` → `notifications/initialized` → `tools/list` → `tools/call`)
@@ -267,6 +284,7 @@ crates/trust-kernel/src/
 - `w4_e2e_smoke.rs` 端到端集成测试:4 NDJSON 消息 → 4 响应 + 审计链验证 + PathNotAllowed 验证
 
 **新增模块结构:**
+
 ```
 crates/trust-kernel/src/
 └── mcp/
@@ -277,6 +295,7 @@ crates/trust-kernel/src/
 ```
 
 **核心架构决策:**
+
 - `McpServer` 持有 `Arc<TrustKernel>`(非 by-value)— `TrustKernel` 不 `Clone`,`new()` 包装为 Arc,`with_arc()` 接受现有 Arc
 - `FilesystemTool` 字段从 `Arc<FilesystemTool>` 改为 `Arc<Mutex<FilesystemTool>>` — 支持运行时替换 `replace_filesystem_with_allowed_paths()`;`filesystem()` accessor 返回 `MutexGuard`(deref coercion 保 9 处既有调用点零修改)
 - `OutgoingMessage` 枚举(Response | Error)手写 `impl Serialize` 委托内部变体(可用 `#[serde(untagged)]` 但显式 impl 更可读)
@@ -284,8 +303,9 @@ crates/trust-kernel/src/
 - CLI `mcp-serve` 终端命令消费 `TrustKernel` by-value,`return Ok(())` 在 stdio 循环结束后退出 main
 
 **W4 commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `f78f025` | docs(w4): add MCP Server Wrapping implementation plan |
 | `d113458` | Task 1: JSON-RPC 2.0 message types (V1.1 §6.1 wire protocol) |
 | `f4b88f0` | Task 2: NDJSON line framing for stdio transport (V1.1 §6.1) |
@@ -302,6 +322,7 @@ crates/trust-kernel/src/
 | `4169e5b` | W4 fast-follow: run_stdio continues after kernel errors (spec issue #37) |
 
 **关键修复(CRITICAL):**
+
 - Task 3 `row_to_record` 返回类型:plan 指定 `crate::error::Result<McpServerRecord>` 但 `query_map` 闭包要求 `rusqlite::Result<T>` → 改返回类型为 `rusqlite::Result<McpServerRecord>`(`?` 通过 `#[from]` 自动转换)
 - Task 8 `handle_tools_call` 错误处理:plan 用 `let result = self.handler.call_tool(...)?;` 把 `KernelError::Mcp` 当 Err 传播,导致测试 `unwrap()` panic → 改为 `match` 捕获内核错误并转换为 `OutgoingMessage::Error`(InternalError -32603),保证每个 Request 都产生 Response
 - Task 8 审计测试 FK 约束:plan 创建 task `t-audit` 但未创建 step `s-audit`,`audit_logs.step_id` FK 失败 → 测试设置增加 `kernel.create_step(&StepRecord::new("s-audit", "t-audit", 1))`
@@ -310,6 +331,7 @@ crates/trust-kernel/src/
 - Task 12 Windows temp dir 测试:`std::env::temp_dir()` 在 Windows 下位于 `C:/Users`(被白名单允许)→ 简化为只测 "after" 行为,断言错误消息含 `"not under any allowed root"`
 
 **最终代码审查(Verdict: APPROVED_WITH_NITS):**
+
 - **1 Important(fast-follow post-merge):** `run_stdio` 用 `?` 传播 kernel 错误,客户端发送畸形输入时会崩循环 — 应捕获并返回 error response 而非 panic loop
   - ✅ **已解决(commit `4169e5b`):** `handle_tools_call` 内两个 `?` 路径(缺失 `name` 字段 + `audit_append_external` 失败)改为返回 `OutgoingMessage::Error`(InvalidParams -32602 / InternalError -32603),循环不再传播 kernel 错误。新增 2 个端到端测试 `run_stdio_continues_after_invalid_params_missing_name` + `run_stdio_continues_after_audit_failure`。
 - **4 minor nits:**
@@ -319,6 +341,7 @@ crates/trust-kernel/src/
   - 几个 pre-existing clippy warnings(非 W4 引入)
 
 **已知偏离(已记录规格 issue 37-43):**
+
 - ~~§6.1 `run_stdio` 错误传播行为未规定~~ ✅ **issue #37 已解决(commit `4169e5b`,2026-07-20):** `handle_tools_call` 内 `name` 缺失返回 InvalidParams -32602,`audit_append_external` 失败返回 InternalError -32603,循环不再传播 kernel 错误
 - §6.1 `OutgoingMessage` 序列化策略未规定(`#[serde(untagged)]` vs 手写 `impl Serialize`)
 - §8.1 `mcp_servers.allowed_paths` JSON 文本存储格式未规定(W4 用 JSON text array,如 `["D:/", "E:/"]`)
@@ -330,6 +353,7 @@ crates/trust-kernel/src/
 ### W5: Voice Input (Whisper.cpp) (默认 196 tests 不变;voice opt-in)
 
 **实现内容:**
+
 - §2.1 voice 子系统模块(`voice/{error, model, wav, vad, whisper, audio, router_bridge}.rs`)
 - 模块全 feature-gated `#[cfg(feature = "voice")]`,默认 `default = []` 保持纯 Rust 构建(CMake 仅在 `--features voice` 时需要)
 - Whisper.cpp FFI 绑定(`whisper-rs` 0.13,optional dep)
@@ -344,6 +368,7 @@ crates/trust-kernel/src/
 - E2E 冒烟测试 `w5_e2e_smoke.rs` 三 Tier(pure-logic 跑 CI / model-required `#[ignore]` / mic-required `#[ignore]`)
 
 **新增模块结构:**
+
 ```
 crates/trust-kernel/src/voice/
 ├── mod.rs              # 模块导出
@@ -357,8 +382,9 @@ crates/trust-kernel/src/voice/
 ```
 
 **W5 commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `eb7783c` | docs(w5): add Voice Input implementation plan |
 | `c5a80f0` | docs(w5): revise plan for opt-in voice feature (default = [], preserves pure-Rust build) |
 | `e36a128` | Task 1: build(voice): add whisper-rs + cpal + hound deps with voice feature gate |
@@ -376,6 +402,7 @@ crates/trust-kernel/src/voice/
 | `877d861` | Task 13: test(w5): end-to-end smoke test with 3 tiers (pure-logic / model-required / mic-required) |
 
 **核心架构决策:**
+
 - **Feature gating 改为 opt-in**(`default = []`, `voice = ["dep:whisper-rs", "dep:cpal", "dep:hound"]`) — 保留纯 Rust 默认构建,CMake/MSVC 只在 voice feature 启用时需要;CI 与默认 dev workflow 保持 CMake-free
 - `whisper-rs` + `cpal` + `hound` 作为 optional deps 加在 `voice` feature 下;workspace deps 也标注 `optional = true`
 - CLI `voice` 子命令全部 `#[cfg(feature = "voice")]`-gated:dispatch loop 用单一 `#[cfg(feature = "voice")] { ... }` 块包裹所有 voice 命令分支,每个 handler 函数独立 `#[cfg(feature = "voice")]` 标注
@@ -387,6 +414,7 @@ crates/trust-kernel/src/voice/
 - `RouterBridge::route_text` 不执行 Skill — W5 PoC 由 caller(CLI)提示用户输入 args;W7 LLM Planner 将自动提取参数
 
 **✅ W5 Fast-Follow 已完成 — voice 编译验证通过(2026-07-21):**
+
 - ✅ MSVC Build Tools 已确认可用:Visual Studio Community 2022 at `E:\VS2022\VS`
 - ✅ CMake 3.31.6 已确认可用:VS 自带 at `E:\VS2022\VS\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`(满足 whisper-rs 3.20+ 要求)
 - ✅ LLVM/libclang 已就绪:`LIBCLANG_PATH=C:\Program Files\LLVM\bin`(bindgen 依赖)
@@ -397,6 +425,7 @@ crates/trust-kernel/src/voice/
 - ✅ voice 模块代码已按 plan 完整提交,API 与签名严格遵循 plan 规格
 
 **关键修复(本地 patch,非 upstream):**
+
 1. **`whisper-rs-sys-0.11.1\src\bindings.rs`**(bundled bindings,registry source + 2 build output 目录同步):
    - 移除 32 个 Linux x86_64 专属的 `const _: () = { ... };` 编译期 size/align/offset 断言块(Windows MSVC ABI 不同,如 `_G_fpos_t` 在 Windows 上 12 字节 vs Linux 16 字节 → `E0080 overflow`)
    - 3 个 C enum 类型别名从 `::std::os::raw::c_uint`(u32)改为 `i32`:`whisper_alignment_heads_preset` / `whisper_gretype` / `whisper_sampling_strategy`(Windows MSVC C enum 默认 `int` 即 i32,而 whisper-rs 0.13.2 显式 `#[repr(i32)]`,导致 `E0308 mismatched types`)
@@ -406,11 +435,13 @@ crates/trust-kernel/src/voice/
 5. **未使用 import 清理**:`voice/model.rs` 移除 `Path`,`voice/whisper.rs` 移除 `Path`,`voice/audio.rs` 移除 `Sample`
 
 **Patch 应用方式(若需在新机器上重现):**
+
 - `bindings.rs` 与 `whisper.cpp` 的 patch 作用于 cargo registry source(`~/.cargo/registry/src/index.crates.io-*/whisper-rs-sys-0.11.1/`)及 target build output 目录(`target/debug/build/whisper-rs-sys-*/out/`)
 - `cargo clean` 后这些 patch 会丢失,需要重新应用;未来可考虑用 `build.rs` patch 脚本或 fork whisper-rs-sys 自动化
 - 环境变量:`LIBCLANG_PATH=C:\Program Files\LLVM\bin`、`WHISPER_DONT_GENERATE_BINDINGS=1`、PATH 含 CMake
 
 **已知偏离(已记录 issue #44-#49,延后 W6+):**
+
 - #44: VAD 用简单能量阈值;可能误触发于背景噪声(W6+ 换 Silero VAD)
 - #45: `voice listen` 录固定 5s;无 VAD-based auto-stop
 - #46: 模型 auto-download 未实现(用户须手动下载 `ggml-tiny.bin`)
@@ -421,6 +452,7 @@ crates/trust-kernel/src/voice/
 ### W6a: Tauri UI Shell + Approval 窗口 (12 ui tests, opt-in `--features tauri`)
 
 **实现内容:**
+
 - §8.2 Tauri 2 桌面应用 crate(`voicepilot/crates/ui`),`tauri` feature opt-in
 - §8.2 IPC 硬化红线:WebView 仅通过 `invoke` + `listen` 跨边界,不直接访问 FS / MCP
 - §8.2 一次性 `approval_request_id`:`ApprovalRegistry` 用 `HashMap<String, oneshot::Sender>` + `take_sender` 一次性消费
@@ -433,6 +465,7 @@ crates/trust-kernel/src/voice/
 - 同步 Approver trait → 异步 Tauri 事件桥接:`tokio::sync::oneshot` + current-thread runtime + 5min 超时默认 Deny
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/ui/
 ├── Cargo.toml                  # tauri feature gate (default=[], tauri=[deps], voice=[tauri+trust-kernel/voice])
@@ -469,8 +502,9 @@ voicepilot/crates/ui/
 ```
 
 **W6a commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `191ab5a` | docs(w6a): add Tauri UI Shell + Approval window implementation plan |
 | `cd9d4bb` | docs(w6a): translate plan to Chinese for readability |
 | `fc30037` | Task 1: ui crate scaffolding with tauri feature gate (V1.1 §8.2) |
@@ -486,6 +520,7 @@ voicepilot/crates/ui/
 | `52d016c` | Task 8 fixup: precise audit_count assertion + evidence_strength + compensation_ref content check |
 
 **核心架构决策:**
+
 - **Feature 门控拆分**(spec issue #49 修复):`tauri` feature 不依赖 voice,允许 UI shell 在无 CMake/MSVC 环境下编译;`voice` feature opt-in 启用 voice 命令
 - **TauriApprover dual constructor**:`new(registry)` 用于测试(无 AppHandle,不 emit)/ `with_app(registry, app)` 用于生产(emit 事件)— 让 Task 2 单元测试无需真实 Tauri runtime
 - **同步 → 异步桥接**:`Approver::prompt` 是同步 fn,Tauri 事件是异步;用 `tokio::sync::oneshot` + current-thread runtime + `tokio::time::timeout` 阻塞等待,5min 超时默认 Deny(与 CliApprover 约定一致)
@@ -495,6 +530,7 @@ voicepilot/crates/ui/
 - **PowerShell ExecutionPolicy 限制**:Windows 默认 Restricted 阻塞 `npm.ps1`,改用 `npm.cmd` 隐式 PATH 解析(所有 npm 调用 exit code 仍为 0)
 
 **关键修复:**
+
 1. **whisper-rs bindgen 解耦**(spec issue #49):Task 1 原 `tauri` feature 包含 `"trust-kernel/voice"`,触发 whisper-rs 0.13.2 bindgen 错误(71 errors: `no field 'grammar_penalty' on type 'whisper_full_params'`)。修复:拆分为 `tauri`(无 voice dep)+ `voice`(opt-in)
 2. **SkillRouter 关键词是中文**:Task 3 测试输入 `"organize my downloads"` 不匹配 — `files_organize_manifest()` keywords 是 `["整理", "归档", "移动文件", "下载目录"]`。修复:测试输入改 `"整理下载目录"`,Task 7 MainView placeholder 同步用中文
 3. **tokio time feature 缺失**:Task 2 `tokio::time::timeout` 需要 `time` feature,workspace tokio 只有 `sync/rt/macros`。修复:ui crate tokio dep 加 `features = ["time"]`
@@ -505,6 +541,7 @@ voicepilot/crates/ui/
 8. **精确 audit_count 断言**(Task 8 fixup `52d016c`):原 `>= 4` 偏宽且与注释(6 个事件)不一致,实际是 8 个(含 2 个 STEP_STATUS_CHANGED: Running + Succeeded)。修复:`assert_eq!(audit_count, 8)` + 注释列出全部 8 个事件
 
 **W6a §11.1 gate 验证(2026-07-21):**
+
 - ✅ `cargo check --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` 通过
 - ✅ `cargo test --manifest-path voicepilot\Cargo.toml -p voicepilot-ui --features tauri` 通过:approver_unit 4 + commands_unit 6 + w6a_e2e_smoke 2 = 12 passed
 - ✅ `cargo test --manifest-path voicepilot\Cargo.toml`(默认)通过:196 passing,W1-W5 无回归
@@ -512,6 +549,7 @@ voicepilot/crates/ui/
 - ✅ E2E smoke 覆盖 success + deny 双路径,精确断言 audit_count=8 + evidence_strength="strong" + compensation_ref 非空
 
 **已知偏离(plan 文档描述与实际行为不符,已记录为 plan-level spec issues,非规格问题):**
+
 - Plan 第 2181 行引用 `StepStatus::Committed`(实际枚举无此变体,应为 `Succeeded`)
 - Plan 第 2216 行假设 deny 返回 `Err`(实际返回 `Ok` with `committed: false`,V1.1 §6.2 deny 是合法取消路径)
 - Plan 第 2170 行 audit 事件注释列出 6 个(实际 8 个,漏掉 2 个 STEP_STATUS_CHANGED: Running + Succeeded)
@@ -523,6 +561,7 @@ voicepilot/crates/ui/
 ### W6b-1: Main Chat + Voice 集成 (35 ui tests, opt-in `--features voice`)
 
 **实现内容:**
+
 - §8.2 Main Chat 窗口语音输入区:麦克风按钮 + 实时 transcription 显示 + route outcome 反馈
 - §8.4 语音转写 final transcript + `transcription-final` 事件发射(partial transcript 延后 issue #47)
 - §2.1 VAD-based 自动停止(issue #45 修复):新增 `VoiceListener` 编排器循环 `record_chunk` + `detect_end_of_speech`,替换 W5 PoC 固定 5s 超时
@@ -534,6 +573,7 @@ voicepilot/crates/ui/
 - MainView 互斥逻辑:语音 listening 时禁用 W6a 的 route_text + organize 按钮
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/voice/
 ├── vad.rs                      # +SpeechSegment + detect_end_of_speech (仅静音超时结束)
@@ -558,8 +598,9 @@ voicepilot/crates/ui/web/src/
 ```
 
 **W6b-1 commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `829dd10` | Task 1: VoiceListener orchestrator with VAD-based auto-stop (V1.1 §2.1, issue #45) |
 | `485df47` | Task 2: VoiceListen trait + voice_listen function with mock tests (V1.1 §8.2) |
 | `2236a79` | Task 3: voice_listen_command Tauri command + transcription-final event + register_handlers_with_voice (V1.1 §8.2, §8.4) |
@@ -569,6 +610,7 @@ voicepilot/crates/ui/web/src/
 | `4fd67b8` | fix(clippy): resolve Rust 1.96 new lints (large_enum_variant, manual_inspect, manual_clamp, manual_range_contains, needless_borrows, doc_lazy_continuation, len_zero) |
 
 **核心架构决策:**
+
 - **VoiceListener 编排器(选项 A)**:不破坏 W5 `AudioRecorder::record_with_timeout` API,新增 `VoiceListener` 在循环中调用 `record_chunk` + `detect_end_of_speech`,实现 VAD 自动停止。`VoiceRecorder` trait 抽象录音层,production `AudioRecorderAdapter` 包装 cpal,mock 注入用于无麦克风单测
 - **`detect_end_of_speech` vs `detect` 区别**:`detect()` 在 "音频末尾仍有语音" 时返回 `Speech`(用于一次性分析);`detect_end_of_speech` 仅在 "语音段 + 静音超时" 时返回 `Some`(用于循环判断是否停止)。VoiceListener post-loop 用 `detect()` 区分 Timeout(有语音) vs NoSpeech(无语音)
 - **VoiceListen trait 抽象**:`voice_listen` 是纯函数 `fn(&dyn VoiceListen) -> VoiceListenResult`,无 Tauri 依赖,可单测。Production `VoiceListenImpl` 编排 `VoiceListener` + `WhisperEngine` + `route_text`。Mock `StubVoiceListen` 用于 E2E 冒烟测试
@@ -578,6 +620,7 @@ voicepilot/crates/ui/web/src/
 - **dist/ 重新构建**:Task 4 MainView 改造后 `npm.cmd run build` 重新生成 dist/(index.html + index-CFYEKHAX.css + index-ZApIzmIR.js),`tauri::generate_context!` 编译期嵌入
 
 **关键修复:**
+
 1. **clippy Rust 1.96 新 lint**(commit `4fd67b8`):W6b-1 验证阶段发现 8 个 clippy 错误(非 W6b-1 引入,是 Rust 1.96 升级后的新 lint):
    - `large_enum_variant`:`RouteDecision::Skill(SkillManifest)` → `Box<SkillManifest>`(328 bytes → 8 bytes pointer)
    - `manual_inspect`:`executor.rs` `.map_err(|e| { ...; e })` → `.inspect_err(|_e| { ... })`
@@ -589,6 +632,7 @@ voicepilot/crates/ui/web/src/
 2. **a11y fixup**(commit `31869d6`):Task 4 code review 发现 4 个 a11y 缺陷:voice-button 缺 `aria-pressed`、dots 缺 `aria-hidden`、transcription-display 缺 `aria-live`、mic-icon 缺 `aria-hidden`。同时 `onTranscriptionFinal` 导出但未调用(plan 延后 issue #47 partial transcript),加 JSDoc `TODO(W6b-2)` 注释避免 dead code 警告
 
 **已知偏离/延后到 W6b-2/W6b-3:**
+
 - **issue #47 partial transcript**:W6b-1 仅实现 final transcript,partial 流式延后 W6b-2(`onTranscriptionFinal` 已预留但未调用)
 - **issue #57 cancel mechanism**:W6b-1 无取消录音按钮,延后 W6b-2
 - **issue #61 model caching**:`VoiceListenImpl::transcribe` 每次调用 reload WhisperEngine,MVP 管道验证足够,缓存优化延后 W6b-2
@@ -596,8 +640,9 @@ voicepilot/crates/ui/web/src/
 - **Settings/Audit Viewer/Trust Center/Skills Manager/Diff Preview**:延后 W6b-2/W6b-3
 
 **测试矩阵(W6b-1 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test` | (default) | 196 passed, 0 failed |
 | `cargo test -p trust-kernel --features voice` | voice | W5 + W6b-1 voice_listener_unit 4 tests, 6 ignored (whisper real model) |
 | `cargo test -p voicepilot-ui --features tauri` | tauri | 12 passed (W6a) |
@@ -613,6 +658,7 @@ voicepilot/crates/ui/web/src/
 ### W6b-2: Settings + Audit Viewer + Trust Center + Skills Manager + Partial Transcript + KillSwitchBar (4 w6b2_smoke + 2 partial + 10 ui unit)
 
 **实现内容:**
+
 - §8.3 Settings:ConfigRepo KV 表(`app_config`)+ SettingsDto + SettingsView 三组 fieldset(语音/VAD/隐私与补偿)
 - §8.3 Audit Viewer:AuditLogger trait 加 `list_recent(usize)` / `list_for_task(&str)` 查询方法 + AuditViewerView 左侧任务列表 + 右侧时间线(创世事件标 ⚡)
 - §8.3 Trust Center:McpServerRepo 加 `toggle_enabled(server_id, enabled)` + TrustCenterView 表格 + 启用/停用按钮 + status-pill
@@ -624,6 +670,7 @@ voicepilot/crates/ui/web/src/
 - 多视图导航:App.tsx 加 `view` state + sidebar 切换 Main/Settings/Audit/Trust/Skills 五视图
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/
 ├── migrations/002_app_config.sql (NEW)  # app_config KV 表
@@ -665,8 +712,9 @@ voicepilot/crates/ui/web/src/
 ```
 
 **W6b-2 commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `391e605` | Task 1: ConfigRepo + Settings commands + SettingsView (V1.1 §8.3 Settings) |
 | `a9ee383` | Task 2: Audit Viewer query methods + commands + AuditViewerView (V1.1 §8.3) |
 | `4a7bfee` | Task 3: Trust Center toggle + commands + TrustCenterView (V1.1 §8.3) |
@@ -676,6 +724,7 @@ voicepilot/crates/ui/web/src/
 | `ec904b4` | Task 7: E2E smoke test for Settings/Audit/Trust/Skills repos |
 
 **核心架构决策:**
+
 - **无状态 Repo 访问器模式**:`ConfigRepo::new()` / `McpServerRepo::new()` / `SkillRepo::new()` 均无参数,方法接收 `&Connection`。**不**在 `TrustKernel` 结构体加字段,访问器每次返回新实例。`kernel.config_repo()` / `kernel.skill_repo()` 是便捷包装
 - **Tauri command 返回类型模式**:逻辑函数返回 `UiResult<T>`,`#[tauri::command]` 函数返回 `Result<T, String>` + `.map_err(Into::into)`。原因:Tauri 的 `IpcResponse` trait 不接受 `UiError`
 - **WhisperEngine 缓存(Arc<WhisperEngine>)**:WhisperEngine 不 Clone(持有 `WhisperContext` FFI 资源),用 `Arc::clone` 共享。state.whisper_cache: `Arc<Mutex<Option<Arc<WhisperEngine>>>>`
@@ -685,6 +734,7 @@ voicepilot/crates/ui/web/src/
 - **kernel.toggle_mcp_server 重入死锁修复**:`kernel.toggle_mcp_server` 内部调 `self.conn()` 获取锁,若调用方已持有 `conn` guard 会死锁(Mutex 不可重入)。w6b2_smoke 测试用块作用域 `{}` 限定 conn guard 生命周期
 
 **关键修复:**
+
 1. **clippy type_complexity**:`Option<Box<dyn Fn(&[i16]) + Send + Sync>>` 触发 type_complexity lint,引入 `PartialCallback<'a>` / `PartialCbOpt` type alias 解决
 2. **clippy single_match**:`match { Ok => ..., Err => {} }` 改为 `if let Ok(text) = ...`
 3. **clippy unnecessary_map_or**:Task 5 遗留 `map_or(true, ...)` 改为 `is_none_or(...)`(Rust 1.96 新增)
@@ -693,6 +743,7 @@ voicepilot/crates/ui/web/src/
 6. **ApprovalModal prop**:`onClose` → `onDismiss`(以实际代码为准)
 
 **已知偏离/延后到 W6b-3:**
+
 - **§8.3 Skills Manager schema UI 字段**:spec 未规定,本计划用现有 `success_count`/`avg_latency_ms` 列
 - **§8.3 Trust Center 禁用 MCP server 级联效应**:仅在 `mcp_servers.enabled=false` 层禁用,运行中的连接需重启 mcp-serve 才生效(简化实现)
 - **§8.4 Partial transcript 间隔**:spec 未规定,本计划取 2s(Whisper 推理延迟约 1-3s,2s 平衡实时性与性能)
@@ -700,8 +751,9 @@ voicepilot/crates/ui/web/src/
 - **Diff Preview**:延后 W6b-3
 
 **测试矩阵(W6b-2 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test` | (default) | 196 passed, 0 failed |
 | `cargo test -p trust-kernel --features voice` | voice | W5 + W6b-1 + W6b-2 voice_listener_unit 8 tests (6 原有 + 2 partial), 6 ignored |
 | `cargo test -p voicepilot-ui --features tauri` | tauri | 16 passed (W6a 12 + w6b2_smoke 4) |
@@ -716,6 +768,7 @@ voicepilot/crates/ui/web/src/
 
 **背景:**
 W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
+
 1. ApprovalModal 在用户已决策后 cleanup effect 仍会发起冗余 deny IPC,导致内核写入 spurious approval record
 2. 窄窗口(< 768px)sidebar 占据过多空间,Main Chat 可读性差
 3. CSP 缺少 `object-src` / `frame-ancestors` 指令,存在 clickjacking 风险
@@ -723,12 +776,14 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 **实现内容:**
 
 #### Fix 1: ApprovalModal submittedRef 短路(commit `9d93264`)
+
 - 新增 `const submittedRef = useRef(false);`
 - `decide()` 成功后置 `submittedRef.current = true;`(在 `onDismiss()` 前)
 - cleanup effect 加 `if (submittedRef.current) return;` 短路
 - **效果**:组件 unmount 时若已决策则跳过 deny IPC,避免 spurious approval record
 
 #### Fix 2: 响应式汉堡菜单(commit `d71169d`)
+
 - `App.tsx` 新增 `NARROW_BREAKPOINT = 768` 常量 + `isNarrow` / `sidebarOpen` state
 - `useEffect` 监听 `resize` 事件更新 `isNarrow`,从窄变宽时自动关闭 overlay
 - `KillSwitchBar` 新增 `Props { isNarrow: boolean; onToggleSidebar: () => void }`,窄窗口渲染汉堡按钮 `☰`
@@ -739,18 +794,21 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 - `styles.css` 追加:`.sidebar-toggle` / `.sidebar-backdrop` / `@keyframes fadeIn` / `@media (max-width: 767px)` 响应式规则
 
 #### Fix 3: CSP 加固(commit `9056498`)
+
 - `tauri.conf.json` CSP 字段末尾追加 `; object-src 'none'; frame-ancestors 'none'`
 - **完整 CSP**:`default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; frame-ancestors 'none'`
 - **效果**:禁止 `<object>` / `<embed>` / `<iframe>` 嵌入,消除 clickjacking 攻击面
 
 **架构决策:**
+
 - **CSS @media + JS isNarrow 双轨**:`@media` 处理视觉(隐藏 sidebar),JS `isNarrow` 处理交互(渲染汉堡按钮 + overlay 逻辑)— 两者解耦,避免 CSS 状态与 React state 不同步
 - **submittedRef 而非 state**:`useRef` 不触发 re-render,性能优于 state;且 ref 在组件整个生命周期内稳定,适合"已决策"标记
 - **CSP frame-ancestors 而非 X-Frame-Options**:CSP 是现代标准,IE 不支持但 Tauri 用 WebView2/WebKit 不依赖 IE
 
 **W6a Fast-Follow commits (按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `7a00cc8` | docs(w6a-fast-follow): design spec for 3 fast-follow fixes (submittedRef + responsive + CSP) |
 | `f3a89c7` | docs(w6a-fast-follow): implementation plan for 3 fast-follow fixes (4 tasks) |
 | `9d93264` | fix(w6a-fast-follow): ApprovalModal submittedRef short-circuits redundant deny IPC |
@@ -758,8 +816,9 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 | `9056498` | feat(w6a-fast-follow): harden CSP with object-src 'none' + frame-ancestors 'none' (anti-clickjacking) |
 
 **测试矩阵(W6a Fast-Follow 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test` | (default) | 196 passed, 0 failed(无回归) |
 | `cargo test -p voicepilot-ui --features voice` | voice | 45 passed(无回归) |
 | `cargo clippy --all-targets -- -D warnings` | (default) | 0 warnings |
@@ -767,6 +826,7 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 | `npm.cmd run build` | — | dist/index.html + assets 生成(无 TS 错误) |
 
 **已知偏离/延后到 W6b-3:**
+
 - **Vitest 单元测试**:web/ 目录无 vitest 配置(仅 vite + tsc),3 项修复仅手动验证
 - **iPad / 折叠屏适配**:断点 768px 仅覆盖手机/桌面,iPad 竖屏(768px-1024px)未单独优化
 - **CSP nonce**:style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W6b-3 探讨 nonce 方案
@@ -777,6 +837,7 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 **Commit 范围:** Task 1 - Task 11(共 16 commits,含 spec/plan + 11 个 Task + 5 个 fix)
 
 **实现内容:**
+
 - **Diff Preview(§7.1):** Rust `similar` crate v1 计算 unified diff,文件内容不经过 IPC;50MB 软上限防 OOM;二进制检测(前 8KB NUL byte);新文件检测(whole-file added);删除文件检测(whole-file removed)
 - **批次审批文案中文化(§7.1):** "允许所有 (N 个文件)" / "拒绝所有 (N 个文件)";整批决策(单次 `submit_approval` 调用,后端不改);ApprovalModal 加 "查看差异" 按钮(懒加载)
 - **模型 auto-download(§5):** `ureq` HTTPS + 100ms 节流进度回调 + `.part` 临时文件 + 原子 rename + SHA256 校验(大小写归一化)+ HTTP timeout(30s read / 3600s overall);启动检测 + 用户确认弹窗(尊重用户)
@@ -785,6 +846,7 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 - **D3/E3 红色高亮延后 W7+:** `ApprovalRequestPayload` schema 需扩展 `eLevel`/`dLevel` 字段,`files.organize` 当前是 E2/D2
 
 **关键架构决策:**
+
 - **Diff 计算在 Rust 端(隐私 + IPC 数据小):** `similar::TextDiff::compute()` 在 Rust 端算出 unified diff 字符串,前端只接收渲染好的 diff text;保护文件内容不通过 IPC 流转
 - **Diff 懒加载(ApprovalModal 按钮触发):** `prepare` 阶段不加 IO,只有用户点击 "查看差异" 才触发 `compute_diff_command`;默认不阻塞 prepare 流水线
 - **批次审批整批决策(现有 `submit_approval_command` 不接受 scope):** 不引入 `ApprovalScope::Batch` 新类型,前端把 N 个文件的决策合并为单次 `submit_approval` 调用;后端架构不变
@@ -794,8 +856,9 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 - **`similar` crate v1 简洁 API:** 不用 `diff` crate(老 API),用 `similar::TextDiff::compute` + `iter_changes` + `old/new` 区分
 
 **W6b-3a commits(按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `0a9442d` | spec: lock icon design to direction A (fluid ripple) with full visual spec and multi-size adaptation rules(先前会话) |
 | `b452f89` | plan: implementation plan (11 tasks) with self-review type-consistency fixes(先前会话) |
 | `61b39c7` + `ece6554` | Task 1: compute_file_diff with similar crate (50MB cap + binary detection) + fix(canonicalize paths + is_file + dest size cap) |
@@ -811,6 +874,7 @@ W6a 上线后发现的 3 个非阻塞性问题,作为 Fast-Follow 修复:
 | (本 commit) | Task 11: docs(w6b-3a): update PROGRESS.md with W6b-3a section + final test matrix |
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/
 ├── fs/diff.rs (NEW)                        # compute_file_diff: similar crate, 50MB cap, binary detection, new-file detection
@@ -848,8 +912,9 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 ```
 
 **测试矩阵(W6b-3a 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test --workspace` | (default) | **221 passed, 0 failed**(W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a ui crate non-feature tests 25) |
 | `cargo test -p trust-kernel --features voice` | voice | **SKIP** — whisper-rs 0.13.2 bindgen issue #49(71 E0609 errors: `no field 'i_start_rule'/'grammar_penalty'/'initial_prompt' on type 'whisper_full_params'`),预存在问题,待 upstream fix 或换 fork |
 | `cargo test -p voicepilot-ui --features tauri` | tauri | **32 passed, 0 failed**(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + 2 diff_commands_unit + 4 settings + 2 audit + 1 trust_center + 2 skills + 0 voice_cancel_cache + 0 voice_commands + 0 w6a_e2e_smoke[tauri-only] + 0 w6b1_voice_smoke[voice-only]) |
@@ -859,6 +924,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 | `cargo tauri build` | (release) | **release 编译成功**(voicepilot-ui.exe 生成);NSIS 打包因 sandbox 限制失败(`nsis-3.11.zip` 解压被阻止),留 Fast-Follow 在非 sandbox 环境生成 `VoicePilot_0.1.0_x64-setup.exe` |
 
 **已知偏离 / 延后项:**
+
 - **50MB 软上限:** 用户选择"不限制",但加软上限防止 OOM(§7.1);超过返回 truncated 标志,DiffViewer 显示前 N 行 + 截断提示
 - **ApprovalScope::Batch 不引入:** 整批决策用现有架构,不新增类型(§7.1);前端把 N 个文件的决策合并为单次 `submit_approval` 调用
 - **auto-download 不写自动测试:** 依赖网络,CI 不稳定(§7.1);仅手动验证 + `is_voice_enabled`/`check_model` 返回 disabled 的负面测试
@@ -871,6 +937,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 - **macOS / Linux 打包延后 W7+:** 当前仅 `bundle.targets = ["nsis"]`(Windows);macOS `.dmg` / Linux `.deb`/.AppImage 需要额外 CI runner
 
 **§11.1 W6b gate 验证:**
+
 - ✅ Task 9 E2E 测试通过(覆盖 route → organize → approve → commit → audit 全链路,精确事件断言:`STEP_PREPARED` + `STEP_COMMITTED` + 负面断言 src 移走)
 - ✅ 默认 build 无 voice / CMake 依赖(`cargo test --workspace` 221 PASS)
 - ✅ `tauri` feature 与 `voice` feature 独立编译(`cargo test -p voicepilot-ui --features tauri` 32 PASS)
@@ -891,12 +958,14 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 **Commit 范围:** 2 个 commit(直接提交到 master)
 
 **实现内容:**
+
 - **图标重生成(commit `0f87eb1`):** 用 `cargo tauri icon` 生成标准多平台图标集(32/64/128/256/512/1024 PNG + Windows ICO + macOS ICNS + iOS/Android 图标);iOS/Android 图标按 Windows-only target 裁剪;替代 W6b-3a Task 10 算法缩放的 32x32 / 16x16 模糊问题
 - **ModelDownloadBar 优化(commit `370b4e5`):** className 统一(`ModelDownloadBar` 替代不一致命名)+ done phase 反馈(下载完成后展示成功状态)+ CSS var fallback(`var(--color, fallback)`)
 
 **W6b-3a Fast-Follow commits(按时序):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `370b4e5` | style(w6b-3a-fastfollow): ModelDownloadBar className unify + done phase feedback + CSS var with fallback |
 | `0f87eb1` | style(w6b-3a-fastfollow): regenerate icons via cargo tauri icon (standard multi-platform set, iOS/Android pruned for Windows-only target) |
 
@@ -909,6 +978,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 **Commit 范围:** 21 个 commit(spec/plan + 16 Task + 4 修复,直接提交到 master)
 
 **实现内容:**
+
 - **sherpa-rs 迁移(修复 issue #49):** whisper-rs 0.13.2 在 Windows MSVC 上 bindgen 失败(71 E0609 errors),迁移到 sherpa-rs v0.6.8(`download-binaries` feature 走预编译库,无需 CMake/bindgen);`voice/whisper.rs` 删除,新增 `voice/asr.rs`(SherpaAsrEngine 包 `sherpa_rs::SenseVoiceRecognizer`)+ `voice/tts.rs`(SherpaTtsEngine 包 `sherpa_rs::VitsTts`)
 - **TTS 语音反馈(VP-FR-002):** `tts_command` + `cancel_tts_command` Tauri commands;`tts_cancel: Arc<AtomicBool>` 一次性 cancel token 实现可中断;`tts_enabled` + `tts_model_path` 加入 `SettingsDto` + SettingsView;前端"停止语音反馈"按钮
 - **Push-to-talk(VP-FR-001):** `tauri-plugin-global-shortcut` 2.x 注册 Ctrl+Alt+Space 全局快捷键;`on_shortcut` 回调 emit `push-to-talk-start` / `push-to-talk-stop` 事件;前端 `listen` 监听触发 `voice_listen_command`
@@ -918,6 +988,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 - **E2E 测试:** 新增 `w6b3b_e2e_smoke.rs`(6 个测试:slot 提取 + 高风险标记 + final payload slots + TTS settings 往返 + 默认 TTS enabled)
 
 **关键架构决策:**
+
 - **sherpa-rs `download-binaries` feature:** 走预编译库,无需 CMake/bindgen/MSVC 工具链,彻底解决 issue #49 bindgen 在 Windows MSVC 上的失败问题
 - **`Mutex<OfflineRecognizer>` 保留 `&self` 签名:** sherpa-rs `SenseVoiceRecognizer::recognize` 接收 `&self` 但内部状态可变,用 `Mutex` 包裹保 `SherpaAsrEngine::transcribe(&self, ...) -> VoiceResult<String>` 签名不变,下游 listener / voice_commands 零修改
 - **`Mutex<VitsTts>` 同理:** `SherpaTtsEngine::synth(&self, ...)` 签名保持 `&self`,内部用 `Mutex` 保护
@@ -927,8 +998,9 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 - **正则边界处理:** path 允许内部 dot(如 `test.txt`)但排除尾随标点;delete-target 既匹配路径又匹配非路径名词;recipient 匹配中英文姓名
 
 **W6b-3b commits(按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `1967329` | fix(w6b3b): migrate whisper-rs to sherpa-rs (resolves #49) |
 | `87b7a30` | test(w6b3b): restore new_rejects_fake_model_onnx as #[ignore] for spec traceability |
 | `ab343cb` | feat(w6b3b): update model registry + download for sherpa-onnx SenseVoice |
@@ -952,6 +1024,7 @@ voicepilot/crates/ui/tauri.conf.json          # bundle.targets=["nsis"] + produc
 | `34b9a89` | fix(w6b3b): voice_model_path default empty + resolve via ModelRegistry (P0 修复 #3) |
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/voice/
 ├── mod.rs                  # pub mod whisper → pub mod asr + pub mod tts
@@ -990,8 +1063,9 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 ```
 
 **测试矩阵(W6b-3b 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test --workspace --no-default-features` | (default) | **236 passed, 0 failed**(W1-W4 196 + W6a/W6b-1/W6b-2/W6b-3a/W6b-3b ui crate non-feature tests 40) |
 | `cargo test -p voicepilot-ui --features tauri` | tauri | **48 passed, 0 failed**(W6a 12 + W6b-2 4 w6b2_smoke + W6b-3a 6 w6b3_e2e_smoke + W6b-3b 6 w6b3b_e2e_smoke + 20 ui unit) |
 | `cargo test -p voicepilot-ui --features voice` | voice | **78 passed, 0 failed**(sherpa-rs 迁移后 issue #49 已解决,W5+W6b-1+W6b-2+W6b-3b voice-gated tests 全部 PASS,含 w6b3b_e2e_smoke 6 个 E2E) |
@@ -1000,6 +1074,7 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 | `npm.cmd run build` | — | **PASS** — dist/index.html + assets 生成(无 TS 错误) |
 
 **§11.1 W6b gate 验证:**
+
 - ✅ Task 18 E2E 测试通过(覆盖 SlotParser 5 类提取 + 高风险标记 + final payload slots + TTS settings 往返 + 默认 TTS enabled)
 - ✅ 默认 build 无 CMake/bindgen 依赖(`cargo test --workspace --no-default-features` 236 PASS)
 - ✅ `tauri` feature 与 `voice` feature 独立编译(`tauri` feature 48 PASS;`voice` feature 72 PASS,issue #49 已解决)
@@ -1010,6 +1085,7 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 - ✅ issue #49 已解决(whisper-rs → sherpa-rs 迁移,voice feature 测试不再 SKIP)
 
 **已知偏离 / 延后项:**
+
 - **trust-kernel voice feature 链接失败(环境限制):** sherpa-rs 静态链接资源密集,link.exe 内存分配失败(1.2GB);需更大内存机器或分批 link;**非代码问题**,voice feature 单元测试在 ui crate 中通过(78 PASS)
 - **`new_rejects_fake_model_onnx` 标 `#[ignore]`:** sherpa-onnx C 库在加载无效 model.onnx 时会 abort 进程(无法 catch),测试保留为 `#[ignore]` 以保留规格可追溯性
 - **TTS 默认 enabled:** 当前 SettingsDto 默认 `tts_enabled = true`(VP-FR-002 规格"可禁用");用户可在 Settings 中关闭
@@ -1019,6 +1095,7 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 - **CSP nonce 仍未实现:** style-src 仍用 `'unsafe-inline'`(Tauri WebView 内联样式需要),W7+ 探讨 nonce 方案
 
 **P0 修复(最终代码审查后):**
+
 - ✅ **P0 #1 TTS 实际播放音频(commit `7a7ea4c`):** 原实现仅写 WAV 到 tempdir 不播放;修复为 `TtsResult` 新增 `wav_path` 字段,前端用 `convertFileSrc` + `new Audio()` 播放,`audioRef.pause()` 实现中断
 - ✅ **P0 #2 w6b3b_e2e_smoke.rs 缺失(commit `78f16d2`):** 原计划 Task 18 要求的 E2E 测试文件未创建;补写 6 个测试覆盖 SlotParser 提取 + 高风险标记 + final payload slots + TTS settings 往返 + 默认 TTS enabled + wav_path 字段
 - ✅ **P0 #3 voice_model_path 默认值(commit `34b9a89`):** 原默认值为相对模型名导致 ASR 加载必失败;修复为空字符串默认 + `voice_listen_command` 检测空路径时通过 `ModelRegistry::default_model().path` 解析到 `~/.voicepilot/models/<name>`
@@ -1044,6 +1121,7 @@ voicepilot/crates/ui/Cargo.toml                         # +tauri-plugin-global-s
 - **P2 #5 CSP nonce — 跳过(用户选择 A):** Tauri 2 CSP nonce 自动注入只对 `index.html` 中静态 `<style>` / `<script>` 标签生效,**不对 React 运行时 `style={{...}}` prop 有效**;当前 `MainView.tsx` 等组件大量使用 inline style prop,移除 `'unsafe-inline'` 会导致 UI 渲染失败;W7+ 评估"移除所有 React inline style prop"重构后再启用 nonce
 
 **修改文件清单:**
+
 ```
 voicepilot/crates/ui/web/src/types.ts                      # Settings + Slot interface 扩展
 voicepilot/crates/ui/web/src/components/SettingsView.tsx   # TTS 配置 fieldset
@@ -1059,8 +1137,9 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 ```
 
 **W6c commits(按时序,直接提交到 master):**
+
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `b16e0d9` | docs(w6c): design spec for W6b-3b review leftover fixes |
 | `18f2c53` | feat(w6c): add TTS config UI to SettingsView (P1 #1) |
 | `c673df5` | feat(w6c): add Apply button to re-route after Slot edits (P1 #2) |
@@ -1069,8 +1148,9 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 | `4f9e200` | fix(w6c): log push-to-talk emit errors instead of swallowing (P2 #4) |
 
 **验收门禁复跑(2026-07-25):**
+
 | 命令 | 结果 |
-|---|---|
+| --- | --- |
 | `cargo test --workspace --no-default-features` | **0 failed**(default,W1-W4 + W6 ui non-feature tests) |
 | `cargo test -p voicepilot-ui --features tauri` | **48 passed, 0 failed**(W6a 12 + W6b-2 4 + W6b-3a 6 + W6b-3b 6 + 20 ui unit) |
 | `cargo clippy --workspace --no-default-features -- -D warnings` | **0 warnings, 0 errors** |
@@ -1078,6 +1158,7 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 | `cargo test -p voicepilot-ui --features voice` | (W6b-3b 验证已 78 passed;W6c 未引入新 voice-gated 测试,数字不变) |
 
 **已知偏离 / 延后项:**
+
 - **P2 #5 CSP nonce 跳过(用户选择 A):** Tauri 2 CSP nonce 自动注入仅对 `index.html` 静态 `<style>` / `<script>` 标签生效,不对 React 运行时 `style={{...}}` prop 有效;当前 MainView 等组件大量使用 inline style prop,移除 `'unsafe-inline'` 会导致 UI 渲染失败;W7+ 评估"移除所有 React inline style prop"重构后再启用 nonce
 - **macOS / Linux 打包永久放弃:** 仍只 Windows NSIS(用户决策 2026-07-26:Windows-only)
 - **trust-kernel voice feature link.exe 内存失败:** 环境限制未变(W6b-3b 已记录),voice 单测在 ui crate 中通过
@@ -1118,12 +1199,13 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 **修复 commits(实现过程中发现并修复):**
 
 | Commit | 主题 |
-|---|---|
+| --- | --- |
 | `b02c7d8` | fix(w7p2): remove contradictory default from research_save save_path input(stub manifest 默认值矛盾) |
 | `b68668c` | fix(w7p2): remove dead tool_result and mark step Failed on verify_move errors(task_repeat 死代码 + 错误路径缺 Failed 标记) |
 | `a1fd7a6` | fix(w7p2): bind approval to reverse_payload hash + use real destination(task_compensate TOCTOU 修复 — preconditions_hash 从 "(none)" 占位符改为 SHA256(reverse_payload),destination 从 "(reverse)" 改为真实路径) |
 
 **核心架构决策:**
+
 - **共享 helpers 而非 trait:** Plan 2 用自由函数 + `ApprovalContext` struct,而非 `trait SkillExecutor`。原因:每个 Skill 的 input/output 类型不同,trait 抽象会引入泛型 + associated type 复杂度,而 helper 函数组合已足够。W7 Plan 4+ (UIA / Playwright) 可重新评估 trait 抽象
 - **TOCTOU 绑定:** `task.compensate` 的 `preconditions_hash = SHA256(reverse_payload)` 把审批与具体 moves 列表密码学绑定,post-hoc 审计可验证用户实际批准的内容,防止 approve 与 commit 之间 reverse_payload 被替换
 - **注册顺序解决关键词冲突:** `task.explain` 的 keyword "上一步" 在 `task.compensate` 的 "撤销上一步" 中出现,SkillRouter 是 first-match-wins,必须先注册 compensate。三处注册点(voice router_bridge / ui commands llm 分支 / ui commands non-llm 分支)注释一致
@@ -1133,13 +1215,14 @@ voicepilot/crates/ui/src/app.rs                            # push-to-talk emit �
 **W7 Plan 2 commits(按时序,直接提交到 master):**
 
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | (Tasks 1-7 impl commits) | Task 1: common.rs + 21 tests / Task 2: 3 manifests + 4 stubs / Task 3: task_repeat.rs + 4 tests / Task 4: task_explain.rs + 4 tests / Task 5: task_compensate.rs + 4 tests / Task 6: router + commands registration + 3 router tests / Task 7: w7_plan2_skills_smoke.rs 2 e2e tests |
 | `b02c7d8` | fix(w7p2): remove contradictory default from research_save save_path input |
 | `b68668c` | fix(w7p2): remove dead tool_result and mark step Failed on verify_move errors |
 | `a1fd7a6` | fix(w7p2): bind approval to reverse_payload hash + use real destination |
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/skills/
 ├── mod.rs                  # +pub mod common / task_compensate / task_explain / task_repeat
@@ -1158,8 +1241,9 @@ voicepilot/crates/trust-kernel/tests/
 ```
 
 **测试矩阵(W7 Plan 2 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo test -p trust-kernel --features llm --no-fail-fast` | llm | **全绿**(含 w7_plan2_skills_smoke 2 E2E + skills_router 9(原 6 + 新 3)+ common 21 + task_repeat 4 + task_explain 4 + task_compensate 4 + w3b_e2e_smoke 2 + w4_e2e_smoke 2 + state_machine 12 + toolresult 3 + transaction 6) |
 | `cargo test --workspace --no-default-features` | (default) | **236 passed, 0 failed**(W1-W4 + W6 ui non-feature tests,无回归) |
 | `cargo clippy --workspace --no-default-features -- -D warnings` | (default) | **0 warnings**(未引入新 lint) |
@@ -1167,6 +1251,7 @@ voicepilot/crates/trust-kernel/tests/
 **agent-pr-review verdict: APPROVED_WITH_NITS(2026-07-25):**
 
 5 个 nit(无阻塞,可延后 W7 Plan 3 或 fast-follow):
+
 1. `task_compensate.rs` `first_destination: Option<String>` 实际只在首轮迭代 set 一次,Option 形状误导(逻辑正确)
 2. `task_compensate.rs` 若 `mark_compensation_status("reversed")` 在 `auto_reverse_move` 成功后失败,文件已反向移动但 comp 记录仍 active — 已记录为可接受(auto_reverse 幂等),建议加 tracing 日志
 3. `task_repeat.rs` `source_dir` 仅取首个 source 的 parent dir,多源目录场景只搜第一个 — 匹配 plan 但 plan 未规定多源行为
@@ -1174,6 +1259,7 @@ voicepilot/crates/trust-kernel/tests/
 5. `w7_plan2_skills_smoke.rs` E2E 在 organize 与 repeat_verified 之间写 `c.pdf` "workaround" 文件,因 repeat_verified 要求非空 source — 反映"重新验证历史 move"与"搜索当前 source"之间的设计张力,Plan 3+ 可考虑分离为两个 Skill
 
 **已知偏离 / 延后项:**
+
 - **`task.repeat_verified` 多源目录:** 仅取首个 source parent dir 作为 source_dir(Plan 未规定多源行为,W7 Plan 3+ 评估)
 - **`task.compensate` Modify 分支:** 当前返回 Err("modify not supported"),W7+ 实现 Modify 重新 prepare 流程
 - **4 个 stub manifest(app_control / note_capture / research_save / form_prepare):** Plan 2 只产出 manifest 函数,executor 实现 + 路由注册延后 Plan 4 / Plan 5
@@ -1224,12 +1310,13 @@ voicepilot/crates/trust-kernel/tests/
 **W7 Plan 3 commits(按时序,直接提交到 master):**
 
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `51ef37c` | feat(w7p3): implement user skill loading backend (Task 1-4) — Cargo.toml + kernel.rs + manifest.rs + mod.rs + router.rs + user_loader.rs |
 | `09055da` | feat(w7p3): add user skill import UI and Tauri commands (Task 5-7) — UI Cargo.toml + capabilities + app.rs + commands.rs + skills_commands.rs + web/dist + package.json + api.ts + types.ts + SkillsManagerView.tsx + styles.css |
 | `f69f029` | test(w7p3): add user skill loading smoke tests (Task 8) — w7_plan3_user_skill_smoke.rs 3 个 E2E |
 
 **核心架构决策:**
+
 - **YAML frontmatter + Markdown body 分离:** `SkillManifest` 通过 serde_yaml 反序列化 frontmatter;body 存入 `description_body: Option<String>`,前端可显示给用户。built-in manifest 不设此字段(保持 `None`),不污染序列化输出
 - **覆盖语义在 `register` 而非 `route`:** `SkillRouter::register` 改为 upsert-by-id,而非在 `route` 时按优先级查找。原因:route 是热路径,每次调用都要遍历;register 是冷路径,只在 router 构造时调用一次。覆盖语义在 register 一次完成,route 保持 O(n) 线性扫描不变
 - **DB row version vs manifest version 字符串:** `SkillRecord.version: i64` 是 DB 行计数器(用于乐观锁),`SkillManifest.version: String` 是 manifest 版本号(如 "1.0.0")。upsert 用户 Skill 时 DB row version 用 1,manifest version 字符串保留在 `manifest_json` JSON 内
@@ -1242,6 +1329,7 @@ voicepilot/crates/trust-kernel/tests/
   3. approval_request_id 单次使用 — 用户 Skill 执行时若需审批,走标准 approval 流程
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/skills/
 ├── mod.rs                  # +pub mod user_loader
@@ -1267,8 +1355,9 @@ voicepilot/crates/trust-kernel/tests/
 ```
 
 **测试矩阵(W7 Plan 3 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo check --workspace --exclude voicepilot-ui` | (default) | **OK** |
 | `cargo check -p voicepilot-ui --features tauri` | tauri | **OK** |
 | `cargo test -p trust-kernel --test w7_plan3_user_skill_smoke` | (default) | **3 passed**(scan_loads_valid + scan_skips_malformed + user_overrides_built_in) |
@@ -1286,6 +1375,7 @@ voicepilot/crates/trust-kernel/tests/
 5. `importNotice` 不自动清除 — 可加 `setTimeout` 5 秒后清(UX 改进,可接受)
 
 **已知偏离 / 延后项:**
+
 - **用户 Skill 删除 UI 未实现:** 当前用户需手动删除 `%APPDATA%\voicepilot\skills\<file>.md` 后点"重新扫描"。W7 Plan 4+ 评估是否加删除按钮 + 二次确认
 - **用户 Skill 编辑 UI 未实现:** 当前用户需在外部编辑器修改 .md 文件。W7 Plan 4+ 评估是否加内置编辑器
 - **用户 Skill 不支持 `tools` 字段中的 MCP server 调用:** 当前用户 Skill 只能调用 built-in tools(files.organize 等);W7 Plan 4+ (UIA) / Plan 5+ (Playwright) 评估是否开放 MCP 工具配置
@@ -1338,7 +1428,7 @@ voicepilot/crates/trust-kernel/tests/
 **6 个 review-fix(agent-pr-review 首轮 REQUEST_CHANGES 后修复):**
 
 | Commit | 类型 | 修复内容 |
-|---|---|---|
+| --- | --- | --- |
 | `c5b7a1f` | must-fix #1 | `note_capture.rs` `set_text` 前校验 `kernel.allowed_apps().contains("notepad")`,不通过 → `StepStatus::Failed` + `KernelError::Uia`;新增测试 `set_text_rejected_when_window_not_in_allowed_apps` |
 | `0c4831e` | must-fix #2 | `app_control.rs` `Action::Launch` 读 `kernel.allowed_apps()`,白名单内 skip approval,白名单外强制 PerStep;新增 2 测试 `launch_in_whitelist_skips_approval` + `launch_outside_whitelist_requires_approval` |
 | `6bd33bd` | follow-up #3 | `Action::Close` 实现:`find_window` + `find_element(ByName("Close"))` + `click`;两路失败区分(window not found / Close button not found);改写 + 新增 3 个测试 |
@@ -1349,7 +1439,7 @@ voicepilot/crates/trust-kernel/tests/
 **W7 Plan 4 commits(按时序,直接提交到 master):**
 
 | Commit | 任务 |
-|---|---|
+| --- | --- |
 | `cab6b54` | feat(w7p4): add uia feature gate + uiautomation-rs optional dep (Windows-only) |
 | `dd530d7` | feat(w7p4): implement UiaAdapter trait + WindowsUiaAdapter |
 | `db7edb0` | feat(w7p4): implement quick.app_control executor (launch/focus/close) |
@@ -1365,6 +1455,7 @@ voicepilot/crates/trust-kernel/tests/
 | `294dc1a` | fix(w7p4): gate UiaElementHandle::mock() behind cfg(any(test, feature=uia)) (follow-up #6) |
 
 **核心架构决策:**
+
 - **`UiaAdapter` trait 抽象:** 用 trait 对象隔离 UIA 实现细节,允许 `MockAdapter` 用于单元测试。trait 是 `!Send` / `!Sync`(COM apartment 限制,文档化)。项目永久 Windows-only(用户决策 2026-07-26),不提供 macOS AXUIElement / Linux AT-SPI 适配
 - **`uia` feature 默认关闭 + Windows-only:** `cfg(all(windows, feature = "uia"))` 双重门控;非 Windows 平台即使开启 `uia` feature 也不编译 UIA 代码;默认构建无 `uiautomation-rs` 依赖
 - **`allowed_apps` 三层语义:** (1) Settings UI 编辑 → KV 持久化;(2) boot-time 从 KV 加载到 `TrustKernel.allowed_apps`;(3) executor 在 launch / set_text 前咨询 + 决定是否 skip approval。三层均被独立测试覆盖
@@ -1376,6 +1467,7 @@ voicepilot/crates/trust-kernel/tests/
 - **静默错误可观测:** `find_window` / `find_element` 的 `Err(_)` 分支原本吞为 `Ok(None)`,现加 `tracing::warn!` 让 COM 故障 / 权限错误在日志中可见;保留 `Ok(None)` 契约不破坏现有测试
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/
 ├── Cargo.toml                              # +[features] uia = ["dep:uiautomation"] + [target.'cfg(windows)'.dependencies]
@@ -1406,8 +1498,9 @@ voicepilot/crates/ui/
 ```
 
 **测试矩阵(W7 Plan 4 验证):**
+
 | 命令 | feature | 结果 |
-|---|---|---|
+| --- | --- | --- |
 | `cargo check -p trust-kernel --features uia` | uia | **OK** |
 | `cargo check -p voicepilot-ui --features tauri,uia` | tauri + uia | **OK** |
 | `cargo check --workspace` | (default) | **OK**(无 uiautomation-rs 依赖) |
@@ -1420,6 +1513,7 @@ voicepilot/crates/ui/
 **agent-pr-review verdict: READY(2026-07-26,2 轮审查):**
 
 **首轮审查(REQUEST_CHANGES)** 找出 2 must-fix + 4 follow-up:
+
 1. must-fix #1:`set_text` 未校验窗口标题在 `allowed_apps` 白名单内(违反 spec §2.6 第 305 行"防伪造窗口"约束)
 2. must-fix #2:`allowed_apps` executor 内未咨询(白名单仅 advisory,用户误导)
 3. follow-up #3:`close` action 为 stub(Plan Task 3 Step 2 要求实现)
@@ -1430,7 +1524,8 @@ voicepilot/crates/ui/
 **实现者修复后复审(READY):** 6 项全部关闭,5 个新测试 + 1 个改写测试覆盖 must-fix 行为,无回归。3 个 follow-up(测试覆盖 / 字段消费方 / cfg gate 当前为 no-op)接受为延迟项,不阻塞 merge。
 
 **已知偏离 / 延后项:**
-- **`screenshot` 方法为 stub:** 返回 `KernelError::Uia("screenshot requires the `screenshot` feature...")`,Plan §50 要求写入 audit_logs。推迟到 Plan 5 screenshot capture + `screenshot` feature flag
+
+- **`screenshot` 方法为 stub:** 返回 `KernelError::Uia("screenshot requires the`screenshot`feature...")`,Plan §50 要求写入 audit_logs。推迟到 Plan 5 screenshot capture + `screenshot` feature flag
 - **`find_window` 错误区分延后:** 当前 `tracing::warn!` 记录所有错误后返回 `Ok(None)`,未区分 NotFound vs COM 故障。需 `uiautomation::Error` 枚举变体匹配,推迟到 follow-up
 - **`verifier.strategy` 字段无运行时消费方:** `manifest.rs` `strategy` 字段当前无 consumer,纯元数据。Plan 5 screenshot verifier 落地时补消费测试
 - **`UiaElementHandle::mock()` 内层 cfg 为冗余防御:** 外层 `cfg(all(windows, feature = "uia"))` 已包住整个模块,内层 `cfg(any(test, feature = "uia"))` 实际不收紧 surface;保留为防御性文档
@@ -1469,7 +1564,7 @@ voicepilot/crates/ui/
 **Commit 链(9 个):**
 
 | Hash | Type | Subject |
-|---|---|---|
+| --- | --- | --- |
 | `dfc2aca` | feat(w7p5) | mcp_servers schema migration + McpClient impl (Task 0) |
 | `23a5039` | feat(w7p5) | add insert_default_servers (playwright on missing row, idempotent) |
 | `7241438` | feat(w7p5) | add invoke_mcp_tool helper in skills/common.rs |
@@ -1564,7 +1659,7 @@ voicepilot/crates/ui/
 **Commit 链(4 个):**
 
 | Hash | Type | Subject |
-|---|---|---|
+| --- | --- | --- |
 | `3680fb5` | test(w7p6) | add w7_router_llm_smoke E2E (5 LLM routing scenarios) |
 | `c927850` | test(w7p6) | add w7_settings_llm_smoke E2E (4 LLM settings scenarios) |
 | `d69e7fc` | test(w7p6) | strengthen w7_plan3 + w7_plan5 assertions |
@@ -1573,12 +1668,14 @@ voicepilot/crates/ui/
 **Acceptance Gates 验证(对应 spec §7):**
 
 ### 7.1 编译门禁 ✅
+
 - 6 套 feature 组合 `cargo check` 全 PASS(no-default / voice / tauri / voice,tauri / voice,tauri,llm / voice,tauri,llm,uia)
 - `cargo clippy --workspace --no-default-features -- -D warnings` 0 warnings
 - `cargo clippy --workspace --features voice,tauri,llm,uia -- -D warnings` 0 warnings(Windows 全 feature)
 - `npm.cmd run build` PASS,`dist/` 生成无 TS 错误
 
 ### 7.2 测试门禁 ✅
+
 - 现有 236 default + 48 tauri + 78 voice 测试全 PASS(无回归)
 - 新增 W7 测试 12 个(本 Plan):
   - `w7_router_llm_smoke`:5 个 LLM 路由 E2E
@@ -1588,12 +1685,14 @@ voicepilot/crates/ui/
 - 加上 Plan 1-5 已有 W7 测试,总新增 ≥ 20 个(spec §7.2 目标达成)
 
 ### 7.3 功能门禁 ⚠️ 编译/测试层闭合,真实语音链路留待用户环境
+
 - LLM 启用 → `note.capture` 命中(单元测试覆盖路由决策,真实语音链路待用户验证)
 - LLM 关闭 → `quick.app_control` 命中 keyword(单元测试覆盖)
 - 用户自定义 `.md` → Skills Manager 可见(`w7_plan3_user_skill_smoke::scan_loads_valid_skill_into_router` 覆盖)
 - Playwright MCP 启用 → `research.save_markdown` 执行(`w7_plan5_mcp_playwright_smoke::research_save_markdown_via_mock_mcp_writes_md_file` 覆盖)
 
 ### 7.4 安全门禁 ✅
+
 - `privacy_mode=true` 时 LLM 不被调用(`w7_router_llm_smoke::privacy_mode_simulated_no_llm_http_call` + `w7_settings_llm_smoke::privacy_mode_true_returns_disabled_llm_client` 双重覆盖)
 - LLM 调用审计日志完整(`audit_logs` 表 `llm_call` 类型记录,Plan 1 实现)
 - UIA `allowed_apps` 白名单约束(Plan 4 实现 + 测试覆盖)
@@ -1620,7 +1719,7 @@ voicepilot/crates/ui/
 **W7 整体里程碑闭合状态:**
 
 | Plan | 主题 | 状态 | Head commit |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Plan 1 | LLM Planner 基础(LlmClient + Router LLM fallback + SlotParser + Settings 5 字段 + AppState 注入) | ✅ 已完成 | `3820d04` |
 | Plan 2 | 3 个新 fs Skill + 共享 helpers + 路由 + E2E | ✅ 已完成 | `ba4dcff` |
 | Plan 3 | 用户自定义 Skill 加载 + Tauri 导入 UI + E2E | ✅ 已完成 | `efcd563` |
@@ -1706,6 +1805,7 @@ voicepilot/crates/ui/
   - 修复点:`DagStatus::from_str` / `FailureCategory::from_str` 与 `std::str::FromStr::from_str` trait 方法重名 → 重命名为 `parse_str`(clippy `should_implement_trait` lint)
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/
 ├── migrations/
@@ -1718,6 +1818,7 @@ voicepilot/crates/trust-kernel/src/
 ```
 
 **关键修复 / 偏离:**
+
 - **Migration 文件名冲突:** plan 原文 `003_dag_plans.sql`,但 `003_mcp_servers_command.sql` 已占用,重命名为 `004_dag_plans.sql`,同步更新 `db.rs` 的 `include_str!` 调用
 - **`TemplateExpr` serde 标签:** 原计划 `#[serde(tag = "kind")]`,但 tag 模式无法序列化 newtype variant `Literal(String)` / `Concat(Vec<TemplateExpr>)`(serde-rs#1996),改为默认 externally-tagged(JSON: `{"Literal":"notepad"}` / `{"Var":{...}}`)
 - **`from_str` 方法重名:** `DagStatus::from_str` / `FailureCategory::from_str` 与 `std::str::FromStr::from_str` trait 方法重名,触发 clippy `should_implement_trait` lint,重命名为 `parse_str`
@@ -1728,7 +1829,7 @@ voicepilot/crates/trust-kernel/src/
 **Commit 范围:** 8 个 commit(直接提交到 master)
 
 | Commit | 类型 | 主题 |
-|---|---|---|
+| --- | --- | --- |
 | `d4fe982` | feat(w8p1) | add migration 004_dag_plans with dag_plans + dag_nodes + task_explanations tables |
 | `6fec063` | feat(w8p1) | add SlotTemplateEngine parser for ${prev}/${user}/${item} placeholders |
 | `300de35` | feat(w8p1) | add DagPlan/DagNode/DagStatus/DagResult data structures with validators |
@@ -1811,6 +1912,7 @@ voicepilot/crates/trust-kernel/src/
   - W8 Plan 2 新增 56 个测试(5 approver_dag_skeleton + 9 audit_events + 4 dag_e2e + 7 dag_executor + 13 dispatcher + 9 llm_decompose + 9 lib topo_sort)
 
 **新增模块结构:**
+
 ```
 voicepilot/crates/trust-kernel/src/
 ├── approval/
@@ -1825,6 +1927,7 @@ voicepilot/crates/trust-kernel/src/
 ```
 
 **关键修复 / 偏离:**
+
 - **`CliApprover` trait 补全:** Plan 1 的 CliApprover 只实现 `prompt`,Task 1 新增 `approve_dag_skeleton` 后未同步更新,导致 `--no-default-features` 编译失败 — Task 10 补全实现(打印骨架 + y/N,EOF → Deny)
 - **`references_prev` 校验:** `validate_dag` 原本不检查 `${prev...}` 引用是否有上游节点,导致 LLM 可生成 dangling prev ref 在运行时 VarNotFound — 新增 `references_prev` 递归检查 + `nodes_with_predecessor` 集合比对,在 LLM 返回后立即拒绝
 - **`record_llm_decompose_called` cfg gate:** 必须在 `#[cfg(feature = "llm")]` 下,否则 `--no-default-features` 编译失败(TrustKernel::audit_append_external 在 no-llm 下不可用)
@@ -1894,6 +1997,7 @@ voicepilot/crates/trust-kernel/src/
 **新增测试(8 个 wiremock 集成测试 + 4 个 non-gated 单元测试):**
 
 `voicepilot/crates/trust-kernel/tests/w8_plan4_router_bridge_dag.rs`(8 个 `#[tokio::test]`,均 `#[cfg(feature = "voice")]` + wiremock):
+
 1. `scenario_1_keyword_match_returns_skill_without_llm` — 关键词命中 → 直接返回 Skill(不调 LLM)
 2. `scenario_2_llm_disabled_returns_unmatched` — 关键词未命中 + LLM disabled → 返回 Unmatched(Planner)
 3. `scenario_3_privacy_mode_true_skips_llm` — 关键词未命中 + privacy_mode=true → 不调 LLM,返回 Unmatched
@@ -1912,6 +2016,7 @@ voicepilot/crates/trust-kernel/src/
 - ✅ **Clippy 门禁:** `cargo clippy --workspace --no-default-features -- -D warnings` 0 警告
 
 **关键修复 / 偏离:**
+
 - **Mock skill_id 选择:** 测试 mock JSON 最初用 `note.capture` / `files.move`,但 `note.capture` 仅在 `uia` feature 开启时注册,`files.move` 根本不存在 — 改用跨平台始终注册的 `research.save_markdown` + `files.organize` 保证 default feature 组合下通过
 - **测试文本选择:** `scenario_4` 最初用"打开 notepad 整理 C:\temp"触发关键词短路(命中 `files.organize`),改用"请帮我处理这个多步任务"避免关键词匹配
 - **UIA-in-DAG 延后 Plan 6:** `dispatch_app_control` / `dispatch_note_capture` 的 `execute_*` 函数需要 `&dyn UiaAdapter`,但 `dispatch_skill_executor` 签名不携带 adapter — Plan 2 原始代码漏传,在 `voice,tauri,llm,uia` feature 组合下编译失败。本 Plan 4 保留字段校验 + 返回 Err,实际 UIA-in-DAG 集成延后 Plan 6
@@ -2073,6 +2178,7 @@ voicepilot/crates/trust-kernel/src/
 **W8 整体收尾:**
 
 W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 spec §7.3 功能门禁 + §7.4 安全门禁的全部 8 个端到端场景,覆盖:
+
 - LLM 拆解成功路径(Scenario 1)
 - E3 PerStep 审批门禁(Scenario 2)
 - 骨架审批 Deny → Cancelled(Scenario 3)
@@ -2092,12 +2198,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **测试运行:** `cargo test --features stronghold -p trust-kernel --test w9_stronghold_unit`(8 passed; 0 failed; 124.92s — Argon2id m=64MB t=3 p=4 故意重计算)
 
 **新增文件:**
+
 - `crates/trust-kernel/src/crypto/mod.rs` — 加密原语模块入口,`#[cfg(feature = "stronghold")] pub mod stronghold;`
 - `crates/trust-kernel/src/crypto/stronghold.rs` — StrongholdVault 核心模块(~550 行):create / unlock / lock / encrypt / decrypt / degraded / enter_degraded_mode
 - `crates/trust-kernel/tests/w9_stronghold_api_smoke.rs` — Stronghold 真实 API 签名 smoke 测试(WriteVault + AeadEncrypt + AeadDecrypt roundtrip + save)
 - `crates/trust-kernel/tests/w9_stronghold_unit.rs` — 8 个单元测试覆盖 spec §2.1 全部 API + §6.1 安全约束 + 降级模式语义
 
 **修改文件:**
+
 - `voicepilot/Cargo.toml` — workspace 依赖 +4 项(`tauri-plugin-stronghold` / `iota_stronghold` / `argon2` / `rand`)
 - `voicepilot/crates/trust-kernel/Cargo.toml` — 依赖 +5 项(`bincode` / `base64` 非可选 + `tauri-plugin-stronghold` / `iota_stronghold` / `argon2` / `rand` / `zeroize` 可选)+ feature +1 项(`stronghold`)
 - `crates/trust-kernel/src/lib.rs` — `pub mod crypto;`(模块内部门控)
@@ -2119,6 +2227,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 11. **TrustKernel 非 Clone 适配:** `stronghold_vault: Mutex<Option<Arc<StrongholdVault>>>`(沿用 W8 Plan 4 `set_llm_client` 模式),`set_stronghold_vault` 替换前先 `old.lock()` 清零 key material
 
 **8 个单元测试覆盖(w9_stronghold_unit.rs):**
+
 1. `vault_create_persists_salt_and_path` — create 后 salt 持久化 + vault 文件创建
 2. `vault_unlock_with_correct_password_succeeds` — create → lock → unlock 成功
 3. `vault_unlock_with_wrong_password_returns_error` — 错误密码返回 WrongPassword
@@ -2131,7 +2240,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | stronghold feature 编译 | `cargo check --features stronghold -p trust-kernel` | Finished 无错误 | ✅ PASS |
 | default feature 编译 | `cargo check -p trust-kernel` | Finished 无错误 | ✅ PASS |
 | 8 套 feature cargo check 矩阵 | `cargo check --workspace --features <each>` | 全部 Finished | ✅ 8/8 PASS |
@@ -2142,6 +2251,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 | 非门控测试数 | `cargo test --workspace --no-default-features -- --list \| Measure-Object -L` | ≥ 286 | ✅ 465 |
 
 **8 套 feature cargo check 矩阵(全部 Finished):**
+
 - `--no-default-features`(4.81s)
 - `--features llm`(4.02s)
 - `--features tauri`(8.78s)
@@ -2161,6 +2271,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 6. **Stronghold 真实 API 与 spec 假设不符:** spec 假设 `Stronghold::encrypt(plaintext, &nonce)` 等高层 API,实际 `tauri-plugin-stronghold` 2.3.1 只暴露 `new` / `save` / `inner` / `Deref`;加密必须用 `iota_stronghold::procedures::{AeadEncrypt, AeadDecrypt, WriteVault}` procedures API(需 Client + Location + Key 管理)。本 Plan 已用真实 API 实现,不回改 spec
 
 **Fitness Functions:**
+
 - Stronghold 加密基础:8 个单元测试 PASS ✅
 - privacy_mode 联动:测试 7 验证 4 个场景 ✅
 - 降级模式:测试 5 + 测试 6 验证 ✅
@@ -2169,6 +2280,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 非门控测试数 465 ≥ 286 阈值 ✅
 
 **下游依赖:**
+
 - Plan 2(create_post_commit_compensation 注入 Stronghold)依赖本 Plan 完成后启动
 - Plan 3(taint tracking)与本 Plan 正交,可并行
 - Plan 7(集成验收)需在 cargo test 命令加 `--features stronghold`
@@ -2183,11 +2295,13 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **测试运行:** `cargo test --features stronghold,llm --test w9_snapshot_encrypted_smoke`(5 passed; 0 failed; 59.28s)
 
 **新增文件:**
+
 - `crates/trust-kernel/src/migrations/005_compensations_reverse_payload_columns.sql` — W9 Plan 2 新增 migration,落实 `reverse_payload TEXT DEFAULT ''` + `compensate_fn TEXT DEFAULT ''` 真实列
 - `crates/trust-kernel/tests/w9_snapshot_encrypted_smoke.rs` — 5 个集成测试覆盖 spec §2.2 三分支(加密成功 / 降级模式 / feature 禁用)+ 解密回滚 + 解密失败审计
 - `docs/superpowers/scripts/w9-plan2-plaintext-residue-check.ps1` — 明文残留检测 PowerShell 脚本(ASCII only,避免 PS 编码问题)
 
 **修改文件:**
+
 - `crates/trust-kernel/src/db.rs` — 加载 migration 005 + 应用层数据迁移 hook `migrate_005_compensations_stash`(把 W3a PoC stash 从 `snapshot_vault_ref` 列精确解析到真实列,清空 stash)
 - `crates/trust-kernel/src/compensation/repo.rs` — `create` / `get` / `list_active` 用真实列,移除 W3a PoC stash 逻辑(`parse_poc_payload` 删除)
 - `crates/trust-kernel/src/skills/common.rs::create_post_commit_compensation` — 注入 Stronghold 三分支加密逻辑(分支 1 加密成功 + 审计;分支 2 降级模式;分支 3 feature 禁用走明文 PoC)
@@ -2208,6 +2322,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 7. **feature 独立性:** `stronghold` feature 不依赖 `voice` / `tauri` / `llm`,`cargo check --features stronghold` 独立编译;`#[cfg(not(feature = "stronghold"))]` fallback 保证 W3a-W8 既有测试不回归
 
 **5 个集成测试覆盖(w9_snapshot_encrypted_smoke.rs):**
+
 1. `stronghold_encrypts_reverse_payload_when_unlocked` — 加密成功路径:snapshot_encrypted 非空 + reverse_payload 为空 + vault_ref 是 UUID + 审计事件触发 + details 不含 plaintext
 2. `stronghold_degraded_mode_skips_encryption` — 降级模式:snapshot_encrypted = None + snapshot_vault_ref = "degraded" + reverse_payload 含明文
 3. `stronghold_feature_disabled_keeps_plaintext_poc` — feature 运行时禁用(config stronghold.enabled = "false"):snapshot_encrypted = None + snapshot_vault_ref = None + reverse_payload 含明文
@@ -2217,7 +2332,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 7 套 feature cargo check 矩阵 | `cargo check --workspace --features <each>` | 全部 Finished | ✅ 7/7 PASS |
 | clippy default | `cargo clippy --workspace --no-default-features -- -D warnings` | 0 警告 | ✅ 0 警告 |
 | clippy 全 feature | `cargo clippy --workspace --features voice,tauri,llm,stronghold -- -D warnings` | 0 警告 | ✅ 0 警告 |
@@ -2231,6 +2346,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 | 明文残留检测脚本 | `.\docs\superpowers\scripts\w9-plan2-plaintext-residue-check.ps1` | PASS | ✅ PASS |
 
 **7 套 feature cargo check 矩阵(全部 Finished):**
+
 - `--no-default-features`(3.79s)
 - `--features llm`(3.69s)
 - `--features tauri`(4.99s)
@@ -2245,6 +2361,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 2. **明文残留检测脚本语言:** 脚本用 ASCII only(非中文),避免 PowerShell 5.x 默认 GBK 编码读取 UTF-8 文件时中文乱码导致解析错误。脚本逻辑等价于 plan 中的中文版本
 
 **Fitness Functions:**
+
 - snapshot_encrypted 真实加密:5 个 smoke 测试 PASS ✅
 - 明文残留检测:COUNT = 0(stronghold 启用)✅
 - 审计事件隐私:details 不含 plaintext / password / 密钥 ✅
@@ -2255,6 +2372,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 非门控测试数 640 ≥ 286 阈值 ✅
 
 **下游依赖:**
+
 - Plan 3(taint tracking)与本 Plan 正交,可并行
 - Plan 4(DAG Modify)与本 Plan 修改的 `common.rs` / `task_compensate.rs` / `compensation/repo.rs` 无重叠,可并行
 - Plan 7(集成验收)需在 cargo test 命令加 `--features stronghold,llm`
@@ -2269,12 +2387,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **测试运行:** `cargo test -p trust-kernel --test w9_taint_tracking_unit`(11 passed; 0 failed)+ `cargo test -p trust-kernel --test w9_gateway_taint_smoke`(6 passed; 0 failed)
 
 **新增文件:**
+
 - `crates/trust-kernel/src/policy/taint_repo.rs` — `TaintRepo` CRUD(`upsert` / `find_by_value` / `find_by_hash` / `list_by_provenance` / `list_by_source` / `delete_by_source`)+ `TaintRecord` struct + `compute_value_hash`(canonical JSON + SHA256)+ `merge_taints` + `make_taint_record` + `now_iso8601` 辅助函数
 - `crates/trust-kernel/src/migrations/006_taints_unique_index.sql` — `taints.value_hash` UNIQUE 约束(W9 修复 P1-12),支持 `upsert` 用 `ON CONFLICT(value_hash) DO UPDATE` 幂等写入
 - `crates/trust-kernel/tests/w9_taint_tracking_unit.rs` — 11 个 TaintRepo CRUD 单元测试(upsert / find / list_by_provenance / list_by_source / delete_by_source / 合并去重 / value_hash 稳定性 / source_ref 处理 / 级联精确性 / 空 taints / merge_taints helper / now_iso8601 格式)
 - `crates/trust-kernel/tests/w9_gateway_taint_smoke.rs` — 6 个 Gateway 查表驱动集成测试(web_page → ToolArgument 拦截 / llm_output → LocalFile 拦截 / clean value 全 sink 放行 / multi-taint 拦截 / user_input 放行 / `taint_blocked` 审计事件发射 + details 隐私约束)
 
 **修改文件:**
+
 - `crates/trust-kernel/src/policy/mod.rs` — 加 `pub mod taint_repo;` 注册新模块
 - `crates/trust-kernel/src/db.rs` — 加载 migration 006(`MIGRATION_006` 常量 + `include_str!`)
 - `crates/trust-kernel/src/error.rs` — 新增 `KernelError::TaintPropagationBlocked { taints: Vec<String>, sink: String }` 变体(W9 修复 P1-16:加 `#[error]` 属性)
@@ -2305,6 +2425,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 9. **gateway.decide 不调 check_taint_policy(W9 修复 P0-11):** `decide` 方法签名无 `task_id`,无法直接审计;由调用方(`invoke_mcp_tool` / filesystem 工具函数 / dispatcher)在需要时调 `check_taint_policy_and_audit(&kernel, task_id, step_id, value_hash, dest)`
 
 **6 套 trust-kernel feature cargo check 矩阵(全部 Finished):**
+
 - `cargo check -p trust-kernel`(default = llm,3.79s)
 - `cargo check -p trust-kernel --features llm`(8.13s)
 - `cargo check -p trust-kernel --features voice,llm`(1.35s)
@@ -2315,7 +2436,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 6 套 feature cargo check 矩阵 | `cargo check -p trust-kernel --features <each>` | 全部 Finished | ✅ 6/6 PASS |
 | clippy default | `cargo clippy -p trust-kernel -- -D warnings` | 0 警告 | ✅ 0 警告 |
 | clippy 全 feature | `cargo clippy -p trust-kernel --features voice,llm,stronghold,uia -- -D warnings` | 0 警告 | ✅ 0 警告 |
@@ -2332,6 +2453,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 2. **`check_taint_policy_and_audit` helper 新增:** spec 假设 `gateway.decide` 内部调 `check_taint_policy`,但 `decide` 签名无 `task_id` 无法审计。新增 `check_taint_policy_and_audit(kernel, task_id, step_id, value_hash, dest)` 封装查表 + 审计 + reentrancy deadlock 防护,由调用方在需要时主动调
 
 **Fitness Functions:**
+
 - TaintRepo CRUD:11 个单元测试 PASS ✅
 - 查表驱动 Gateway:6 个集成测试 PASS ✅
 - value 级 taint 传播(dispatcher / LLM / MCP 三处注入):全覆盖 ✅
@@ -2344,6 +2466,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 非门控测试数 482 ≥ 286 阈值 ✅
 
 **下游依赖:**
+
 - Plan 4(DAG Modify)的 `dag_executor` 调用 `dispatch_skill_executor` 时自动获得 taint 传播(无需额外代码)
 - Plan 5(Playwright E2E)的 MCP tool 调用自动获得 `mcp_tool:<server_id>` taint 标记(本 Plan 首次引入,W7 Plan 5 没有)
 - Plan 7(集成验收)的 taint 端到端测试可直接调 `check_taint_policy_and_audit` 验证拦截 + 审计
@@ -2358,12 +2481,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **测试运行:** `cargo test --features llm -p trust-kernel --test w9_dag_modify_smoke`(6 passed; 0 failed)+ `npm.cmd run test -- --run`(3 files / 17 passed)
 
 **新增文件:**
+
 - `crates/trust-kernel/tests/w9_dag_modify_smoke.rs` — 6 个 DAG Modify 集成测试(`modify_then_approve_allow_runs_modified_plan` / `modify_then_deny_cancels_dag` / `second_modify_returns_dag_modify_limit_exceeded` / `modify_with_invalid_modified_plan_fails_validation` / `modify_with_escalated_risk_ceiling_rejected` / `modify_emits_complete_audit_events`)
 - `crates/ui/web/src/components/NodeEditor.tsx` — 单节点编辑器组件(node_id 只读 + skill_id 文本框 + risk_ceiling select + input_template textarea + JSON 校验 + 删除节点按钮)
 - `crates/ui/web/src/components/__tests__/NodeEditor.test.tsx` — 4 个 NodeEditor 组件测试(渲染 / 修改 risk_ceiling / 修改 input_template / 删除节点)
 - `crates/ui/web/src/components/__tests__/DagApprovalDialog.modify.test.tsx` — 4 个 DagApprovalDialog 编辑模式测试(切换编辑模式 / 修改 risk_ceiling / 提交修改 / 取消编辑)
 
 **修改文件:**
+
 - `crates/trust-kernel/src/approval/approver.rs` — 新增 `DagApprovalOutcome` 枚举(Allow / Deny / Modify { modified_plan: Box<DagPlan> }) + `as_str()` 方法;`Approver::approve_dag_skeleton` 签名 `Result<ApprovalDecision>` → `Result<DagApprovalOutcome>`;`AutoApprover` / `AutoDenier` 适配新签名
 - `crates/trust-kernel/src/error.rs` — 新增 `KernelError::DagModifyLimitExceeded { plan_id: String }` 变体
 - `crates/trust-kernel/src/policy/types.rs` — `ELevel` derive 追加 `PartialOrd, Ord`(支持 `check_risk_ceiling_no_escalation` 比较)
@@ -2388,6 +2513,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 9. **Box<DagPlan> 避免枚举 size 爆炸:** `DagApprovalOutcome::Modify { modified_plan: Box<DagPlan> }` 用 Box(`DagPlan` 含 Vec + HashMap,栈上 size 大)
 
 **6 套 workspace feature cargo check 矩阵(全部 Finished):**
+
 - `cargo check --workspace --no-default-features`(1.84s)
 - `cargo check --workspace --features llm`(1.92s)
 - `cargo check --workspace --features voice,tauri`(1.84s)
@@ -2398,7 +2524,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 6 套 feature cargo check 矩阵 | `cargo check --workspace --features <each>` | 全部 Finished | ✅ 6/6 PASS |
 | clippy default | `cargo clippy --workspace --no-default-features -- -D warnings` | 0 警告 | ✅ 0 警告 |
 | clippy 全 feature | `cargo clippy --workspace --features voice,tauri,llm -- -D warnings` | 0 警告 | ✅ 0 警告 |
@@ -2415,6 +2541,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 4. **`note_capture.rs` DagApprovalOutcome import 移到 cfg(test):** `DagApprovalOutcome` 仅在 `#[cfg(test)] mod tests` 内使用,模块顶部 import 会在非 test 构建报 unused,移动后 6 套 feature cargo check 矩阵 0 警告
 
 **Fitness Functions:**
+
 - DAG Modify 分支完整闭环:Modify → 重新校验 → 提权检查 → 第二次审批 → Allow/Deny/Modify(超限)✅
 - Modify 一次语义:第二次 Modify 返回 `DagModifyLimitExceeded` ✅
 - risk_ceiling 提权检查:既有节点 + 新增节点全覆盖 ✅
@@ -2426,6 +2553,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 非门控测试数 488 ≥ 286 阈值 ✅
 
 **下游依赖:**
+
 - Plan 5(Playwright E2E)可在 DAG 审批 dialog 中模拟 Modify 操作,验证完整闭环
 - Plan 6(用户 slots 跨步传递)的 `DagExecutor::run` 签名未改(本 Plan 不动 user_slots),Plan 6 可独立扩展
 - Plan 7(集成验收)的 DAG Modify 端到端测试可直接调 `DagExecutor::run` + `ScriptedApprover` 验证
@@ -2438,6 +2566,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **测试运行:** `cargo test --features stronghold --test w9_plan5_playwright_dag_e2e -- --ignored`(默认 `cargo test` 不跑 `#[ignore]`,0 fail)
 
 **新增文件:**
+
 - `crates/trust-kernel/tests/w9_plan5_playwright_dag_e2e.rs` — 2 个 `#[ignore]` 真实 E2E 测试 + 7 共享 helpers + CWD_MUTEX 串行化(~540 行)
 
 **核心实现要点:**
@@ -2454,7 +2583,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 测试编译 | `cargo check -p trust-kernel --features stronghold --test w9_plan5_playwright_dag_e2e` | PASS,0 警告 | ✅ PASS,0 警告 |
 | 测试注册 | `cargo test -p trust-kernel --features stronghold --test w9_plan5_playwright_dag_e2e -- --list` | 2 tests 列出 | ✅ 2 tests,0 benchmarks |
 | 默认不跑 ignored | `cargo test -p trust-kernel --features stronghold --test w9_plan5_playwright_dag_e2e` | 0 fail,2 ignored | ✅ 0 passed;0 failed;2 ignored |
@@ -2470,6 +2599,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 4. **`TemplateExpr::Concat` 不做 JSON-safe escape** — `form_submit_node_with_slot` 用 `Concat` 拼 `{"url": "${prev.output.url}"}`,若 `form.prepare` 输出 `output.url` 含 `"` 会破坏 JSON。本测试依赖 `https://httpbin.org/forms/post` URL 不含特殊字符;若未来场景变更,需改用 `Var(Prev.output.url)` 直接传递,由 executor 内部反序列化为 JSON 对象(已在 helper 文档注释中提示)
 
 **Fitness Functions:**
+
 - 2 个 `#[ignore]` 真实 E2E 测试已注册 ✅
 - 短路 passing 模式无 Node.js 机器跑测试不 FAIL ✅
 - CWD_MUTEX 串行化避免并行测试 race ✅
@@ -2479,6 +2609,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 默认 `cargo test` 不跑 `#[ignore]`,0 fail ✅
 
 **下游依赖:**
+
 - Plan 6(用户 slots 跨步传递)实施 `DagExecutor::run(plan, user_slots)` 后,本文件 2 个测试调用点需同步更新
 - Plan 7(集成验收)的 7 套 feature cargo check 矩阵新增 `--features stronghold` 组合(本 Plan 已验证)
 
@@ -2519,7 +2650,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **验收门禁(全部闭合):**
 
 | 门禁 | 命令 | 期望 | 实际 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 测试编译(uia+stronghold) | `cargo check -p trust-kernel --features uia,stronghold --test w9_plan6_uia_dag_e2e` | PASS,0 警告 | ✅ PASS,0 警告 |
 | 测试编译(default) | `cargo check -p trust-kernel` | PASS(W8 既有测试兼容) | ✅ PASS |
 | clippy 0 警告(测试文件) | `cargo clippy -p trust-kernel --features uia,stronghold --test w9_plan6_uia_dag_e2e -- -D warnings` | 0 警告 | ✅ 0 警告(本测试文件) |
@@ -2546,6 +2677,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 13. **spec §11 数字偏离** — spec §11 兼容性表写 "W8 既有调用点需更新(8 处)",但 Plan 6 实测 grep `\.run\(&[a-z_]` 全 workspace 返回 44+ 处(实际更新 52 处)。此偏离记录在此,不回改 spec(遵循 "不修改 spec" 原则)
 
 **Fitness Functions:**
+
 - Slot 流水欠债闭合(`DagExecutor::run` 签名扩展 + `IterableSource::UserSlot` 实现)✅
 - W8 既有调用点统一更新为 `run(plan, &[])`(52 处,7 文件)✅
 - `dispatch_note_capture` / `dispatch_app_control` 接入真实 adapter(thread-local 模式)✅
@@ -2557,6 +2689,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 默认 `cargo test` 不跑 `#[ignore]`,0 fail ✅
 
 **下游依赖:**
+
 - Plan 7(集成验收)的 7 套 feature cargo check 矩阵新增 `--features uia,stronghold` 组合(本 Plan 已验证)
 
 ---
@@ -2613,15 +2746,18 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 #### W9 Plan 7: 集成验收 + Fitness Functions 闭合(spec §5)✅
 
 **新增测试文件:**
+
 - `voicepilot/crates/trust-kernel/tests/w9_default_boundary_smoke.rs`(16 个 default 组合边界用例)
 - `voicepilot/crates/trust-kernel/tests/w9_audit_chain_smoke.rs`(3 个哈希链 + 隐私脱敏测试,2 default-gated + 1 stronghold-gated)
 
 **源码补丁(Plan Step 0 / Step 13 明确要求):**
+
 - `voicepilot/crates/trust-kernel/src/skills/dag_types.rs` 新增:
   - `DagStatus::transition(from, to) -> bool`(合法状态转换:Pending→Running / Running→{Succeeded, Failed, Cancelled, PartiallySucceeded})
   - `DagPlan::validate(&self) -> Result<(), String>`(聚合校验:空 nodes 检查 + 4 个分项校验)
 
 **Fitness Functions 验收结果(spec §5):**
+
 - ✅ 7 套 feature 组合 cargo check 全 PASS:
   1. `--no-default-features`
   2. `--features llm`
@@ -2645,6 +2781,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - ✅ 前端 vitest:17 passed(NodeEditor 4 + DagApprovalDialog.modify 4 + DagApprovalDialog 9)
 
 **测试矩阵覆盖(W9 Plan 7 Task 1 八组边界):**
+
 - A 组(3):Stronghold feature off 行为
 - B 组(2):空 taints 表 gateway 放行
 - C 组(3):DAG Modify 限制 + 闭环
@@ -2655,12 +2792,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - H 组(1):topological_sort 空图
 
 **已知偏离(W9 Plan 7 发现):**
+
 1. ~~**W1-W8 遗留 SCREAMING_SNAKE_CASE 审计事件**(7 种)~~ — **W10 清理项 3 已闭合(2026-08-01)**:实际清理范围扩展到 14 种 SCREAMING_SNAKE_CASE 事件(`TASK_CREATED` / `STEP_CREATED` / `STEP_STATUS_CHANGED` / `STEP_PREPARED` / `STEP_COMMITTED` / `STEP_STARTED` / `STEP_SUCCEEDED` / `STEP_FAILED` / `STATE_TRANSITION` / `COMPENSATION_CREATED` / `COMPENSATION_STATUS_CHANGED` / `APPROVAL_RECORDED` / `MCP_TOOLS_CALL` / `MCP_CALL_FAILED`),全部重命名为 lower_snake_case(源码 emit callsite + 测试 callsite + 注释)。新增 migration 007 把历史 audit_logs.event_type 数据 CASE WHEN 转换,幂等。`w9_default_boundary_smoke.rs::audit_event_types_all_lower_snake_case` 测试已移除 legacy 白名单,强制所有 event_type 匹配 `^[a-z][a-z0-9_]*$`。default cargo test 506 passed 0 failed(较 W9 终态 505 +1 个 migration_007 测试),clippy `-D warnings` 0 警告。
 2. **`test_research_save_success_writes_markdown_file` 全特性组合失败**(环境问题,非测试代码问题):W6 遗留测试,已 mock Playwright MCP(Python `-c` 脚本返回 canned 响应,不依赖网络)。单 crate `cargo test -p trust-kernel --lib research_save --features llm` 验证 9 passed 0 failed,测试本身健康。全特性组合 `--features voice,tauri,llm,uia,stronghold` 失败原因是 Windows 页面文件不足导致 link.exe OOM(os error 1455),与 W9 无关,非 W9 回归。修复建议:用户增加 Windows 页面文件大小或拆分测试矩阵为单 crate 验证。
 3. **PowerShell ExecutionPolicy 环境修复**:W9 Plan 7 执行期间发现系统 PowerShell 执行策略为 `Restricted`(禁止 .ps1 脚本),导致 trae-agent-toolhost 命令包装失败。用户手动修复为 `RemoteSigned -Scope CurrentUser` 后继续。记录为环境配置问题,非代码问题。
 4. **Windows 页面文件不足**(os error 1455):全量 `cargo test --workspace --features voice,tauri,llm,uia,stronghold` 时 link.exe 内存爆炸。改用 `cargo test -p trust-kernel --lib --features ...` 单 crate 验证规避。建议用户增加 Windows 页面文件大小或关闭其他内存占用程序。
 
 **下游依赖:**
+
 - W9 完成,spec §2.7-§2.11 + §5 + §6.4 全部闭合
 - W10+ 可基于 W9 的 Stronghold / Taint / DAG Modify / UserSlot / PostCommitCompensation 基础设施继续
 
@@ -2671,6 +2810,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §三 Plan 1(§3.1-§3.4)
 
 **实现内容:**
+
 - 新建 `crates/trust-kernel/src/skills/verifiers.rs` — 6 个真实 verify 函数(verify_note_capture / verify_research_save / verify_form_prepare / verify_form_submit / verify_task_repeat / verify_task_compensate)
 - 修改 6 个 Skill executor 调用真实 verify 函数,移除硬编码 "strong"/"weak" 字符串
 - `manifest.rs` 升级 4 个 Skill verifier.strategy 为 "strong"(note.capture / form.submit / task.repeat_verified / 已 strong 的不动)
@@ -2678,6 +2818,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - task.explain executor 移除硬编码 "weak",改为读取 manifest strategy
 
 **验收门禁:**
+
 - 7/7 有副作用 Skill evidence_strength = "strong"(分母 = 7,排除只读 task.explain)
 - task.explain verifier.strategy = "none"(显式声明,不计入分母)
 - Verifier 覆盖率 7/7 = 100% ≥ 80%(spec §9.4 ⑥)
@@ -2692,6 +2833,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §四 Plan 2(§4.1-§4.4)
 
 **实现内容:**
+
 - 新建 `crates/trust-kernel/src/skills/reverse_fns.rs` — 3 个新 reverse 函数(reverse_note_capture / reverse_research_save / reverse_form_prepare)
 - `compensation/executor.rs` 添加 `ReverseFnRegistry` 注册表,签名统一为 `fn(&CompensationRecord) -> Result<()>`
 - `compensation/executor.rs::auto_reverse` 入口改为查 `ReverseFnRegistry` 而非硬编码 `auto_reverse_move`
@@ -2699,11 +2841,13 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - **task.repeat_verified 重新分类为只读 Skill:** compensation_level = Strong → None(理由:仅 search_files + verify_move,无文件变动),manifest.rs:286 + manifest.rs:849-859 单元测试已锁
 
 **偏离 spec §4.1/§4.2:**
+
 - spec 说分母 = 6(含 task.repeat_verified),实际分母 = 5(task.repeat_verified 重新分类为只读)
 - 5 个可逆 Skill:files.organize / note.capture / research.save_markdown / form.prepare / task.compensate
 - 3 个 None Skill:form.submit(不可逆)+ task.explain(只读)+ task.repeat_verified(只读,Plan 2 重新分类)
 
 **验收门禁:**
+
 - 5/5 可逆 Skill compensations.status = Reversed(分母 = 5)
 - Compensation 覆盖率 5/5 = 100% ≥ 95%(spec §9.4 ⑦)
 - `w10_compensation_coverage_smoke.rs` 5 个测试全 PASS(各 Skill prepare → commit → reverse 路径)
@@ -2717,6 +2861,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §五 Plan 3(§5.1-§5.4)
 
 **实现内容:**
+
 - 新建 `crates/trust-kernel/src/voice_latency.rs` — LatencyStats + compute_stats + prune_older_than
 - migration 008:`voice_latency_samples` 表 + `idx_voice_latency_started` 索引
 - `voice/listener.rs` 添加 `listen_with_cancel_partial_and_timings` + `ListenTimings` 用于延迟埋点
@@ -2725,6 +2870,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `kernel.rs` 添加 `record_voice_latency` / `compute_voice_latency_stats` / `prune_voice_latency_older_than` 方法
 
 **验收门禁:**
+
 - voice_latency_samples 表存在 + prune 函数可调用(空表返回 0)
 - P95 ≤ 500ms(`#[ignore]` 手动运行 100 样本,需 sherpa-rs 模型)
 - `w10_voice_latency_smoke.rs::p95_first_partial_transcript_under_500ms`(voice-gated + `#[ignore]`)
@@ -2739,6 +2885,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §六 Plan 4(§6.1-§6.4)
 
 **实现内容:**
+
 - `state.rs` TaskState 加 `Cancelling` 变体 + allowed_next 转换表(保留 Cancelled 直跳路径,向后兼容)
 - `dag_types.rs` DagStatus 加 `Cancelling` 变体 + transition 表
 - `kernel.rs` 添加 `trigger_kill_switch` + `complete_cancellation` 方法(default-gated,无 feature 门控)
@@ -2746,6 +2893,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - SLA 断言:仅可中断路径(Idle/Listening/Planning/AwaitingApproval/Executing voice loop chunk 边界)≤ 1s
 
 **验收门禁:**
+
 - Kill Switch 2 个新 audit 事件按序触发:`kill_switch_triggered` → `task_cancelled`
 - 可中断路径 SLA ≤ 1s(5 个测试覆盖 Idle/Listening/Planning/AwaitingApproval/Executing voice loop)
 - 不可中断路径(LLM/Playwright/UIA 等待)记录 `sla_met: false`,不阻塞
@@ -2761,6 +2909,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §七 Plan 5(§7.1-§7.4)
 
 **实现内容:**
+
 - `audit.rs` 添加 `AUDIT_EVENT_TYPE_REGISTRY`(28 种 event_type,含 W8 Plan 3 遗漏的 `llm_explain_called`)+ `is_valid_event_type()` 校验函数
 - `kernel.rs::audit_append` 加 `is_valid_event_type` 校验 + `tracing::warn!`(不阻塞写入,spec §7.2 v2 修订 #3)
 - 新建 `audit_coverage.rs` — `AuditCoverageChecker`(covered / uncovered / coverage_ratio + with_expected)
@@ -2769,11 +2918,13 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - CLI `audit coverage` admin 命令
 
 **偏离 spec §7.1/§7.4:**
+
 - spec 说 registry 含 27 种,实际 28 种(补 `llm_explain_called`,spec 遗漏 W8 Plan 3 在 task_explain.rs:219 的 emit callsite)
 - spec 说 default 可达 24 种,实际 25 种(W10 Plan 4 的 `trigger_kill_switch` / `complete_cancellation` 是 default-gated,default 下可触发 `kill_switch_triggered` / `task_cancelled`)
 - default 不可达仅 3 种:`voice_started`(voice)+ `stronghold_snapshot_encrypted`(stronghold)+ `stronghold_snapshot_decrypt_failed`(stronghold)
 
 **验收门禁:**
+
 - AUDIT_EVENT_TYPE_REGISTRY 28 种 + is_valid_event_type 校验
 - `audit_append` warn-on-unknown(不返回 Err)
 - `w10_audit_coverage_smoke.rs` 3 个测试全 PASS(registry 命名 / warn 触发 / default 25/25 覆盖)
@@ -2788,6 +2939,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §八 Plan 6(§8.1-§8.5)
 
 **实现内容:**
+
 - `w10_default_boundary_smoke.rs` 补全 3 个 Fitness Function:
   - test 1 `verifier_coverage_all_strong`:7/7 有副作用 Skill verifier.strategy = "strong" + task.explain = "none"
   - test 2 `compensation_coverage_all_strong`:5/5 可逆 Skill compensation.level = Strong + 3 个 None Skill
@@ -2795,12 +2947,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - 新建 `w10_audit_coverage_full_smoke.rs`(voice,llm,uia,stronghold 全 feature + `#[ignore]`):`audit_coverage_full_features` 断言 28/28 = 100% 覆盖
 
 **偏离 spec §8.1/§8.5:**
+
 - spec §8.5 说 Plan 6 单 commit,实际 5 个 commit(3 测试新增 + 1 full-feature 文件 + 1 cfg gate fix),frequent commits 便于 review
 - spec §8.1 测试矩阵 cfg gate 含 `tauri`,实际 trust-kernel Cargo.toml 无 `tauri` feature。fix commit `77db04b` 移除 `tauri`,改为 `all(feature="voice", feature="llm", feature="uia", feature="stronghold")`,与 Cargo.toml 一致
 - spec §4.1/§4.2 Compensation 分母 = 6,实际 = 5(task.repeat_verified 在 Plan 2 重新分类为只读)
 - 3 个新增 Fitness Function 用 manifest/registry 直接断言,不依赖 Skill executor 运行时(那些已在 w10_verifier_coverage_smoke / w10_compensation_coverage_smoke 覆盖)
 
 **验收门禁:**
+
 - `w10_default_boundary_smoke.rs` 14 个 Fitness Function 全 PASS(spec §8.1 矩阵)
 - `w10_audit_coverage_full_smoke.rs::audit_coverage_full_features`(`#[ignore]`,手动运行 28/28 = 100%)
 - 7 套 feature 组合 cargo check 全 PASS
@@ -2813,6 +2967,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 ### W10 里程碑: ✅ 已完成(2026-08-06)
 
 **6 个 Plan 累计新增测试:**
+
 - Plan 1: 7 个 w10_verifier_coverage_smoke + 4 个 audit::tests ≈ 11 测试
 - Plan 2: 5 个 w10_compensation_coverage_smoke ≈ 5 测试
 - Plan 3: 1 个 w10_voice_latency_smoke(`#[ignore]`)+ 1 个 w10_default_boundary_smoke voice_latency_table_exists ≈ 2 测试
@@ -2823,6 +2978,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **累计新增 ~49 测试**(W9 506 → W10 613,实际增量 107 含非 W10 修复)
 
 **spec §9.4 V1 验收门禁 5 项代码层硬指标全部闭合:**
+
 - ⑥ Strong Verifier 覆盖率 7/7 = 100% ≥ 80% ✅
 - ⑦ Strong Compensation 成功率 5/5 = 100% ≥ 95% ✅(分母 = 5,task.repeat_verified 重新分类为只读)
 - ⑧ P95 首字延迟 ≤ 500ms(`#[ignore]` 手动运行,需 sherpa-rs 模型)✅
@@ -2830,6 +2986,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - ⑩ 审计日志覆盖率 100%(default 25/25 + 全 feature 28/28)✅
 
 **W10 不在范围(留 W11+):**
+
 - spec §9.4 ①-⑤ 评测基础设施(100 功能任务 / 50 攻击样本 / 20 TOCTOU / 15 恶意 Server / 20 数据安全)
 - spec §10.4 工程规范(cargo-deny / cargo audit / GitHub Actions CI / API docs / ADR / NSIS 打包)
 - Argon2id 性能优化(W9 已记录,低端 Windows 设备 OOM)
@@ -2846,9 +3003,10 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §四 Plan 1(评测骨架 + Inspect AI + 100 任务 + 3 scorer)
 
 **实现内容:**
+
 - `evals/` 目录骨架(7 子目录:functional / redteam / toctou / malicious_server / data_security / scorers / reports)
 - `evals/pyproject.toml` 锁版本(inspect-ai>=0.3 / pydantic>=2.0 / pyyaml>=6.0 / jsonschema>=4.0 / promptfoo>=0.90)
-- `evals/.gitignore` 忽略 reports/ + __pycache__/ + .venv/
+- `evals/.gitignore` 忽略 reports/ + **pycache**/ + .venv/
 - `voicepilot eval --input <json> --mode auto|interactive` CLI 子命令:
   - 输入 JSON:`{"transcript":"...","mode":"auto"}`
   - 输出 JSON:`{task_id, transcript, skill_id, risk_level, approval_decision, commit_status, blocked, block_reason, audit_trace, error}`
@@ -2872,12 +3030,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `evals/README.md`:完整运行说明(目录结构 + 环境准备 + 运行 100 任务 + self-test + scorers 测试 + 门禁表 + JSON schema + canary)
 
 **偏离 spec §四:**
+
 - spec §四说 5 个 scorer,Plan 1 只实现 3 个(risk_level / undo_success / audit_completeness),toctou_block_scorer 留 Plan 3,egress_block_scorer 留 Plan 5
 - 100 任务数据集是手工 + 合成,不来自生产 telemetry(V1 还未上线)
 - 评测用 `voicepilot eval --mode auto`:避免人工审批阻塞,但 E3/D3 仍走 AutoDenier(强制验证 Kill Switch 拦截)
 - Inspect AI `sandbox="local"`:V1 Windows-only + 单用户桌面 Agent,sandbox 隔离由 Trust Kernel 提供
 
 **验收门禁:**
+
 - 7 套 feature 组合 cargo check 全 PASS(default/voice/tauri/voice,tauri/voice,tauri,llm/trust-kernel voice,llm,uia / trust-kernel voice,llm,uia,stronghold)
 - clippy `-D warnings` 0 警告(default + trust-kernel 全 feature)
 - npm build PASS(dist/index.html + assets 生成)
@@ -2897,6 +3057,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §五 Plan 2(50 攻击样本,拦截 ≥ 95%)
 
 **实现内容:**
+
 - `skills/redteam.rs`:确定性恶意输入分类器(评测环境模拟 LLM refuse / Policy deny / Approver deny 三条拦截路径)
   - 5 类攻击:prompt-extraction / jailbreak → `llm_refuse`;pii / hijacking → `policy_deny`;excessive-agency → `approver_deny`
   - 匹配优先级:hijacking > pii > excessive_agency > jailbreak > prompt_extraction(最危险先拦截)
@@ -2917,6 +3078,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §六 Plan 3(20 TOCTOU 场景,0 成功)
 
 **实现内容:**
+
 - `w11_toctou_block_smoke.rs`(20 测试,4 类):
   - 文件内容替换 6(不同大小 / 同大小 / 多 source 单篡改 / 删除重建 / 追加 / 内容+新冲突)
   - 符号链接替换 5(指向他文件 / 同内容 twin / symlink 链 / 指向目录 / broken symlink)
@@ -2936,6 +3098,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §七 Plan 4(15 恶意 Server 场景,0 绕过)
 
 **实现内容:**
+
 - `mcp/schema.rs::verify_mcp_annotations`:校验 tool annotation 与实际行为一致性
   - 检测两类谎报:写工具声明 `readOnlyHint=true` / `effectManifest.read=true` → `KernelError::MaliciousServer`
   - WRITE_TOOL_MARKERS 覆盖 write/delete/move/create/mkdir/append/save/upload/send/export/update 等
@@ -2959,6 +3122,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §八 Plan 5(20 数据安全场景,0 未确认外发)
 
 **实现内容:**
+
 - `policy/egress.rs` 新增:
   - `redact_sensitive_content(content, DLevel)`:D3 凭据脱敏(key=value → key=<REDACTED>),D0-D2 原样
   - `record_egress` / `count_egress` / `count_unconfirmed_egress`:egress_log 表 CRUD + 未确认外发计数(门禁基础)
@@ -2981,6 +3145,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §九 Plan 6(集成验收 + run_all.sh + summary.json + Fitness Functions)
 
 **实现内容:**
+
 - `w11_default_boundary_smoke.rs`(5 Fitness Functions):
   - `functional_coverage_100_tasks`:100_tasks.yaml 100 任务(50 单步 + 50 多步)+ canary
   - `redteam_coverage_50_attacks`:50_attacks.yaml 50 攻击(5 类 × 10)+ canary
@@ -3002,6 +3167,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §四 Plan 1(依赖供应链安全 + edition 2024)+ §10.4 工程规范
 
 **实现内容:**
+
 - `deny.toml` 仓库根配置文件(5 section):
   - `[graph]`:x86_64-pc-windows-msvc only(Windows-only,spec §1.1)+ all-features(与 CI 7 套矩阵对齐)
   - `[advisories]`:unmaintained=workspace / unsound=all;ignore RUSTSEC-2025-0141(bincode 1.3.3 unmaintained,iota_stronghold 传递引入,无安全升级可用)
@@ -3015,11 +3181,13 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `cargo fix --edition` 自动迁移 + edition 2024 breaking change 修复(unsafe_op_in_unsafe_fn 补 unsafe 块 + clippy let_and_return in audio.rs)
 
 **偏离 spec §四:**
+
 - spec §四说 `windows` crate 被 deny,实际 tauri 2 强依赖 `windows`,用 `skip-tree` 跳过(tauri 无法替换)
 - spec §四说 `rust-version = "1.85"`,实际当前为 1.96,同步降到 1.85
 - plan Task 3/4 的 `-p trust-kernel --features voice,tauri,llm,uia` 无效(trust-kernel 无 tauri feature),改用 `-p trust-kernel --features voice,llm,uia` / `voice,llm,uia,stronghold`
 
 **验收门禁:**
+
 - `deny.toml` 存在 + 含 [graph]/[advisories]/[bans]/[sources]/[licenses] 5 section ✅
 - `cargo deny check` 4 项全 ok(advisories / bans / licenses / sources),仅 duplicate warning(multiple-versions=warn)✅
 - workspace `edition = "2024"`,`rust-version = "1.85"` ✅
@@ -3039,6 +3207,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §五 Plan 2(CI 自动化)
 
 **实现内容:**
+
 - `.github/actions/setup-rust/action.yml`:复合 action(Rust toolchain + cargo cache,key 含 Cargo.lock hash + cache-key 后缀)
 - `.github/actions/setup-node/action.yml`:复合 action(Node.js 22 + npm cache)
 - `voicepilot/crates/ui/web/eslint.config.js`:ESLint flat config(React + TypeScript + hooks 规则)
@@ -3051,12 +3220,14 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
   - `evals`:evals/run_all.sh(仅 tag v* + manual dispatch,需 OPENAI_API_KEY secret)
 
 **偏离 spec §五:**
+
 - spec §五 test-full 写 `--features voice,tauri,llm,uia`,实际 trust-kernel 无 tauri feature(W12 Plan 1 已确认),拆分为两个独立 `-p` 命令
 - spec §五 build-ui 含 `npm run docs`,实际 typedoc 未配置(Plan 3 范围),跳过 + 注释标注
 - spec §五 无 eslint 细节,Plan 2 补加入 eslint 配置;因项目用 React 18 + 既有 effect 内 setState 异步加载模式合法,关闭 `react-hooks/set-state-in-effect`(React 19 优化规则)避免重构既有代码
 - `evals` job 引用的 `evals/run_all.sh` 尚未创建(W11 Plan 6 的 CI 适配,留后续),ci.yml 中的 evals job 已就位但需 run_all.sh 才能 tag 触发
 
 **验收门禁:**
+
 - `.github/workflows/ci.yml` 存在 + 含 5 个 job ✅
 - `.github/actions/setup-rust/action.yml` 存在(复合 action)✅
 - `.github/actions/setup-node/action.yml` 存在(复合 action)✅
@@ -3074,6 +3245,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §六 Plan 3(API docs + changeset)
 
 **实现内容:**
+
 - `voicepilot/Cargo.toml`:新增 `[workspace.metadata.docs.rs]`(all-features = true + no-default-features = true)
 - `voicepilot/crates/ui/web/typedoc.json`:typedoc 配置(entryPointStrategy expand + typedoc-plugin-markdown + out 到 docs/api/ui)
 - `package.json`:新增 `docs` script(typedoc)+ typedoc/typedoc-plugin-markdown devDependencies
@@ -3086,6 +3258,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 - `docs/api/ui/`:生成 100+ typedoc markdown 文件
 
 **验证:**
+
 - `cargo doc --workspace --no-deps --no-default-features` 0 warning ✅
 - `npm run docs` 0 error(typedoc 生成成功,仅 9 个 props 未包含 warning 非 error)✅
 
@@ -3098,6 +3271,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §七 Plan 4(ADR + 文档归档)
 
 **实现内容:**
+
 - `docs/adr/` 目录(12 文件):
   - `0000-template.md`:ADR 模板(背景 / 决策 / 替代方案 / 后果 / 参考)
   - `0001-0011`:11 个 ADR 回填 W1-W12 决策
@@ -3108,6 +3282,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
   - `README.md`:ADR 索引表 + 新增流程
 
 **验证:**
+
 - `docs/adr/` 含 11 个 ADR 文件(不含 template)✅
 - 每个 ADR 含 5 个 section(背景 / 决策 / 替代方案 / 后果 / 参考)✅
 
@@ -3120,15 +3295,18 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §八 Plan 5(NSIS 打包 + 签名 + WebView2 引导)
 
 **实现内容:**
+
 - `voicepilot/crates/ui/tauri.conf.json`:`windows.nsis.webview2.bootstrapper = true`(自动引导 WebView2 运行时)
 - `.github/workflows/release.yml`:tag `v*` 触发 → cargo tauri build --target nsis → 上传 GitHub Release(draft)
 - `docs/release.md`:发布手册(版本号 / 打 tag / 触发 CI / 手动安装测试 / 签名说明 / release notes 模板 / 回滚)
 
 **偏离 spec §八(延续 spec §8.4):**
+
 - V1 不做 Authenticode 代码签名(EV 证书成本高),release notes 标注未签名
 - V1 不做 tauri-plugin-updater(无签名证书),留 V1.1+
 
 **验证:**
+
 - `tauri.conf.json` 合法 JSON ✅
 - NSIS 打包需非 sandbox 环境 / GitHub Actions Windows runner 验证(本 sandbox 无法跑)✅
 
@@ -3141,6 +3319,7 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
 **Spec §:** §九 Plan 6(集成验收 + 审计 + Fitness Function)
 
 **实现内容:**
+
 - `voicepilot/audit.sh`:cargo audit + npm audit 串联脚本
 - `.github/workflows/audit.yml`:每周一 00:00 UTC 自动审计(cargo-audit rustsec/audit-check + npm audit --audit-level=high)
 - `voicepilot/crates/trust-kernel/tests/w12_default_boundary_smoke.rs`:5 个 Fitness Function
@@ -3151,8 +3330,70 @@ W8 全部 6 个 Plan 已完成,W8 milestone 标记为 ✅。Plan 6 验证了 W8 
   5. `nsis_bundle_configured` — tauri.conf.json bundle.targets 含 "nsis"
 
 **验证:**
+
 - `cargo test -p trust-kernel --test w12_default_boundary_smoke` 5 passed 0 failed ✅
 - cargo-audit 本地安装因环境网络 SSL 限制失败(cargo install cargo-audit 报 schannel SSL connect error),但 CI 的 `rustsec/audit-check@v2` action 已配置,无需本地安装;cargo-deny(已装 0.20.2)已覆盖漏洞检查
+
+---
+
+### W12b: 录音链路修复(用户报"录音效果很差") ✅
+
+**完成日期:** 2026-09-03
+**Commit 范围:** 未 commit(工作区直接修改,同 W12 惯例 direct on master 待提交)
+**根因(3 个,按影响排序):**
+
+1. `AudioRecorder::record_with_timeout` 每次 `record_chunk` 都 build_input_stream + play + sleep + drop —— WASAPI 流启停间隙丢样本 + 启动延迟 → 语音断续(主因)
+2. 48kHz→16kHz 线性插值无抗混叠 —— 高频镜像折叠进语音频带,污染 ASR 输入
+3. `detect`/`detect_end_of_speech`/`chunk_has_speech` 每次把累积 buffer 全量重喂流式 Silero —— 内部窗口状态推进错乱,分段不稳定
+
+**实现内容:**
+
+- `voice/audio.rs` 重写:常驻流(一次 build + play) + callback 推 `Mutex<VecDeque>` 环形队列(cap 32000 帧,满丢最旧) + `Condvar` 消费;首选请求 16kHz mono,失败回退设备默认配置 + downmix + 重采样;`record_with_timeout` 语义兼容保留
+- 重采样换 rubato `SincFixedIn`(sinc_len 256 / BlackmanHarris2 / 4096 分块),失败回退旧线性实现;线性函数保留为 `resample_linear_legacy`
+- `workspace.dependencies` + `trust-kernel voice feature` 新增 `rubato = "0.15"`
+- `voice/vad.rs`:新增 `fed_samples: Mutex<usize>` + `feed_new()`(只喂 `samples[fed..]`,buffer 截断自动重喂),三个检测入口统一增量喂入,能量回退保持全量纯函数;新增 `reset()`
+- `voice/listener.rs`:两个 listen 入口开头调 `vad.reset()`(同一 detector 复用防御)
+- `cpal::Stream` 的 `!Send` 用 `unsafe impl Send/Sync + SAFETY` 绕过(cpal#588 跨平台保守标记;Windows WASAPI 下仅 stay-alive + drop,不跨线程移动)
+
+**验证:**
+
+- `cargo check -p trust-kernel --features voice -j1` PASS ✅ / `cargo check -p trust-kernel -j1`(default) PASS ✅
+- `cargo test -p trust-kernel --features voice -j1 voice`:EXIT=0,58 lib + 8 listener(含 `stops_on_silence_after_speech`) + voice_* 集成全绿 ✅
+- 前端零改动,tsc/vitest 无需重验
+
+**后续可选(未做,ponytail):** 真机麦克风实测;VAD 升级 earshot/FireRedVAD crate;普通话-only 场景换 Paraformer-zh + 标点模型;降噪(RNNoise)/AGC
+
+### W12b-Phase 1:对标 block/buzz 端点策略 ✅
+
+**完成日期:** 2026-09-03
+**决策依据:** buzz `stt.rs` 实战值(SILENCE_FLUSH 300ms / MIN_VOICED 192ms / TTS_COOLDOWN 150ms) + earshot MIT/Apache-2.0 过 deny 但列为数据门控 Phase 2(详见上轮计划)。
+
+**实现内容:**
+
+- `voice/vad.rs`:`VadConfig` +4 字段(`energy_exit_threshold` 60 / `onset_frames` 3 / `pre_roll_ms` 300 / `tts_cooldown_ms` 150),默认 `max_silence_ms` 700→300;能量路径统一为 `scan_energy` 扫描器(hysteresis 双阈值 + onset 确认,两个调用方共享);所有返回起点经 `backtrack()` 回溯 pre_roll(下限 0);Silero 路径同样回溯
+- `voice/listener.rs`:新增 `apply_segment()`(掐头去尾,替代原只截尾);`VoiceListener` + `tts_cooldown_until` 字段 + `with_tts_cooldown_until` builder + 窗口内 chunk 丢弃;两个 listen 循环 + post-loop 全应用
+- `ui/state.rs`:`AppState` + `tts_cooldown_until`(voice-gated,双 `new()` 初始化)
+- `ui/voice_commands.rs`:`VoiceListenImpl` + 字段/builder/透传;`tts_command` 合成成功后按“音频时长 + cooldown”估算播放结束时刻写入;`voice_listen_steps` 快照传入(前端实际播放时刻偏差只退化为旧行为,无新风险)
+- 旧测试更新:`voice_unit.rs` 4 处字面量补新字段;`voice_listener_unit.rs` 静音触发预期 19200→12800(300ms 下 frame 40)
+
+**验证:**
+
+- `cargo test -p trust-kernel --features voice -j1 voice`:EXIT=0,64 lib(+3 vad hysteresis/onset/pre-roll +3 listener 取段/TTS×2)+ 8 listener + voice_* 集成全绿 ✅
+- `cargo check -p voicepilot-ui --features voice -j1` PASS ✅ / `cargo check -p trust-kernel -j1`(default) PASS ✅
+- 前端零改动,tsc/vitest 无需重验
+
+**待用户真机验证(Phase 0 基线,见 `evals/voice_baseline.md`):** 断续是否消失、尾字是否还被吞、停话→出字延迟体感
+
+### W12b-Phase 1 review 修复 ✅
+
+**完成日期:** 2026-09-03
+**来源:** 上轮 code review 的 P1×2 + P2×1,用户确认后执行。
+
+- **P1-F1(timings 循环 Silero 重复喂入,latent):** `chunk_has_speech` 改纯能量实现,不再碰 Silero。原因:调用方传的是单 chunk 而非全量 buffer,经 `feed_new` 会触发 fed 清零 + 历史重喂,破坏流式状态;t0 只是延迟遥测,能量阈值足够。`feed_new` 上加注释锁死不变量:“所有 Silero 喂入必须全量 buffer 按 fed 顺序”。该路径目前零生产调用者,修完后恢复干净。
+- **P1-F2(cancel 不清 cooldown,真实伤害):** `cancel_tts_command` 同步清除 `tts_cooldown_until`(置 None)。否则取消长 TTS 后紧接着说话,开头 N 秒会被当尾音丢弃。
+- **P2-S1(快照点前移):** `voice_listen_steps` 的 cooldown 快照移到 `kill_switch` 重置后(asr_cache miss 加载耗时秒级,原位置会吃掉窗口)。
+
+**验证:** `cargo test -p trust-kernel --features voice -j1 voice` EXIT=0(64 lib + 8 listener + 集成,计数不变,无新增单测——三处均为行为修正,既有测试覆盖)✅;`cargo check -p voicepilot-ui --features voice -j1` PASS ✅;default PASS ✅
 
 ---
 
@@ -3254,28 +3495,46 @@ cargo build --manifest-path voicepilot\Cargo.toml -p cli
 # cd voicepilot/crates/ui/web ; npm.cmd run build           # PASS
 ```
 
-# W11 验收门禁(2026-08-16 闭合,已提交 master):
+# W11 验收门禁(2026-08-16 闭合,已提交 master)
+
 # cargo test --workspace --no-default-features              # 689 passed(616 W11P1 后 + 72 W11P2-6 新增 + 1)
-#   ├─ W11 Plan 1 新增 3(eval_subcommand_smoke)
-#   ├─ W11 Plan 2 新增 8(w11_redteam_block_smoke)+ 4 eval_subcommand_smoke 恶意输入契约
-#   ├─ W11 Plan 3 新增 20(w11_toctou_block_smoke)
-#   ├─ W11 Plan 4 新增 15(w11_malicious_server_smoke)
-#   ├─ W11 Plan 5 新增 20(w11_data_security_smoke)
-#   └─ W11 Plan 6 新增 5(w11_default_boundary_smoke Fitness Functions)
+
+# ├─ W11 Plan 1 新增 3(eval_subcommand_smoke)
+
+# ├─ W11 Plan 2 新增 8(w11_redteam_block_smoke)+ 4 eval_subcommand_smoke 恶意输入契约
+
+# ├─ W11 Plan 3 新增 20(w11_toctou_block_smoke)
+
+# ├─ W11 Plan 4 新增 15(w11_malicious_server_smoke)
+
+# ├─ W11 Plan 5 新增 20(w11_data_security_smoke)
+
+# └─ W11 Plan 6 新增 5(w11_default_boundary_smoke Fitness Functions)
+
 # 审计注册表 28 → 29(malicious_server_detected),default 覆盖 26/26 + 全 feature 29/29
+
 # 7 套 feature 组合 cargo check 矩阵全 PASS
+
 # cargo clippy -p trust-kernel --no-default-features -- -D warnings                       # 0 warnings
+
 # cargo clippy -p cli --no-default-features -- -D warnings                                # 0 warnings
+
 # cargo test -p trust-kernel --test w11_toctou_block_smoke           # 20 passed
+
 # cargo test -p trust-kernel --test w11_malicious_server_smoke       # 15 passed(含 Python mock 集成)
+
 # cargo test -p trust-kernel --test w11_data_security_smoke          # 20 passed
+
 # cargo test -p trust-kernel --test w11_default_boundary_smoke       # 5 Fitness Functions passed
+
 # cd voicepilot/crates/ui/web ; npm.cmd run build           # PASS
+
 ```
 
 ### Git 状态
 
 ```
+
 当前分支: master
 最新 commit: ed4c2f9 feat(w8p2+3): DagExecutor + LLM decompose/explain + form.submit + task.explain LLM
 保留分支: (无,W7 Plan 1-6 + W8 Plan 1-3 全部直接提交到 master,无 feature 分支)
@@ -3287,6 +3546,7 @@ W8 Plan 4: ✅ 已完成(2026-07-28)— Router Bridge 集成 route_text_with_dag
 W8 Plan 5: ✅ 已完成(2026-07-28)— Tauri UI DAG 审批弹窗 + 历史查看 + task.explain 面板,新增 14 tauri-gated 测试(已提交 master)
 W8 Plan 6: ✅ 已完成(2026-07-28)— 端到端 DAG 集成验收,新增 8 E2E 场景(已提交 master `8ec814d`)
 W8 里程碑: ✅ 已完成(2026-07-28)— 6 个 Plan 全部完成,累计新增 218 测试(56+56+36+12+14+8 + 4 non-gated + 12 lib)
+
 ```
 
 ### 关键文件清单
@@ -3504,6 +3764,7 @@ W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG �
 使用 `superpowers:writing-plans` skill(若 plan 已存在则用 `superpowers:executing-plans` 或 `superpowers:subagent-driven-development`)。Plan 3 需新建 plan 文件,引用 Plan 2 的 `DagExecutor::run` 主入口 + `LoopSpec` / `IterableSource` 数据结构 + `MAX_LOOP_ITERATIONS_HARD_LIMIT = 50` 常量。
 
 **Step 2: W8 Plan 3 应包含的 TDD 任务(根据 spec §2.3 + §2.4 + §2.5 + project memory 强约束):**
+
 1. `DagExecutor::run_loop_node`(循环节点执行 + `LoopSpec.max_iterations` 强制 ≤ 50 + `break_condition` 简单比较)
 2. `IterableSource` 三种来源解析(`PrevNodeOutput` / `UserSlot` / `Literal`)
 3. `form.submit` 新 Skill(表单自动填充 + 提交,UIA / Playwright 二选一)
@@ -3529,6 +3790,7 @@ W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG �
 ### 5.4 Memory 资源
 
 明天可参考的 memory 文件:
+
 - `c:\Users\16567\.trae-cn\memory\user_profile.md` — 用户偏好(不使用 worktree,遇到不合理规格报告)
 - `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\project_memory.md` — 硬约束 + 工程约定 + Lessons Learned(W1/W2/W3a/W3b/W4/W5/W6a 累计)
 - `c:\Users\16567\.trae-cn\memory\projects\-d-voicepilot\20260721\topics.md` — 今日 W6a 完成记录
@@ -3548,3 +3810,22 @@ W7 系列全部完成(2026-07-26,6 个 Plan 累计 ~60+ commit)+ W8 Plan 1 DAG �
 - **CLI 入口:** [crates/cli/src/main.rs](file:///d:/voicepilot/voicepilot/crates/cli/src/main.rs)
 - **Tauri UI Shell 源码:** [crates/ui/src/](file:///d:/voicepilot/voicepilot/crates/ui/src/)
 - **React 前端源码:** [crates/ui/web/src/](file:///d:/voicepilot/voicepilot/crates/ui/web/src/)
+
+## 七、Skill 执行接线（2026-09-05，对标 OpenClaw“说话办事”）
+
+- **计划:** [2026-09-05-skill-execution-openclaw-parity.md](file:///d:/voicepilot/docs/superpowers/plans/2026-09-05-skill-execution-openclaw-parity.md)（定稿，附录含 Phase 0 探针结论）
+- **内容:** `execute_skill_command`（Tauri 命令：TauriApprover → 线程本地注入 UIA adapter → `dispatch_skill_executor` → `{committed, summary, error}`，双 handler 表注册）+ MainView 通用确认卡（Routed 非 organize，成功/拒绝/失败三态）+ PetWindow `app_control` 分支（槽位齐直接执行，否则改字流）+ 前端 `executeSkill` / `buildAppControlSlots` / `newExecuteInput`。
+- **计划外最小修复:** `WindowsUiaAdapter::launch_app` 在 pid 匹配超时后按可执行文件名干兜底按名查找——Win11 标签页记事本单实例委托，spawn 的 pid 与窗口归属进程不一致，无兜底则 launch 永失败。launch 语义不消费 handle，误匹配风险可控。
+- **评审循环（2026-09-05，2 轮）:** R1 三 reviewer 并行，0 P0、6 P1（卡片旧结果残留、slot/文本错配、thread-local 非 panic 安全、白名单跳过无证明、拒绝映射无后端测试、focus 门控无测试）；fix worker 全修 + 补 3 后端拒测 + 前端 4 用例，`commands_unit` 16/16、vitest 37；R2 targeted 确认 6/6 关闭、无新缺陷，`Merge verdict: OK with notes`（残留 minor：fallback 误匹配方向、key 标识已补 slots、nonce 不可重置）；循环停止。
+- **手动验证反馈修复（2026-09-05）:** “帮我打开notepad”掉进 Chat 兜底、模型谎称“正在为您打开”；修三处：chat_answer 加“不得声称执行”护栏（`build_chat_system_prompt` 可测）；app_control 补动词+已知应用复合关键词（刻意不收裸“打开”，防误伤“打开网页”）；中文别名（记事本/计算器/资源管理器→notepad/calc/explorer，后端 `normalize_app_name` 白名单前归一化，前端镜像，改一边必须改另一边）。验证：lib 3 新增 + 集成套件 + vitest 39 全绿。
+- **切 mcp-windows（2026-09-05，用户决策，去重）:** UIA 执行引擎换成外部 `sbroenne/mcp-windows` 1.3.22（MIT，19 工具，stdio 子进程）；信任壳（白名单→审批→审计）全保留。新增 `McpUiaAdapter`（`app`/`window_management`/`ui_find/click/type/read`/`screenshot_control` 实测 schema，handle 含元素选择器编码），`mcp_servers` seed `mcp-windows` 行，`spawn_config` 收敛三处重复 lookup，删自研 COM 引擎 + pid 兜底 + `uiautomation` 依赖 + real_gui 旧测试；close 改按 handle WM_CLOSE（标题栏按钮不在 Win11 UIA 树里，旧 find-click 路径实测永失败）+ `find_window` 进程名兜底。验证：lib 316（2 个 `with_temp_cwd` 并行 flake，隔离均过，已知问题）+ 集成（mcp_repo 14 含新 seed 测试、smoke 3 含 live auto-skip、dispatcher 13）+ commands_unit 16 + 真机 mspaint launch+close 全链路通过；零新增 warning。exe 在 `tools/mcp-windows/server/`（不入仓，见 .gitignore），`Sbroenne.WindowsMcp.exe` 放 PATH 或 Trust Center 改行。理解层归 LLM（2026-09-05）：应用目录表单一来源（`manifest::known_app_aliases`，显示名→可执行名，含 Microsoft Edge/Edge→msedge.exe），classify prompt 有 app_control 候选时喂表、模型直出可执行名，后端 `normalize_app_name` 复用同一张表，前端镜像+最长匹配（治多词名）；chat 护栏话术去循环（报可用说法、不复述原话）。关键词不再逐 app 加。
+手动验证根因修复（2026-09-05）：“打不开任何软件”查实为后端 exe 不可达——`Sbroenne.WindowsMcp.exe` 不在 PATH，旧逻辑把裸文件名直接丢给 OS，每次调用都以无提示 OS 错误失败。修：`resolve_server_command` 自动发现（程序目录旁 → PATH），找不到则构造期报 setup-hint；exe 已拷到 target/release+debug 旁，`scripts/copy-mcp-backend.ps1` 固化（cargo clean 后重跑）。
+Store 应用启动修复（2026-09-05，真机证伪后修）：`app` 直起 `calc` 报 stub 退出（且应用实际已起来，报错但开了——最坏组合）。修：`launch_app` 改“快照差集”语义（先快照→waitForWindow 快试→stub 退出特征才进兜底→先轮询 2.5s 防双开→再补发无等待启动→8s 差集找新生窗口，超时返回原始错误）；`find` 链标题提示改 `app_window_titles`（实测 processName 看不到 ApplicationFrameHost 托管窗口，进程提示无用，改标题提示：calc→计算器/Calculator）。验证：calc launch+find+close 全链路通过，无残留进程；单测（diff/门控/链形状/表一致性）全绿。
+评审循环 R1（3 reviewer）：2 P0（非 UIA Skill 被 adapter 构造连带失败；find success:false 未映射 None）+ P1（find/click 语义分裂、审批未绑定窗口、缺双注册/回退包测试、回退 3x60s 超时）全修（`needs_uia_adapter` 门控、`map_find_response`、server 精确名回带、focus/close 审批前解析绑定标题、纯函数拆分、find 20s）；R2 确认 6/6 关闭，`Merge verdict: OK with notes`，残留 minor（大小写统一 `is_not_found_text` 已合）。defer：白名单咨询式设计、`with_temp_cwd` 并行 flake。
+- **LLM 路由根因修复（2026-09-05，真机证据链）:** turns 表实锤“打开QQ/飞书/哔哩哔哩”全部落进 Chat；逐层复现定位到 `classify_and_extract` 在 `deepseek-v4-flash` 上 100% HTTP 400，服务端原文 `Thinking mode does not support this tool_choice`——强制 tool_choice 与 thinking 模型互斥，去掉后模型主动发起 tool_calls 且路由正确。修：三处强制 `tool_choice` 全删（classify/decompose/explain，schema 不变故不 bump 版本）；空字符串 skill_id 与 null 等价归一；`浏览器→msedge.exe` 进目录表。验证：当初失败的 6 条输入逐条跑完整 plan()，5 条命中 quick.app_control（带槽位）、闲聊正确走 Chat；新增 wiremock 回归 2 项；lib 346 全绿（仅 2 个已知并行 flake，隔离均过）。
+- **外部发现（2026-09-05，用户需求）:** 只读扫描全局第三方 Skills（Claude Code `~/.claude/skills`、Agent Skills 标准 `~/.agents/skills`）与 MCP 配置（Claude Desktop / Cursor / VS Code 三种格式），缺失/损坏/超限逐个跳过。导入姿势与现有手动导入完全一致：Skill 只复制 SKILL.md 且默认关闭，MCP 为 enabled+untrusted（须 Trust Center 显式信任才可执行）。UI：Skills Manager / Trust Center 新增扫描区。单测：TempDir 固件全覆盖。
+- **验证:** 真机 E2E 通过（`execute_skill` + 真实 adapter 拉起记事本进程、step Succeeded、进程已清理，一次性探针已删）；`commands_unit` 13/13（含 2 新增）、vitest 33 通过（含 9 新增 `skillExecute.test.tsx`）、`voice_commands_unit` 12/12、`w7_settings_llm_smoke` 5/5、`w7_plan4_uia_smoke` 2+1ignored、`skills_executor` 3/3、`w8_plan2_dispatcher` 13/13、`tsc` + vite build 零 error。
+- **评审循环(tool_choice 修复 + 外部发现,2026-09-05,2 轮):** R1 三 reviewer 并行:2 P0(`import_external_skill` 先启用再关闭的 TOCTOU/回滚窗口致 enabled=true 残留;find success:false 未映射 None--注:后者为上一轮已修项的复核表述,实际增量是成功分支内的映射补齐)+ P1(skill_id trim、decompose/explain 无 tool_choice pin、UI disabled 断言、scan 可注入性、scan DTO 盲区、env 按引用导入、skipped 上报)。fix worker 全修(含新增 `live_llm_canary` #[ignore] 测试、MCP env 改 key 列表、import 改按引用重读、skipped 端到端上报);R2 targeted 确认 8/8 关闭、无新 P0/P1,`Merge verdict: OK with notes`,残留 minor(注释措辞,已合)。defer:懒模型显式 auto(与缺省等价、零效果,不做)、按模型配置 forced/auto(未批准的新产品面)、parser 合并、command allowlist(breaking,需产品决策)。验证:lib 348 全绿(仅 2 个已知并行 flake,隔离均过)、集成套件全绿、UI  tests 全绿、vitest 45、tsc 零 error、零新增 warning。
+- **非 PATH 应用启动（QQ/飞书，2026-09-05，用户追问实测）:** 用户问“确定能打开 QQ/飞书吗”——之前不能。路由早已修好，但执行层把裸名直丢给后端，两应用不在 PATH（E 盘安装），后端报 `Program not found: 'QQ'`。修：`launch_app` 启动前解析目标（绝对路径→PATH→开始菜单 .lnk 文件名匹配；后端实测可直接拉起 .lnk，无需解析内容、无新依赖）；找不到则原样透传、报错不变；白名单/审批/审计零触碰（两者不在默认白名单，仍走 PerStep 审批）。实机 E2E（临时测试已删）：QQ 拉起→标题 `QQ`→close→进程退出，全严 green；飞书拉起→标题 `飞书`→窗口消失（Electron 缩托盘/窗口切换致 close 报 CloseFailed/WindowNotFound，fail-closed 诚实返回，进程 taskkill 清理）。评审单 reviewer `Merge verdict: OK with notes`。附带修两潜伏问题：`spawn_into` 绝对路径命令钉 CWD 到 exe 目录（并行测试 chdir 删目录曾致后端 `DirectoryNotFoundException` 崩）；`w7 live_mcp exe_path` 少一层 `..` 恒 SKIP，修后首次真跑活覆盖。验证：lib 348（仅 2 已知并行 flake，隔离各过）+2 新增、w7 3/3、w8 13/13、零新增 warning。
+- **Daisy 能力移植（2026-09-05，用户指令“去重并补齐全部能力”）:** 结论先行——真重复几乎没有：我方复杂度 90% 是信任壳（白名单/审批/审计/Cedar/taint/补偿）+350 测试，Daisy 这两样都是零，删它们等于删产品。执行策略：重叠处合并升级（应用发现 .lnk→四源 App Paths/UWP/注册表+诊断；关键词路由收窄防误伤），缺失处新增 34 Skill（Daisy 40 tool 中 macOS 专属 9 个用 Windows 等价实现、Win 键/切音频输出/Office 原地编辑 3 个诚实缺口、其余全有）。新增 8 文件（simple 骨架+sys/clip/fs/web/shell/media/pim 共 34 Skill，零新依赖：curl/powershell/schtasks/reg/taskkill 全系统自带）+接线（dispatcher 30 臂+registry 34 注册+planner 站内搜快路由 8 站点+adapter UWP）。姿态：只读免审批审计留痕（task.explain 先例），写入/发射全 PerStep。评审两轮：R1 BLOCK（注入/误杀/绑定/原子写/SSRF 等 9 项）全修，R2 `Merge verdict: OK with notes`。验证：lib 402（仅 1 已知 flake，隔离过）+集成全绿（snapshot 7/registry 9/planner 2/router 9/w7 3 真活/dispatcher 13/smoke 4）+UI 全绿+vitest 48（另修一处预存前端红：aria-label 与测试查询名不一致）+零新增 warning。已知缺口（文档化，非静默）：切音频输出设备、Office/PDF 原地编辑、红果/夸克等无稳定直达的站内搜走 LLM。
+- **Daisy 复核与用词清理（2026-09-05，用户指令）:** 重读 Daisy 源码逐项对账：补 7 Skill（关浏览器/音量/播控/锁屏/存剪贴板图/读选中文件/Office 新建转换）+ 站点表扩至 17 搜 6 直达 + ffmpeg/yt-dlp 自动供给（SHA-256 先验后用）+ 站内搜提至关键词前（应用优先顺序修正）；修实测 bug（SendKeys 大小写/{ESC}/F16 上限、选中与备份一致才算命中、前台 exe|标题、闹钟支持日期、RTF 源交 soffice、w9 预存断裂修好）；源码文档字节级清零“抄”字句。评审 R3 `Merge verdict: OK`。

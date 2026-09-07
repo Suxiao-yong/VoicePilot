@@ -8,6 +8,6 @@
 
 > **DagApprovalDecision** = `"allow"` \| `"deny"` \| `"modify"`
 
-Defined in: types.ts:278
+Defined in: types.ts:319
 
 W8 §2.7:DAG 审批决策。

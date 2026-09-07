@@ -8,7 +8,7 @@
 
 > **approveDagSkeleton**(`approvalRequestId`, `decision`, `modifiedPlan?`): `Promise`\<`boolean`\>
 
-Defined in: api.ts:203
+Defined in: api.ts:216
 
 提交 DAG 骨架审批决策。
 

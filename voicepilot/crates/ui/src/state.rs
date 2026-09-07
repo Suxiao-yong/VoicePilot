@@ -28,17 +28,20 @@ pub struct AppState {
     /// tts_command 开始时重置为 false,合成前后检查。
     #[cfg(feature = "voice")]
     pub tts_cancel: Arc<std::sync::atomic::AtomicBool>,
-    /// W7: LLM 客户端缓存(配置变更时重建)。
-    ///
-    /// `LlmClient` 非 `Clone`(持有 `reqwest::Client`),用 `Arc<LlmClient>` 共享。
-    /// `Mutex<Option<Arc<...>>>` 表达"未初始化 / 已初始化"两态:
-    ///   - `None`:首次调用前(或 Settings 未启用 LLM),`llm_client()` 返回 `LlmClient::disabled()`
-    ///   - `Some(arc)`:已通过 `rebuild_llm_client` 构建并缓存
-    ///
-    /// Settings 变更(privacy_mode / llm_enabled / llm_api_key)→ `update_settings_command`
-    /// 调 `rebuild_llm_client` + 写入此字段,下次 `route_text` 即用新配置。
-    #[cfg(feature = "llm")]
-    pub llm_client: Arc<std::sync::Mutex<Option<Arc<trust_kernel::llm::client::LlmClient>>>>,
+    /// TTS 自激防护(Phase 1,与 buzz TTS_COOLDOWN 同值):tts_command 合成成功后
+    /// 按“音频时长 + cooldown”估算播放结束时刻;下次 listen 落在此窗口内的
+    /// chunk 直接丢弃(防音箱尾音被当成用户说话)。None = 无防护。
+    #[cfg(feature = "voice")]
+    pub tts_cooldown_until: Arc<std::sync::Mutex<Option<std::time::SystemTime>>>,
+    /// 录音并发防护(桌宠化改造):同一时刻只允许一路录音(主界面麦克风 /
+    /// 桌宠单击录音),防止两路同时打开 cpal 输入流。voice_listen_command 开头
+    /// `compare_exchange(false → true)` 抢占,结束时(含错误路径)复位。
+    #[cfg(all(feature = "tauri", feature = "voice"))]
+    pub recording: std::sync::atomic::AtomicBool,
+    /// 桌宠确认气泡是否可见(桌宠化改造):鼠标穿透看门狗据此把气泡区域
+    /// 纳入可交互热区。PetWindow 经 pet_set_bubble_visible 命令同步。
+    #[cfg(feature = "tauri")]
+    pub bubble_visible: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -55,8 +58,12 @@ impl AppState {
             tts_cache: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(feature = "voice")]
             tts_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            #[cfg(feature = "llm")]
-            llm_client: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cooldown_until: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(all(feature = "tauri", feature = "voice"))]
+            recording: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "tauri")]
+            bubble_visible: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -72,8 +79,8 @@ impl AppState {
             tts_cache: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(feature = "voice")]
             tts_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            #[cfg(feature = "llm")]
-            llm_client: Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "voice")]
+            tts_cooldown_until: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -82,47 +89,60 @@ impl AppState {
         Ok(Self::new(kernel))
     }
 
+    /// Wave 3 Task 3.1: 注入 SecretStore 的内存版测试构造器 —— 测试用内存
+    /// 实现,避免把测试 key 写入真实 Windows Credential Manager。
+    pub fn new_in_memory_with_secret_store(
+        store: std::sync::Arc<dyn trust_kernel::secrets::SecretStore>,
+    ) -> anyhow::Result<Self> {
+        let kernel = TrustKernel::open_in_memory_with_secret_store(store)?;
+        Ok(Self::new(kernel))
+    }
+
     pub fn new_file(path: &str) -> anyhow::Result<Self> {
         let kernel = TrustKernel::open_file(path)?;
         Ok(Self::new(kernel))
     }
 
-    /// W7: 根据 Settings 构建 LlmClient(不写入缓存,仅返回新实例)。
+    /// W1 Task 1.3: 根据 Settings 构建 LlmClient 并写入 kernel 的单一运行时配置。
     ///
     /// 隐私契约(对应 `configuration-and-automation-safety`):
     ///   - `privacy_mode = true` → 强制 `LlmClient::disabled()`(不发送任何网络请求)
     ///   - `llm_enabled = false` → 同上
-    ///   - `llm_api_key` 空 → 同上(避免发送无凭证请求触发 401)
+    ///   - SecretStore 无 key / key 为空 → 同上(避免发送无凭证请求触发 401)
     ///
-    /// 调用方:`update_settings_command` 在持久化 Settings 后调此方法 +
-    /// 写入 `self.llm_client` 缓存,下次 `route_text` 即用新配置。
+    /// Wave 3 Task 3.1:LLM key 只从 kernel 的 SecretStore(keyring)读取,
+    /// 绝不来自 Settings DTO / SQLite 明文。
+    ///
+    /// AppState 不再持有 LLM 缓存(避免双份运行时配置):本方法通过
+    /// `kernel.set_llm_client(...)` 写入,路由统一从 `kernel.llm_client()` 读取。
     #[cfg(all(feature = "tauri", feature = "llm"))]
     pub fn rebuild_llm_client(
         &self,
-        settings: &crate::settings_commands::SettingsDto,
+        settings: &crate::settings_commands::SettingsView,
     ) -> Arc<trust_kernel::llm::client::LlmClient> {
         use trust_kernel::llm::client::LlmClient;
-        if settings.privacy_mode || !settings.llm_enabled || settings.llm_api_key.is_empty() {
-            return Arc::new(LlmClient::disabled());
-        }
-        Arc::new(LlmClient::new(
-            &settings.llm_base_url,
-            &settings.llm_api_key,
-            &settings.llm_model,
-        ))
+        let stored_key = self.kernel.llm_api_key().unwrap_or_default();
+        let has_key = stored_key.as_deref().is_some_and(|k| !k.is_empty());
+        let client = if settings.privacy_mode || !settings.llm_enabled || !has_key {
+            Arc::new(LlmClient::disabled())
+        } else {
+            Arc::new(LlmClient::new(
+                &settings.llm_base_url,
+                stored_key.as_deref().unwrap_or_default(),
+                &settings.llm_model,
+            ))
+        };
+        self.kernel.set_llm_client(Some(client.clone()));
+        client
     }
 
-    /// W7: 读取缓存的 LlmClient;未初始化时返回 `LlmClient::disabled()`(纯 keyword 路由)。
-    ///
-    /// `route_text` 调此方法获取 LlmClient 传给 `SkillRouter::with_llm`。
-    /// `LlmClient::disabled()` 的 `is_enabled() = false`,`SkillRouter::route_with_llm`
-    /// 检测到 disabled 会跳过 LLM 分支,纯走 keyword 匹配。
+    /// W1 Task 1.3: 读取 kernel 的 LLM 客户端(单一运行时配置);未设置时返回
+    /// `LlmClient::disabled()`(纯 keyword 路由)。
     #[cfg(feature = "llm")]
     pub fn llm_client(&self) -> Arc<trust_kernel::llm::client::LlmClient> {
         use trust_kernel::llm::client::LlmClient;
-        let guard = self.llm_client.lock().unwrap();
-        guard
-            .clone()
+        self.kernel
+            .llm_client()
             .unwrap_or_else(|| Arc::new(LlmClient::disabled()))
     }
 }

@@ -8,7 +8,7 @@
 
 > **isVoiceEnabled**(): `Promise`\<`boolean`\>
 
-Defined in: api.ts:138
+Defined in: api.ts:151
 
 ## Returns
 

@@ -39,16 +39,16 @@
 
 use crate::approval::approver::Approver;
 use crate::approval::types::{ApprovalDecision, ApprovalScope};
+use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    create_post_commit_compensation_with_payload, finalize_step_success,
-    record_approval_decision, validate_input_against_manifest, ApprovalContext,
+    create_post_commit_compensation_with_payload, finalize_step_success, record_approval_decision,
+    validate_input_against_manifest, ApprovalContext,
 };
-use crate::compensation::types::{CompensationLevel, ConflictPolicy};
 use crate::skills::manifest::note_capture_manifest;
 use crate::skills::verifiers::{verify_note_capture, VerificationContext, VerificationOutcome};
 use crate::uiautomation::UiaAdapter;
@@ -112,10 +112,7 @@ pub fn execute_note_capture(
     validate_input_against_manifest(&input_map, &note_capture_manifest())?;
 
     // Step 3: create new task + step.
-    kernel.create_task(
-        &input.task_id,
-        &format!("note_capture:{}", input.save_path),
-    )?;
+    kernel.create_task(&input.task_id, &format!("note_capture:{}", input.save_path))?;
     let step = StepRecord::new(input.step_id.clone(), input.task_id.clone(), 1);
     kernel.create_step(&step)?;
 
@@ -150,42 +147,43 @@ pub fn execute_note_capture(
         d_level: DLevel::D2,
         approval_scope: ApprovalScope::Single,
     };
-    let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
+    // Step 6: 审批门 —— note.capture 不在审批白名单（approval_required 在
+    // simple.rs，仅 fs.*/shell.run 保留审批），不弹窗：record_approval_decision
+    // 调用与决策分支都包在门内。审计留痕仍由任务/步骤落库提供。
+    if crate::skills::simple::approval_required("note.capture") {
+        let approval = record_approval_decision(kernel, approver, &effect_manifest, &ctx)?;
 
-    // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
-    match approval.user_decision {
-        ApprovalDecision::Deny => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill("user denied note_capture".to_string()));
+        // Branch on user_decision: Allow → proceed; Deny/Modify → cancel.
+        match approval.user_decision {
+            ApprovalDecision::Deny => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill("user denied note_capture".to_string()));
+            }
+            ApprovalDecision::Modify => {
+                kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
+                return Err(KernelError::Skill(
+                    "modify not supported for note_capture".to_string(),
+                ));
+            }
+            ApprovalDecision::Allow => { /* proceed to commit */ }
         }
-        ApprovalDecision::Modify => {
-            kernel.update_step_status(&input.step_id, StepStatus::Cancelled)?;
-            return Err(KernelError::Skill(
-                "modify not supported for note_capture".to_string(),
-            ));
-        }
-        ApprovalDecision::Allow => { /* proceed to commit */ }
     }
 
     // Step 7a: launch Notepad. On error, mark step Failed + return Uia
     // error. The launch is the first side-effecting call after the
     // approval gate — its success is the precondition for any UIA
     // text-driving.
-    adapter
-        .launch_app("notepad")
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    adapter.launch_app("notepad").inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
 
     // Step 7b: find the Notepad window and set its text. If find_window
     // returns Ok(None), skip set_text (graceful degradation — we still
     // save the file directly so the user's note isn't lost). If
     // find_window returns Err, mark step Failed + return Uia error.
-    let window = adapter
-        .find_window("Notepad")
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+    let window = adapter.find_window("Notepad").inspect_err(|_e| {
+        let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+    })?;
     if let Some(handle) = window {
         // Spec §2.6 line 305: "set_text 仅对窗口标题在白名单内的元素生效
         // (防伪造窗口)". `find_window("Notepad")` may have matched a
@@ -306,7 +304,6 @@ mod tests {
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::rc::Rc;
-    use std::sync::Mutex;
 
     /// Recorded state shared between the MockAdapter and the test
     /// harness. Mirrors the design in `app_control.rs` tests so we can
@@ -409,13 +406,9 @@ mod tests {
         }
     }
 
-    /// Global mutex serializing tests that change CWD. Without this,
-    /// parallel test threads racing on `set_current_dir` would corrupt
-    /// each other's file writes (CWD is process-global).
-    static CWD_MUTEX: Mutex<()> = Mutex::new(());
-
     /// RAII guard that restores the original CWD on drop. Paired with
-    /// `CWD_MUTEX` to ensure tests don't race on process-global CWD.
+    /// the shared `TEST_CWD_MUTEX` (common.rs) to ensure tests don't race
+    /// on process-global CWD.
     struct CwdGuard {
         original: PathBuf,
     }
@@ -440,8 +433,9 @@ mod tests {
     /// `allowed_roots: ["Documents", "Desktop"]` constraint AND writes
     /// to `<temp>/Documents/<uuid>.txt` (a real temp location).
     ///
-    /// The `CWD_MUTEX` serializes all callers so parallel test threads
-    /// don't race on `set_current_dir`. We recover from poison
+    /// The shared `TEST_CWD_MUTEX` (common.rs) serializes all callers
+    /// crate-wide — note_capture 与 research_save 各自的私有锁管不住跨模块并行。
+    /// We recover from poison
     /// (`unwrap_or_else(|e| e.into_inner())`) so a panicking sibling test
     /// doesn't mask the real failure in this test — Rust's test runner
     /// runs tests in parallel by default, and one panic would otherwise
@@ -452,7 +446,7 @@ mod tests {
     where
         F: FnOnce(&std::path::Path) -> R,
     {
-        let _guard = CWD_MUTEX
+        let _guard = crate::skills::common::TEST_CWD_MUTEX
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().expect("tempdir");
@@ -536,7 +530,10 @@ mod tests {
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
             // W10 Plan 2: compensation_ref 必须指向 note.reverse_capture 记录。
-            let comp_ref = step.compensation_ref.as_ref().expect("compensation_ref must be set");
+            let comp_ref = step
+                .compensation_ref
+                .as_ref()
+                .expect("compensation_ref must be set");
             let comp = kernel.get_compensation(comp_ref).unwrap().unwrap();
             assert_eq!(comp.compensate_fn, "note.reverse_capture");
             assert_eq!(comp.level, CompensationLevel::Strong);
@@ -546,10 +543,9 @@ mod tests {
                 Some(save_path.as_str())
             );
 
-            // Approval was recorded (PerStep).
+            // 2026 免审批：不落审批记录。
             let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
-            assert_eq!(approvals[0].e_level, ELevel::E2);
+            assert!(approvals.is_empty(), "got {} records", approvals.len());
         });
     }
 
@@ -620,8 +616,8 @@ mod tests {
     }
 
     #[test]
-    fn test_note_capture_user_denies_cancels_step() {
-        // AutoDenier → step Cancelled, no adapter calls, no file written.
+    fn test_note_capture_denier_still_writes_file() {
+        // 2026 免审批：AutoDenier 不再拦截，note.capture 照常执行写文件。
         with_temp_cwd(|temp| {
             let kernel = TrustKernel::open_in_memory().unwrap();
             let approver = AutoDenier;
@@ -633,32 +629,25 @@ mod tests {
             let input = make_input(&save_path);
             let result = execute_note_capture(&kernel, &input, &approver, adapter);
 
-            let err = result.unwrap_err();
-            assert!(
-                matches!(err, KernelError::Skill(ref m) if m.contains("user denied")),
-                "expected Skill 'user denied' error, got {:?}",
-                err
-            );
+            assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
+            assert_eq!(result.unwrap(), "t1");
 
-            // Step is Cancelled.
-            let step = kernel.get_step("s1").unwrap().unwrap();
-            assert_eq!(step.status, StepStatus::Cancelled);
+            // Adapter calls happened (免审批直接执行).
+            assert_eq!(state.borrow().launch_calls.len(), 1);
+            assert_eq!(state.borrow().launch_calls[0], "notepad");
+            assert_eq!(state.borrow().set_text_calls.len(), 1);
 
-            // No adapter calls (approval gate happens before any UIA call).
-            assert!(state.borrow().launch_calls.is_empty());
-            assert!(state.borrow().find_window_calls.is_empty());
-            assert!(state.borrow().set_text_calls.is_empty());
-
-            // No file written.
+            // File WAS written.
             let file_path = temp.join(&save_path);
-            assert!(!file_path.exists(), "file should not exist after deny");
+            let on_disk = std::fs::read_to_string(&file_path).expect("file should exist");
+            assert_eq!(on_disk, "hello notepad");
 
-            // Approval was still recorded (PerStep — approval happens
-            // before the action branch, so the user's Deny decision is
-            // persisted).
-            let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
-            assert_eq!(approvals[0].user_decision, ApprovalDecision::Deny);
+            // Step Succeeded.
+            let step = kernel.get_step("s1").unwrap().unwrap();
+            assert_eq!(step.status, StepStatus::Succeeded);
+
+            // 免审批：不落审批记录。
+            assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
         });
     }
 
@@ -703,10 +692,9 @@ mod tests {
                 "file should not exist after launch failure"
             );
 
-            // Approval was still recorded (PerStep — approval happens
-            // before the action branch).
+            // 2026 免审批：不落审批记录。
             let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
+            assert!(approvals.is_empty(), "got {} records", approvals.len());
         });
     }
 
@@ -748,14 +736,16 @@ mod tests {
             let step = kernel.get_step("s1").unwrap().unwrap();
             assert_eq!(step.status, StepStatus::Succeeded);
             assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
-            assert!(step.compensation_ref.is_some(), "compensation_ref must be set");
+            assert!(
+                step.compensation_ref.is_some(),
+                "compensation_ref must be set"
+            );
         });
     }
 
     #[test]
-    fn test_note_capture_modify_decision_cancels_step() {
-        // AutoModifier → executor returns Skill error with "modify not
-        // supported", step Cancelled, no adapter calls, no file written.
+    fn test_note_capture_modifier_still_writes_file() {
+        // 2026 免审批：AutoModifier 也不再拦截，note.capture 照常执行写文件。
         with_temp_cwd(|temp| {
             let kernel = TrustKernel::open_in_memory().unwrap();
             let approver = AutoModifier;
@@ -767,34 +757,23 @@ mod tests {
             let input = make_input(&save_path);
             let result = execute_note_capture(&kernel, &input, &approver, adapter);
 
-            let err = result.unwrap_err();
-            assert!(
-                matches!(err, KernelError::Skill(ref m) if m.contains("modify not supported")),
-                "expected Skill 'modify not supported' error, got {:?}",
-                err
-            );
+            assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 
-            // Step is Cancelled.
-            let step = kernel.get_step("s1").unwrap().unwrap();
-            assert_eq!(step.status, StepStatus::Cancelled);
+            // Adapter calls happened (免审批直接执行).
+            assert_eq!(state.borrow().launch_calls.len(), 1);
+            assert_eq!(state.borrow().set_text_calls.len(), 1);
 
-            // No adapter calls (approval gate happens before any UIA call).
-            assert!(state.borrow().launch_calls.is_empty());
-            assert!(state.borrow().find_window_calls.is_empty());
-            assert!(state.borrow().set_text_calls.is_empty());
-
-            // No file written.
+            // File WAS written.
             let file_path = temp.join(&save_path);
-            assert!(
-                !file_path.exists(),
-                "file should not exist after modify decision"
-            );
+            let on_disk = std::fs::read_to_string(&file_path).expect("file should exist");
+            assert_eq!(on_disk, "hello notepad");
 
-            // Approval was still recorded (PerStep — the user's Modify
-            // decision is persisted even though the executor rejects it).
-            let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
-            assert_eq!(approvals[0].user_decision, ApprovalDecision::Modify);
+            // Step Succeeded.
+            let step = kernel.get_step("s1").unwrap().unwrap();
+            assert_eq!(step.status, StepStatus::Succeeded);
+
+            // 免审批：不落审批记录。
+            assert!(kernel.list_approvals_for_task("t1").unwrap().is_empty());
         });
     }
 
@@ -856,11 +835,9 @@ mod tests {
         with_temp_cwd(|temp| {
             let kernel = TrustKernel::open_in_memory().unwrap();
             // Whitelist a directory that won't contain save_path.
-            kernel.replace_filesystem_with_allowed_paths(
-                crate::allowed_paths::AllowedPaths::new(vec![
-                    "E:/nonexistent_allowed_root".to_string(),
-                ]),
-            );
+            kernel.replace_filesystem_with_allowed_paths(crate::allowed_paths::AllowedPaths::new(
+                vec!["E:/nonexistent_allowed_root".to_string()],
+            ));
 
             let approver = AutoApprover;
             let mock = MockAdapter::new();
@@ -1005,10 +982,9 @@ mod tests {
                 "file should not exist after whitelist rejection"
             );
 
-            // Approval was still recorded (PerStep — approval happens
-            // before the action branch).
+            // 2026 免审批：不落审批记录。
             let approvals = kernel.list_approvals_for_task("t1").unwrap();
-            assert_eq!(approvals.len(), 1);
+            assert!(approvals.is_empty(), "got {} records", approvals.len());
         });
     }
 }

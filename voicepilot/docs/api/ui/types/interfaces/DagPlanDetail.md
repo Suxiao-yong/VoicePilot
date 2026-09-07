@@ -6,7 +6,7 @@
 
 # Interface: DagPlanDetail
 
-Defined in: types.ts:222
+Defined in: types.ts:263
 
 W8 §2.3:DAG 完整详情。
 
@@ -16,7 +16,7 @@ W8 §2.3:DAG 完整详情。
 
 > **completed\_at**: `string` \| `null`
 
-Defined in: types.ts:227
+Defined in: types.ts:268
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: types.ts:227
 
 > **created\_at**: `string`
 
-Defined in: types.ts:226
+Defined in: types.ts:267
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: types.ts:226
 
 > **edges**: [`DagEdge`](DagEdge.md)[]
 
-Defined in: types.ts:230
+Defined in: types.ts:271
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: types.ts:230
 
 > **max\_total\_steps**: `number`
 
-Defined in: types.ts:228
+Defined in: types.ts:269
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: types.ts:228
 
 > **nodes**: [`DagNode`](DagNode.md)[]
 
-Defined in: types.ts:229
+Defined in: types.ts:270
 
 ***
 
@@ -56,7 +56,7 @@ Defined in: types.ts:229
 
 > **plan\_id**: `string`
 
-Defined in: types.ts:223
+Defined in: types.ts:264
 
 ***
 
@@ -64,7 +64,7 @@ Defined in: types.ts:223
 
 > **status**: `string`
 
-Defined in: types.ts:225
+Defined in: types.ts:266
 
 ***
 
@@ -72,4 +72,4 @@ Defined in: types.ts:225
 
 > **user\_goal**: `string`
 
-Defined in: types.ts:224
+Defined in: types.ts:265

@@ -8,7 +8,7 @@
 
 > **routeText**(`text`): `Promise`\<[`RouteTextResult`](../../types/type-aliases/RouteTextResult.md)\>
 
-Defined in: api.ts:29
+Defined in: api.ts:30
 
 ## Parameters
 

@@ -8,7 +8,7 @@
 
 > **listAuditForTask**(`taskId`): `Promise`\<[`AuditEvent`](../../types/interfaces/AuditEvent.md)[]\>
 
-Defined in: api.ts:104
+Defined in: api.ts:105
 
 ## Parameters
 
