@@ -19,7 +19,7 @@ use super::{UiaAdapter, UiaElementHandle, UiaSelector};
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::mcp::client::McpCallLimits;
-use crate::mcp::repo::{McpServerRepo, MCP_WINDOWS_SERVER_ID};
+use crate::mcp::repo::{MCP_WINDOWS_SERVER_ID, McpServerRepo};
 use std::path::{Path, PathBuf};
 
 /// MCP tool names (sbroenne/mcp-windows).
@@ -829,7 +829,7 @@ fn result_text(tool: &str, value: &serde_json::Value) -> Result<String> {
 
 /// `screenshot_control` inline image (`image` / `data` / `png`, base64).
 fn image_bytes(tool: &str, value: &serde_json::Value) -> Result<Vec<u8>> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD};
     let encoded = ["image", "data", "png"]
         .iter()
         .filter_map(|k| value.get(*k))
@@ -1334,9 +1334,11 @@ mod tests {
         let got3 = resolve_launch_target_in("飞书", &roots).unwrap();
         assert!(got3.ends_with("飞书.lnk"), "{got3}");
         // 非 .lnk 不参与、未知名返回 None（调用方原样透传）。
-        // 注意：空 roots 下仍会查 PATH/注册表/UWP——本机若装了 QQ，
-        // "QQ" 能命中是正确行为；None 断言只对虚构名成立。
-        assert!(resolve_launch_target_in("readme", &roots).is_none());
+        // 注意：resolve_launch_target_in 会先扫 PATH,再扫 menu_roots,最后查
+        // 注册表 / UWP。所以 None 断言只能用"任何机器上都不存在"的虚构名 ——
+        // 原来这里用 "readme"（作者以为虚构，但 CI runner 上真能解析到东西），
+        // 已换成 vp- 前缀的虚构名。
+        assert!(resolve_launch_target_in("vp-no-such-app-xyz.txt", &roots).is_none());
         assert!(resolve_launch_target_in("vp-no-such-app-xyz", &roots).is_none());
         assert!(resolve_launch_target_in("vp-no-such-app-xyz", &[]).is_none());
         std::fs::remove_dir_all(&root).unwrap();
@@ -1344,17 +1346,33 @@ mod tests {
 
     #[test]
     fn app_paths_parser_extracts_existing_exe() {
-        let out = "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\QQ.exe\n    (Default)    REG_SZ    E:\\TenXun\\QQ\\QQ.exe\n\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\other.exe\n    (Default)    REG_SZ    C:\\no\\such\\other.exe\n";
-        // E 盘 QQ 真实存在（本机），C 盘假路径跳过。
-        let want = vec!["qq".to_string(), "qq.exe".to_string()];
-        assert_eq!(
-            parse_app_paths(out, &want).as_deref(),
-            Some(r"E:\TenXun\QQ\QQ.exe")
+        // parse_app_paths 只返回磁盘上真实存在的路径,所以固件路径必须真的存在,
+        // 否则测试只能在"作者本机恰好装了这个软件"的机器上通过(原实现硬编码
+        // E:\TenXun\QQ\QQ.exe,在干净 CI runner 上必然失败)。这里用 tempdir 自建。
+        let probe_dir = std::env::temp_dir().join(format!("vp-apppaths-{}", std::process::id()));
+        std::fs::create_dir_all(&probe_dir).unwrap();
+        let probe_exe = probe_dir.join("probeqq.exe");
+        std::fs::write(&probe_exe, b"mz").unwrap();
+        let probe_str = probe_exe.to_string_lossy().to_string();
+
+        // 注册表输出是"reg query"的原样文本:反斜杠是路径本身的单反斜杠
+        // (Rust 源串里的 \\\\ 只是写一个 \)。tempdir 路径直接拼进去即可。
+        let out = format!(
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\probeqq.exe\n    (Default)    REG_SZ    {probe_str}\n\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\other.exe\n    (Default)    REG_SZ    C:\\no\\such\\other.exe\n"
         );
+        // 真实存在的 exe 被解析出来;不存在的 C 盘假路径跳过。
+        let want = vec!["probeqq".to_string(), "probeqq.exe".to_string()];
+        assert_eq!(parse_app_paths(&out, &want).as_deref(), Some(&*probe_str));
         let want2 = vec!["other".to_string(), "other.exe".to_string()];
-        assert_eq!(parse_app_paths(out, &want2), None);
+        assert_eq!(parse_app_paths(&out, &want2), None);
         let want3 = vec!["vp-no-such-app-xyz".to_string()];
-        assert_eq!(parse_app_paths(out, &want3), None);
+        assert_eq!(parse_app_paths(&out, &want3), None);
+        // 空 REG_SZ 值不算命中。
+        let empty_out = format!(
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\probeqq.exe\n    (Default)    REG_SZ    \n"
+        );
+        assert_eq!(parse_app_paths(&empty_out, &want), None);
+        std::fs::remove_dir_all(&probe_dir).unwrap();
     }
 
     #[test]
