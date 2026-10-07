@@ -4,7 +4,7 @@
 
 use crate::error::Result;
 use crate::policy::types::{DLevel, Effect, EgressDest};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// Check whether data of `data_class` may flow to `dest`.
 ///
@@ -22,8 +22,8 @@ use rusqlite::{params, Connection};
 /// when Taint Tracking is implemented.
 pub fn check_egress(data_class: DLevel, dest: EgressDest) -> Effect {
     use DLevel::*;
-    use EgressDest::*;
     use Effect::*;
+    use EgressDest::*;
     match (data_class, dest) {
         // Tool arguments are never allowed to carry data (taint elevation).
         (_, ToolArgument) => Deny,

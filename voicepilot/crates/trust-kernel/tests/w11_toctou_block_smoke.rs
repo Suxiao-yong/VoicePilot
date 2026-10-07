@@ -57,9 +57,7 @@ fn content_tamper_different_size_aborts_commit() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU:commit 前篡改内容(不同大小 → size + sha256 都变)
     fs::write(&src, b"tampered-content-longer").unwrap();
@@ -82,9 +80,7 @@ fn content_tamper_same_size_aborts_commit() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 同大小不同内容("abcdef" → "xxxxxx"),size 相同但 sha256 不同
     fs::write(&src, b"xxxxxx").unwrap();
@@ -132,9 +128,7 @@ fn content_delete_and_recreate_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 删除后重建:内容相同,但 file_id(NTFS file index)不同
     fs::remove_file(&src).unwrap();
@@ -156,9 +150,7 @@ fn content_append_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 追加字节
     let mut f = fs::OpenOptions::new().append(true).open(&src).unwrap();
@@ -182,9 +174,7 @@ fn content_tamper_and_new_dest_conflict_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU 组合:篡改 source 内容 + 在 dest 预置同名文件
     fs::write(&src, b"tampered").unwrap();
@@ -215,9 +205,7 @@ fn symlink_replace_source_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU:用指向 evil.txt 的 symlink 替换 a.txt
     fs::remove_file(&src).unwrap();
@@ -246,16 +234,17 @@ fn symlink_replace_source_same_content_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 替换为指向同内容 twin 的 symlink(sha256 相同,file_id 不同)
     fs::remove_file(&src).unwrap();
     std::os::windows::fs::symlink_file(&twin, &src).unwrap();
 
     let result = tool.commit_move(&prepared.token, &prepared.manifest, &mgr);
-    assert!(result.is_err(), "同内容 symlink 替换(file_id 变化)必须 abort");
+    assert!(
+        result.is_err(),
+        "同内容 symlink 替换(file_id 变化)必须 abort"
+    );
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -278,9 +267,7 @@ fn symlink_chain_source_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU:用 symlink 链替换 a.txt(a.txt → link1 → link2 → target)
     fs::remove_file(&src).unwrap();
@@ -310,9 +297,7 @@ fn symlink_source_to_directory_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 用指向目录的 symlink 替换 source(文件 → 目录 类型变化)
     fs::remove_file(&src).unwrap();
@@ -338,9 +323,7 @@ fn symlink_broken_source_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // broken symlink:目标不存在
     fs::remove_file(&src).unwrap();
@@ -366,9 +349,7 @@ fn rename_source_parent_dir_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU:重命名 source 父目录(路径重定向)
     let moved_dir = dir.join("srcdir-moved");
@@ -390,9 +371,7 @@ fn rename_destination_dir_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // TOCTOU:重命名目标目录
     let moved_dest = dir.join("out-moved");
@@ -441,9 +420,7 @@ fn move_source_to_dest_prematurely_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 提前把 source 移到目标(路径重定向 + 目标冲突)
     fs::rename(&src, dest.join("a.txt")).unwrap();
@@ -466,9 +443,7 @@ fn source_dir_replaced_with_new_dir_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 删除源目录并重建同名目录 + 同内容文件(file_id 全变)
     fs::remove_dir_all(&src_dir).unwrap();
@@ -493,9 +468,7 @@ fn tampered_destination_in_manifest_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 调用方篡改 destination(重定向到攻击者目录)
     let mut tampered = prepared.manifest.clone();
@@ -527,9 +500,7 @@ fn tampered_sources_in_manifest_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 调用方篡改 sources 指向 decoy 文件
     let mut tampered = prepared.manifest.clone();
@@ -559,9 +530,7 @@ fn tampered_total_bytes_in_manifest_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 调用方篡改 total_bytes
     let mut tampered = prepared.manifest.clone();
@@ -597,9 +566,7 @@ fn token_replay_after_commit_aborts() {
 
     let tool = FilesystemTool::new();
     let mgr = TransactionManager::new();
-    let prepared = tool
-        .prepare_move("t1", "s1", &[&src], &dest, &mgr)
-        .unwrap();
+    let prepared = tool.prepare_move("t1", "s1", &[&src], &dest, &mgr).unwrap();
 
     // 第一次 commit(token 校验通过,消费 token)
     let first = mgr.commit(&prepared.token, &prepared.manifest).unwrap();

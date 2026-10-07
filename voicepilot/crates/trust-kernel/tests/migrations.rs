@@ -6,8 +6,16 @@ fn migrations_apply_cleanly_on_fresh_db() {
     db::run_migrations(&conn).expect("migrations must apply");
     // Verify all 10 tables exist (V1.1 spec §8.1)
     let expected_tables = [
-        "tasks", "steps", "policies", "approvals", "compensations",
-        "audit_logs", "skills", "taints", "mcp_servers", "egress_log",
+        "tasks",
+        "steps",
+        "policies",
+        "approvals",
+        "compensations",
+        "audit_logs",
+        "skills",
+        "taints",
+        "mcp_servers",
+        "egress_log",
     ];
     for t in &expected_tables {
         let count: i64 = conn
@@ -49,7 +57,10 @@ fn migration_004_creates_dag_tables() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(count, 3, "W8 migration 004 must create dag_plans + dag_nodes + task_explanations");
+    assert_eq!(
+        count, 3,
+        "W8 migration 004 must create dag_plans + dag_nodes + task_explanations"
+    );
 
     let idx_count: i64 = conn
         .query_row(

@@ -3,7 +3,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use trust_kernel::voice::error::VoiceResult;
 use voicepilot_ui::commands::RouteTextResult;
-use voicepilot_ui::voice_commands::{voice_listen, VoiceListen, VoiceListenOutcome, VoiceListenResult};
+use voicepilot_ui::voice_commands::{
+    VoiceListen, VoiceListenOutcome, VoiceListenResult, voice_listen,
+};
 
 struct CancelAwareMock {
     cancel_check_count: std::sync::atomic::AtomicUsize,

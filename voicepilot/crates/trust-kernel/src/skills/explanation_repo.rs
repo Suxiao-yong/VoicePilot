@@ -4,7 +4,7 @@
 //! Stores LLM failure analysis results from `task.explain` Skill.
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
@@ -65,11 +65,7 @@ impl TaskExplanationRepo {
     /// 创建失败归因记录。
     /// `rec.created_at` 由本方法覆写为当前 UTC RFC3339 时间戳,
     /// 调用方可传 `String::new()` 占位。
-    pub fn create(
-        &self,
-        conn: &Connection,
-        rec: &TaskExplanationRecord,
-    ) -> Result<()> {
+    pub fn create(&self, conn: &Connection, rec: &TaskExplanationRecord) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         conn.execute(
             r#"INSERT INTO task_explanations

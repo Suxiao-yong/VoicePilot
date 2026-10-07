@@ -9,7 +9,7 @@
 //!   - delete_by_source 在任务清理时调用,避免无限增长
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -78,18 +78,14 @@ impl TaintRepo {
     /// W9 修复(P1-19):内部将 &str 转为 serde_json::Value 后调 compute_value_hash,
     /// 以使用 canonical JSON 序列化(避免字段顺序差异)。
     pub fn find_by_value(&self, conn: &Connection, value: &str) -> Result<Option<TaintRecord>> {
-        let value_json: serde_json::Value = serde_json::from_str(value)
-            .unwrap_or(serde_json::Value::String(value.to_string()));
+        let value_json: serde_json::Value =
+            serde_json::from_str(value).unwrap_or(serde_json::Value::String(value.to_string()));
         let value_hash = compute_value_hash(&value_json);
         self.find_by_hash(conn, &value_hash)
     }
 
     /// 按 value_hash 查询(供 gateway 已有 hash 时直接查)。
-    pub fn find_by_hash(
-        &self,
-        conn: &Connection,
-        value_hash: &str,
-    ) -> Result<Option<TaintRecord>> {
+    pub fn find_by_hash(&self, conn: &Connection, value_hash: &str) -> Result<Option<TaintRecord>> {
         let row = conn
             .query_row(
                 "SELECT taint_id, value_hash, provenance, taints_json, collected_at, \
@@ -143,11 +139,7 @@ impl TaintRepo {
     }
 
     /// 按 source_ref 查询(如某 task_id 关联的所有 taints)。
-    pub fn list_by_source(
-        &self,
-        conn: &Connection,
-        source_ref: &str,
-    ) -> Result<Vec<TaintRecord>> {
+    pub fn list_by_source(&self, conn: &Connection, source_ref: &str) -> Result<Vec<TaintRecord>> {
         let mut stmt = conn.prepare(
             "SELECT taint_id, value_hash, provenance, taints_json, collected_at, source_ref \
              FROM taints WHERE source_ref = ?1",

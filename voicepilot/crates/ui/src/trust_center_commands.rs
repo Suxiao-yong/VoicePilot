@@ -140,30 +140,29 @@ pub fn import_mcp_servers(state: &AppState, json: &str) -> UiResult<ImportMcpRes
     let mut imported = 0usize;
     let mut errors = Vec::new();
     for (name, cfg) in servers {
-        let mut err = |msg: String| errors.push(ImportErrorItem {
-            name: name.clone(),
-            error: msg,
-        });
+        let mut err = |msg: String| {
+            errors.push(ImportErrorItem {
+                name: name.clone(),
+                error: msg,
+            })
+        };
         let Some(cfg) = cfg.as_object() else {
             err("server entry must be an object".into());
             continue;
         };
         // transport:本期仅 stdio;http/streamable-http 明确报错而非静默降级
-        let transport = cfg
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("stdio");
+        let transport = cfg.get("type").and_then(|v| v.as_str()).unwrap_or("stdio");
         if transport != "stdio" {
-            err(format!("transport '{transport}' not supported yet (stdio only)"));
+            err(format!(
+                "transport '{transport}' not supported yet (stdio only)"
+            ));
             continue;
         }
         let Some(command) = cfg.get("command").and_then(|v| v.as_str()) else {
             err("missing string field 'command' for stdio server".into());
             continue;
         };
-        let args = cfg
-            .get("args")
-            .map(|v| v.to_string());
+        let args = cfg.get("args").map(|v| v.to_string());
         // env：复用 import_external_mcp 的 Phase A keyring 收编 —— DB 只存引用
         // `{"$keyring": "voicepilot/mcp/<server>/<KEY>"}`，非明文密钥。
         // 逐条报错：某 entry 的 env 畸形或 keyring 写失败只进该条 errors，不阻断其余。
@@ -297,7 +296,10 @@ pub fn scan_external_mcp(_state: &AppState) -> UiResult<ExternalMcpScanResult> {
 
 /// 可注入 files 的扫描实现（单测用 TempDir 固件逐字段断言映射）。
 pub fn scan_external_mcp_with_files(
-    files: &[(std::path::PathBuf, trust_kernel::external_scan::McpConfigFormat)],
+    files: &[(
+        std::path::PathBuf,
+        trust_kernel::external_scan::McpConfigFormat,
+    )],
 ) -> ExternalMcpScanResult {
     use trust_kernel::external_scan::scan_external_mcp_files;
     let report = scan_external_mcp_files(files);
@@ -350,7 +352,7 @@ pub fn import_external_mcp_with_store(
     format: &str,
     server_id: &str,
 ) -> UiResult<((), Vec<String>)> {
-    use trust_kernel::external_scan::{read_external_mcp_entry, McpConfigFormat};
+    use trust_kernel::external_scan::{McpConfigFormat, read_external_mcp_entry};
     let parsed_format = match format {
         "claude-desktop" => McpConfigFormat::ClaudeDesktop,
         "cursor" => McpConfigFormat::Cursor,
@@ -358,38 +360,36 @@ pub fn import_external_mcp_with_store(
         other => {
             return Err(crate::error::UiError::InvalidConfig(format!(
                 "unknown MCP config format: {other}"
-            )))
+            )));
         }
     };
     // env 值来自内核侧重读（下方 entry.env），非前端供给：受损 renderer
     // 只能引用扫描见过的 (file, id)，换不了 command/env。
-    let entry = read_external_mcp_entry(
-        std::path::Path::new(source_file),
-        parsed_format,
-        server_id,
-    )
-    .ok_or_else(|| {
-        crate::error::UiError::InvalidConfig(format!(
-            "server '{server_id}' not found on re-read of {source_file}"
-        ))
-    })?;
+    let entry =
+        read_external_mcp_entry(std::path::Path::new(source_file), parsed_format, server_id)
+            .ok_or_else(|| {
+                crate::error::UiError::InvalidConfig(format!(
+                    "server '{server_id}' not found on re-read of {source_file}"
+                ))
+            })?;
     let (env_json, migrated) = collect_external_mcp_env(state, server_id, &entry.env)?;
-    let dto = McpServerDto {
-        server_id: entry.server_id.clone(),
-        name: entry.name,
-        version: "external".to_string(),
-        transport: "stdio".to_string(),
-        enabled: true,
-        trusted: false,
-        protocol_version: Some("2025-11-25".to_string()),
-        allowed_origins: None,
-        allowed_paths: None,
-        command: Some(entry.command),
-        args: Some(serde_json::to_string(&entry.args).map_err(|e| {
-            crate::error::UiError::InvalidConfig(format!("args serialize: {e}"))
-        })?),
-        env: Some(env_json),
-    };
+    let dto =
+        McpServerDto {
+            server_id: entry.server_id.clone(),
+            name: entry.name,
+            version: "external".to_string(),
+            transport: "stdio".to_string(),
+            enabled: true,
+            trusted: false,
+            protocol_version: Some("2025-11-25".to_string()),
+            allowed_origins: None,
+            allowed_paths: None,
+            command: Some(entry.command),
+            args: Some(serde_json::to_string(&entry.args).map_err(|e| {
+                crate::error::UiError::InvalidConfig(format!("args serialize: {e}"))
+            })?),
+            env: Some(env_json),
+        };
     register_mcp_server(state, dto)?;
     Ok(((), migrated))
 }
@@ -405,7 +405,7 @@ pub(crate) fn collect_external_mcp_env(
     server_id: &str,
     env: &std::collections::BTreeMap<String, String>,
 ) -> UiResult<(String, Vec<String>)> {
-    use trust_kernel::skills::common::{is_credential_env_key, MCP_ENV_KEYRING_PREFIX};
+    use trust_kernel::skills::common::{MCP_ENV_KEYRING_PREFIX, is_credential_env_key};
     let mut out = serde_json::Map::new();
     let mut migrated = Vec::new();
     for (key, value) in env {
@@ -425,7 +425,10 @@ pub(crate) fn collect_external_mcp_env(
             out.insert(key.clone(), serde_json::json!(value));
         }
     }
-    Ok((serde_json::to_string(&serde_json::Value::Object(out)).unwrap_or_else(|_| "{}".to_string()), migrated))
+    Ok((
+        serde_json::to_string(&serde_json::Value::Object(out)).unwrap_or_else(|_| "{}".to_string()),
+        migrated,
+    ))
 }
 
 #[tauri::command]
@@ -486,8 +489,6 @@ pub async fn import_mcp_servers_command(
 }
 
 #[tauri::command]
-pub async fn export_mcp_servers_command(
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn export_mcp_servers_command(state: State<'_, AppState>) -> Result<String, String> {
     export_mcp_servers(&state).map_err(Into::into)
 }

@@ -18,7 +18,10 @@ fn settings_kv_round_trip() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let conn = kernel.conn();
     kernel.config_repo().set(&conn, "theme", "dark").unwrap();
-    kernel.config_repo().set(&conn, "whisper_model", "ggml-base.bin").unwrap();
+    kernel
+        .config_repo()
+        .set(&conn, "whisper_model", "ggml-base.bin")
+        .unwrap();
     let v1 = kernel.config_repo().get(&conn, "theme").unwrap();
     assert_eq!(v1.as_deref(), Some("dark"));
     let v2 = kernel.config_repo().get(&conn, "whisper_model").unwrap();
@@ -34,7 +37,7 @@ fn skills_manager_crud() {
     let conn = kernel.conn();
     let rec = SkillRecord {
         skill_id: "test.echo".to_string(),
-        version: 1,  // i64(001_init.sql skills.version INTEGER)
+        version: 1, // i64(001_init.sql skills.version INTEGER)
         manifest_json: r#"{"id":"test.echo","risk":"E1D1"}"#.to_string(),
         enabled: true,
         success_count: 0,
@@ -43,8 +46,15 @@ fn skills_manager_crud() {
     kernel.skill_repo().upsert(&conn, &rec).unwrap();
     let listed = kernel.skill_repo().list(&conn).unwrap();
     assert!(listed.iter().any(|s| s.skill_id == "test.echo"));
-    kernel.skill_repo().toggle(&conn, "test.echo", false).unwrap();
-    let got = kernel.skill_repo().get(&conn, "test.echo").unwrap().unwrap();
+    kernel
+        .skill_repo()
+        .toggle(&conn, "test.echo", false)
+        .unwrap();
+    let got = kernel
+        .skill_repo()
+        .get(&conn, "test.echo")
+        .unwrap()
+        .unwrap();
     assert!(!got.enabled);
 }
 
@@ -74,13 +84,19 @@ fn trust_center_toggle_mcp_server() {
     kernel.toggle_mcp_server("test.svc", false).unwrap();
     {
         let conn = kernel.conn();
-        let loaded = McpServerRepo::new().get(&conn, "test.svc").unwrap().unwrap();
+        let loaded = McpServerRepo::new()
+            .get(&conn, "test.svc")
+            .unwrap()
+            .unwrap();
         assert!(!loaded.enabled);
     }
     kernel.toggle_mcp_server("test.svc", true).unwrap();
     {
         let conn = kernel.conn();
-        let loaded2 = McpServerRepo::new().get(&conn, "test.svc").unwrap().unwrap();
+        let loaded2 = McpServerRepo::new()
+            .get(&conn, "test.svc")
+            .unwrap()
+            .unwrap();
         assert!(loaded2.enabled);
     }
 }
@@ -94,7 +110,12 @@ fn audit_viewer_lists_recent_events() {
     let step = StepRecord::new(step_id, task_id, 1);
     kernel.create_step(&step).unwrap();
     kernel
-        .audit_append_external(task_id, Some(step_id), "step_started", serde_json::json!({"k":"v"}))
+        .audit_append_external(
+            task_id,
+            Some(step_id),
+            "step_started",
+            serde_json::json!({"k":"v"}),
+        )
         .unwrap();
     let events = kernel.list_audit_recent(10).unwrap();
     assert!(!events.is_empty());

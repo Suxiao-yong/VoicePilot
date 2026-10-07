@@ -22,10 +22,14 @@ pub enum RouteTextResult {
         /// 前端据此渲染 Chip 修改 UI,用户确认后才提交 Skill 执行。
         slots: Vec<crate::slot_parser::Slot>,
     },
-    Unmatched { text: String },
+    Unmatched {
+        text: String,
+    },
     Empty,
     /// 无 Skill 命中时的 LLM 直接回答（聊天兜底）。前端直接展示 (+TTS)。
-    Chat { text: String },
+    Chat {
+        text: String,
+    },
 }
 
 /// 通过 PlannerPipeline 统一规划入口路由文本(或任意文本输入)。
@@ -42,7 +46,7 @@ pub enum RouteTextResult {
 ///
 /// 路由阶段不执行 Skill;Skill 执行需要用户在 UI 上确认 Slot 后由 `organize_files_command` 触发。
 pub async fn route_text(state: &AppState, text: &str) -> UiResult<RouteTextResult> {
-    use trust_kernel::planner::{PlannerInput, PlannerPipeline, PlannerSource, PlanResult};
+    use trust_kernel::planner::{PlanResult, PlannerInput, PlannerPipeline, PlannerSource};
 
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -307,9 +311,7 @@ pub async fn execute_skill_command(
 /// 单态化到 `Wry` 运行时:`tauri::AppHandle`(= `AppHandle<Wry>`)只实现
 /// `CommandArg<'_, Wry>`,若 `R` 仍是泛型,闭包类型推断无法满足 trait bound。
 #[cfg(feature = "tauri")]
-pub fn register_handlers(
-    builder: tauri::Builder<tauri::Wry>,
-) -> tauri::Builder<tauri::Wry> {
+pub fn register_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
         route_text_command,
         organize_files_command,
@@ -435,7 +437,10 @@ pub fn submit_clarification(
     clarification_id: &str,
     selected_index: usize,
 ) -> UiResult<bool> {
-    let sender = match state.approval_registry.take_clarify_sender(clarification_id) {
+    let sender = match state
+        .approval_registry
+        .take_clarify_sender(clarification_id)
+    {
         Some(s) => s,
         None => return Ok(false),
     };
@@ -452,4 +457,3 @@ pub async fn submit_clarification_command(
 ) -> Result<bool, String> {
     submit_clarification(&state, &clarification_id, selected_index).map_err(Into::into)
 }
-

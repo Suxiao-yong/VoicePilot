@@ -2,7 +2,7 @@ use std::fs;
 
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::skills::repo::SkillRecord;
-use trust_kernel::skills::user_loader::{scan_user_skill_files, UserSkillFile};
+use trust_kernel::skills::user_loader::{UserSkillFile, scan_user_skill_files};
 
 // Standard Agent Skills frontmatter (name/description) fixture.
 fn valid_skill_md(name: &str) -> String {

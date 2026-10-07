@@ -22,7 +22,7 @@ use crate::policy::transaction::EffectManifest;
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{finalize_step_success, validate_input_against_manifest};
 use crate::skills::manifest::task_repeat_verified_manifest;
-use crate::skills::verifiers::{verify_task_repeat, VerificationContext, VerificationOutcome};
+use crate::skills::verifiers::{VerificationContext, VerificationOutcome, verify_task_repeat};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -94,9 +94,7 @@ pub fn execute_repeat_verified(
         .sources
         .first()
         .and_then(|s| Path::new(&s.canonical_path).parent())
-        .ok_or_else(|| {
-            KernelError::Skill("no source paths in previous manifest".to_string())
-        })?
+        .ok_or_else(|| KernelError::Skill("no source paths in previous manifest".to_string()))?
         .to_path_buf();
     let found = kernel
         .filesystem()
@@ -121,10 +119,9 @@ pub fn execute_repeat_verified(
     let outcome = verify_task_repeat(&verify_ctx, &input.target_task_id)?;
     match outcome {
         VerificationOutcome::Strong { .. } => {
-            finalize_step_success(kernel, &input.step_id, "strong", None)
-                .inspect_err(|_e| {
-                    let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-                })?;
+            finalize_step_success(kernel, &input.step_id, "strong", None).inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
         }
         VerificationOutcome::Failed { reason } => {
             let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
@@ -202,7 +199,11 @@ mod tests {
     /// Build a real `EffectManifest` from on-disk source files + a destination
     /// dir. The destination must contain files with matching sha256+size so
     /// `verify_move` passes.
-    fn build_manifest_from_disk(src_dir: &Path, dest_dir: &Path, filenames: &[&str]) -> EffectManifest {
+    fn build_manifest_from_disk(
+        src_dir: &Path,
+        dest_dir: &Path,
+        filenames: &[&str],
+    ) -> EffectManifest {
         let mut snapshots = Vec::new();
         let mut total_bytes = 0;
         for name in filenames {
@@ -221,7 +222,9 @@ mod tests {
 
     /// Persist a previous task + step with the given `effect_manifest`.
     fn persist_previous_step(kernel: &TrustKernel, manifest: &EffectManifest) {
-        kernel.create_task("prev-task", "previous organize").unwrap();
+        kernel
+            .create_task("prev-task", "previous organize")
+            .unwrap();
         let mut prev_step = StepRecord::new("prev-step", "prev-task", 1);
         prev_step.effect_manifest = Some(serde_json::to_value(manifest).unwrap());
         kernel.create_step(&prev_step).unwrap();

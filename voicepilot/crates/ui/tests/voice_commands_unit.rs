@@ -3,13 +3,13 @@
 //! voice_listen 函数单元测试 —— 使用 MockVoiceListen,不实际录音/转写。
 //! 验证 VoiceListenOutcome → VoiceListenResult 转换逻辑。
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use trust_kernel::voice::error::{VoiceError, VoiceResult};
 use voicepilot_ui::commands::RouteTextResult;
 use voicepilot_ui::voice_commands::{
-    voice_listen, VoiceListen, VoiceListenOutcome, VoiceListenResult,
+    VoiceListen, VoiceListenOutcome, VoiceListenResult, voice_listen,
 };
 
 /// MockVoiceListen —— 返回预设的 outcome 或 error,用于测试 voice_listen 函数。
@@ -126,9 +126,8 @@ fn voice_listen_returns_timeout_with_transcription_when_available() {
 
 #[test]
 fn voice_listen_returns_error_when_listener_fails() {
-    let mock = MockVoiceListen::with_outcome(Err(VoiceError::ModelMissing(
-        "ggml-tiny.bin".to_string(),
-    )));
+    let mock =
+        MockVoiceListen::with_outcome(Err(VoiceError::ModelMissing("ggml-tiny.bin".to_string())));
 
     let result = voice_listen(&mock, &AtomicBool::new(false));
     match result {
@@ -151,9 +150,7 @@ fn voice_listen_calls_listener_exactly_once() {
 
 // ===== 任务 3: build_transcription_final_payload + TranscriptionFinalPayload 测试 =====
 
-use voicepilot_ui::voice_commands::{
-    build_transcription_final_payload, TranscriptionFinalPayload,
-};
+use voicepilot_ui::voice_commands::{TranscriptionFinalPayload, build_transcription_final_payload};
 
 #[test]
 fn build_payload_returns_some_for_success_result() {

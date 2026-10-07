@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use trust_kernel::secrets::{InMemorySecretStore, SecretStore};
 use voicepilot_ui::settings_commands::{
-    flatten_to_kv, get_settings, merge_from_kv, update_settings, SettingsUpdate, SettingsView,
+    SettingsUpdate, SettingsView, flatten_to_kv, get_settings, merge_from_kv, update_settings,
 };
 use voicepilot_ui::state::AppState;
 

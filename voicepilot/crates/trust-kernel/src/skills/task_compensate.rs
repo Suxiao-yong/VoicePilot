@@ -34,11 +34,11 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    finalize_step_success, record_approval_decision, validate_input_against_manifest,
-    ApprovalContext,
+    ApprovalContext, finalize_step_success, record_approval_decision,
+    validate_input_against_manifest,
 };
 use crate::skills::manifest::task_compensate_manifest;
-use crate::skills::verifiers::{verify_task_compensate, VerificationContext, VerificationOutcome};
+use crate::skills::verifiers::{VerificationContext, VerificationOutcome, verify_task_compensate};
 use crate::tools::fs_paths::canonicalize;
 use crate::tools::fs_snapshot::snapshot_file;
 // W9 Plan 2 Task 4: 解密 snapshot_encrypted 需要 EncryptedPayload 类型。
@@ -535,10 +535,12 @@ mod tests {
         assert_eq!(comp.status, "reversed");
 
         // 免审批：不落审批记录。
-        assert!(kernel
-            .list_approvals_for_task("new-task")
-            .unwrap()
-            .is_empty());
+        assert!(
+            kernel
+                .list_approvals_for_task("new-task")
+                .unwrap()
+                .is_empty()
+        );
 
         fs::remove_dir_all(&dir).ok();
     }

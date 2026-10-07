@@ -1,5 +1,5 @@
 use trust_kernel::policy::constraint_engine::{ConstraintEngine, ConstraintSpec};
-use trust_kernel::policy::types::{DLevel, Effect, ELevel};
+use trust_kernel::policy::types::{DLevel, ELevel, Effect};
 
 #[test]
 fn normalize_path_lowercases_drive_letter_and_forward_slashes() {

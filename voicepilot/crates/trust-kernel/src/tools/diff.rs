@@ -5,10 +5,10 @@
 //! files.organize 场景下 `manifest.destination` 是目录,前端调用时需拼接:
 //! `dest_path = manifest.destination + "/" + basename(source_path)`。
 
-use std::fs;
-use std::path::Path;
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
+use std::fs;
+use std::path::Path;
 
 /// Diff 计算结果。
 ///
@@ -50,10 +50,7 @@ const MAX_FILE_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 /// - `dest_path` 可不存在(返回 FileKind::NewFile,diff 为全文件内容)
 /// - 超过 50MB 返回 truncated=true,diff_text=None
 /// - 二进制文件返回 FileKind::Binary,diff_text=None
-pub fn compute_file_diff(
-    source_path: &Path,
-    dest_path: &Path,
-) -> crate::error::Result<DiffResult> {
+pub fn compute_file_diff(source_path: &Path, dest_path: &Path) -> crate::error::Result<DiffResult> {
     let source_meta = fs::metadata(source_path)?;
     if !source_meta.is_file() {
         return Err(crate::error::KernelError::Io(std::io::Error::new(
@@ -75,10 +72,7 @@ pub fn compute_file_diff(
             file_kind: FileKind::Text,
             diff_text: None,
             truncated: true,
-            truncate_reason: Some(format!(
-                "文件超过 50MB 软上限({} bytes)",
-                source_size
-            )),
+            truncate_reason: Some(format!("文件超过 50MB 软上限({} bytes)", source_size)),
         });
     }
 
@@ -129,10 +123,7 @@ pub fn compute_file_diff(
             file_kind: FileKind::Text,
             diff_text: None,
             truncated: true,
-            truncate_reason: Some(format!(
-                "目标文件超过 50MB 软上限({} bytes)",
-                dest_size
-            )),
+            truncate_reason: Some(format!("目标文件超过 50MB 软上限({} bytes)", dest_size)),
         });
     }
 

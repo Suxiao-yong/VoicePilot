@@ -1,8 +1,8 @@
-use trust_kernel::mcp::transport::{
-    IncomingMessage, JsonRpcError, JsonRpcErrorBody, JsonRpcId, JsonRpcNotification,
-    JsonRpcRequest, JsonRpcResponse, JsonRpcErrorCode, parse_line, write_message,
-};
 use serde_json::json;
+use trust_kernel::mcp::transport::{
+    IncomingMessage, JsonRpcError, JsonRpcErrorBody, JsonRpcErrorCode, JsonRpcId,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, parse_line, write_message,
+};
 
 #[test]
 fn request_serializes_with_camel_case_and_id() {

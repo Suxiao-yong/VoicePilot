@@ -31,13 +31,17 @@ impl Default for FilesystemTool {
 
 impl FilesystemTool {
     pub fn new() -> Self {
-        Self { allowed_paths: None }
+        Self {
+            allowed_paths: None,
+        }
     }
 
     /// Construct a FilesystemTool that enforces `allowed_paths` on every
     /// source and destination. V1.1 §4.4 step 1 + §8.1 mcp_servers.allowed_paths.
     pub fn new_with_allowed_paths(allowed: crate::allowed_paths::AllowedPaths) -> Self {
-        Self { allowed_paths: Some(allowed) }
+        Self {
+            allowed_paths: Some(allowed),
+        }
     }
 
     /// Phase 1 of move_files transaction.
@@ -87,7 +91,9 @@ impl FilesystemTool {
             // Check for destination conflict: dest / src.filename
             let filename = src
                 .file_name()
-                .ok_or_else(|| KernelError::Filesystem(format!("source has no filename: {}", src.display())))?
+                .ok_or_else(|| {
+                    KernelError::Filesystem(format!("source has no filename: {}", src.display()))
+                })?
                 .to_string_lossy()
                 .to_string();
             let dest_path = destination.join(&filename);
@@ -232,14 +238,19 @@ impl FilesystemTool {
                 .to_string();
             let dest_target = dest_dir.join(&filename);
 
-            let dest_meta = std::fs::metadata(&dest_target).map_err(|_| {
-                KernelError::Verification {
-                    message: format!("destination file missing after move: {}", dest_target.display()),
-                }
-            })?;
+            let dest_meta =
+                std::fs::metadata(&dest_target).map_err(|_| KernelError::Verification {
+                    message: format!(
+                        "destination file missing after move: {}",
+                        dest_target.display()
+                    ),
+                })?;
             if !dest_meta.is_file() {
                 return Err(KernelError::Verification {
-                    message: format!("destination is not a regular file: {}", dest_target.display()),
+                    message: format!(
+                        "destination is not a regular file: {}",
+                        dest_target.display()
+                    ),
                 });
             }
             if dest_meta.len() != snap.size {
@@ -281,16 +292,18 @@ impl FilesystemTool {
         if let Some(allowed) = &self.allowed_paths {
             allowed.check(root)?;
         }
-        let meta = std::fs::metadata(root).map_err(|e| {
-            KernelError::Filesystem(format!("search root missing: {}", e))
-        })?;
+        let meta = std::fs::metadata(root)
+            .map_err(|e| KernelError::Filesystem(format!("search root missing: {}", e)))?;
         if !meta.is_dir() {
-            return Err(KernelError::Filesystem("search root is not a directory".to_string()));
+            return Err(KernelError::Filesystem(
+                "search root is not a directory".to_string(),
+            ));
         }
 
         let mut out: Vec<std::path::PathBuf> = Vec::new();
         for entry in walkdir::WalkDir::new(root).follow_links(false) {
-            let entry = entry.map_err(|e| KernelError::Filesystem(format!("walkdir error: {}", e)))?;
+            let entry =
+                entry.map_err(|e| KernelError::Filesystem(format!("walkdir error: {}", e)))?;
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -382,7 +395,10 @@ fn _touch_fssnap() -> FsSnap {
 fn glob_matches(pattern: &str, input: &str) -> bool {
     #[cfg(windows)]
     {
-        glob_matches_impl(pattern.to_lowercase().as_str(), input.to_lowercase().as_str())
+        glob_matches_impl(
+            pattern.to_lowercase().as_str(),
+            input.to_lowercase().as_str(),
+        )
     }
     #[cfg(not(windows))]
     {
@@ -459,6 +475,9 @@ mod assert_path_allowed_tests {
         // E:/definitely_nonexistent 不在 C:/safe_area 下
         let path_outside = Path::new("E:/definitely_nonexistent/path.txt");
         let result = tool.assert_path_allowed(path_outside);
-        assert!(matches!(result, Err(crate::error::KernelError::PathNotAllowed(_))));
+        assert!(matches!(
+            result,
+            Err(crate::error::KernelError::PathNotAllowed(_))
+        ));
     }
 }

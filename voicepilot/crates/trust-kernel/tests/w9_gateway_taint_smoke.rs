@@ -13,9 +13,7 @@ use rusqlite::Connection;
 use trust_kernel::error::KernelError;
 use trust_kernel::gateway::{check_taint_policy, check_taint_policy_and_audit};
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::policy::taint_repo::{
-    compute_value_hash, make_taint_record, TaintRepo,
-};
+use trust_kernel::policy::taint_repo::{TaintRepo, compute_value_hash, make_taint_record};
 use trust_kernel::policy::types::EgressDest;
 use trust_kernel::repo::step_repo::StepRecord;
 
@@ -177,10 +175,7 @@ fn test_multi_taint_blocked_from_tool_argument_and_filesystem() {
 
     // → RemoteLlm 放行(无规则拦截)
     let result = check_taint_policy(&conn, &hash, EgressDest::RemoteLlm);
-    assert!(
-        result.is_ok(),
-        "RemoteLlm 无 taint 拦截规则,应放行"
-    );
+    assert!(result.is_ok(), "RemoteLlm 无 taint 拦截规则,应放行");
 }
 
 /// 测试 5(辅助):`user_input` taint 不触发任何拦截(只 web_page / llm_output 有规则)。
@@ -212,7 +207,9 @@ fn test_user_input_taint_allowed_all_sinks() {
 fn test_taint_blocked_audit_event_emitted() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     // FK 约束:audit_logs.task_id REFERENCES tasks(task_id),需先建 task + step
-    kernel.create_task("t-audit-blocked", "taint blocked audit test").unwrap();
+    kernel
+        .create_task("t-audit-blocked", "taint blocked audit test")
+        .unwrap();
     kernel
         .create_step(&StepRecord::new("s-audit-blocked", "t-audit-blocked", 1))
         .unwrap();
@@ -285,10 +282,7 @@ fn test_taint_blocked_audit_event_emitted() {
         .get("resource_hash")
         .and_then(|v| v.as_str())
         .expect("details.resource_hash 必须是字符串");
-    assert_eq!(
-        resource_hash, hash,
-        "resource_hash 应等于传入的 value_hash"
-    );
+    assert_eq!(resource_hash, hash, "resource_hash 应等于传入的 value_hash");
 
     // spec §6.2 隐私约束:details 不含原始 value
     let details_str = details.to_string();

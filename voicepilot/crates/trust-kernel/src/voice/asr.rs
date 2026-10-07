@@ -291,9 +291,9 @@ mod tests {
         let result = engine.transcribe(&silence);
         match result {
             Ok(text) => eprintln!("transcribe returned text: {}", text),
-            Err(VoiceError::NoSpeechDetected) => eprintln!(
-                "transcribe returned NoSpeechDetected (expected for silence)"
-            ),
+            Err(VoiceError::NoSpeechDetected) => {
+                eprintln!("transcribe returned NoSpeechDetected (expected for silence)")
+            }
             Err(e) => panic!("unexpected error: {}", e),
         }
     }

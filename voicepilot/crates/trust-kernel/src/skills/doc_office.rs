@@ -10,7 +10,7 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
 use crate::skills::simple::{
-    ps_sta, run_simple, simple_manifest, slot_text, slot_text_opt, SimpleInput,
+    SimpleInput, ps_sta, run_simple, simple_manifest, slot_text, slot_text_opt,
 };
 use std::collections::HashMap;
 use std::path::Path;

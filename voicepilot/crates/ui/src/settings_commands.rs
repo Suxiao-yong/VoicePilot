@@ -172,15 +172,36 @@ impl From<&SettingsUpdate> for SettingsView {
 pub fn flatten_to_kv(dto: &SettingsView) -> Vec<(String, String)> {
     vec![
         ("voice.model_path".to_string(), dto.voice_model_path.clone()),
-        ("voice.language".to_string(), dto.voice_language.clone().unwrap_or_default()),
+        (
+            "voice.language".to_string(),
+            dto.voice_language.clone().unwrap_or_default(),
+        ),
         ("voice.threads".to_string(), dto.voice_threads.to_string()),
-        ("voice.vad.energy_threshold".to_string(), dto.vad_energy_threshold.to_string()),
-        ("voice.vad.max_silence_ms".to_string(), dto.vad_max_silence_ms.to_string()),
-        ("voice.vad.min_speech_ms".to_string(), dto.vad_min_speech_ms.to_string()),
-        ("voice.max_duration_ms".to_string(), dto.voice_max_duration_ms.to_string()),
-        ("voice.chunk_duration_ms".to_string(), dto.voice_chunk_duration_ms.to_string()),
+        (
+            "voice.vad.energy_threshold".to_string(),
+            dto.vad_energy_threshold.to_string(),
+        ),
+        (
+            "voice.vad.max_silence_ms".to_string(),
+            dto.vad_max_silence_ms.to_string(),
+        ),
+        (
+            "voice.vad.min_speech_ms".to_string(),
+            dto.vad_min_speech_ms.to_string(),
+        ),
+        (
+            "voice.max_duration_ms".to_string(),
+            dto.voice_max_duration_ms.to_string(),
+        ),
+        (
+            "voice.chunk_duration_ms".to_string(),
+            dto.voice_chunk_duration_ms.to_string(),
+        ),
         ("privacy.mode".to_string(), dto.privacy_mode.to_string()),
-        ("compensation.ttl_hours".to_string(), dto.compensation_ttl_hours.to_string()),
+        (
+            "compensation.ttl_hours".to_string(),
+            dto.compensation_ttl_hours.to_string(),
+        ),
         ("tts.enabled".to_string(), dto.tts_enabled.to_string()),
         ("tts.model_path".to_string(), dto.tts_model_path.clone()),
         // W7 LLM —— 只存非 secret 字段。`llm.api_key` 绝不落盘(SecretStore 持有)。
@@ -209,7 +230,7 @@ fn clamp_range<T: PartialOrd>(v: T, min: T, max: T) -> T {
     }
 }
 
-/// 从 KV 列表合并为 View(缺失字段用默认值)。`llm.api_key` / 
+/// 从 KV 列表合并为 View(缺失字段用默认值)。`llm.api_key` /
 /// `llm.api_key_present` 这类 secret 派生 key 会被忽略(读取接口从
 /// SecretStore 取真实状态)。
 pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsView> {
@@ -217,19 +238,82 @@ pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsView> {
     for (k, v) in kv {
         match k.as_str() {
             "voice.model_path" => dto.voice_model_path = v.clone(),
-            "voice.language" => dto.voice_language = if v.is_empty() { None } else { Some(v.clone()) },
-            "voice.threads" => dto.voice_threads = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("voice.threads: {e}")))?, 1, 16),
-            "voice.vad.energy_threshold" => dto.vad_energy_threshold = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("energy_threshold: {e}")))?, 0.0, 100_000.0),
-            "voice.vad.max_silence_ms" => dto.vad_max_silence_ms = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("max_silence_ms: {e}")))?, 100, 30_000),
-            "voice.vad.min_speech_ms" => dto.vad_min_speech_ms = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("min_speech_ms: {e}")))?, 50, 5_000),
-            "voice.max_duration_ms" => dto.voice_max_duration_ms = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("max_duration_ms: {e}")))?, 1_000, 600_000),
-            "voice.chunk_duration_ms" => dto.voice_chunk_duration_ms = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("chunk_duration_ms: {e}")))?, 10, 60_000),
-            "privacy.mode" => dto.privacy_mode = v.parse().map_err(|e| UiError::InvalidConfig(format!("privacy.mode: {e}")))?,
-            "compensation.ttl_hours" => dto.compensation_ttl_hours = clamp_range(v.parse().map_err(|e| UiError::InvalidConfig(format!("ttl_hours: {e}")))?, 1, 8_760),
-            "tts.enabled" => dto.tts_enabled = v.parse().map_err(|e| UiError::InvalidConfig(format!("tts.enabled: {e}")))?,
+            "voice.language" => {
+                dto.voice_language = if v.is_empty() { None } else { Some(v.clone()) }
+            }
+            "voice.threads" => {
+                dto.voice_threads = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("voice.threads: {e}")))?,
+                    1,
+                    16,
+                )
+            }
+            "voice.vad.energy_threshold" => {
+                dto.vad_energy_threshold = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("energy_threshold: {e}")))?,
+                    0.0,
+                    100_000.0,
+                )
+            }
+            "voice.vad.max_silence_ms" => {
+                dto.vad_max_silence_ms = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("max_silence_ms: {e}")))?,
+                    100,
+                    30_000,
+                )
+            }
+            "voice.vad.min_speech_ms" => {
+                dto.vad_min_speech_ms = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("min_speech_ms: {e}")))?,
+                    50,
+                    5_000,
+                )
+            }
+            "voice.max_duration_ms" => {
+                dto.voice_max_duration_ms = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("max_duration_ms: {e}")))?,
+                    1_000,
+                    600_000,
+                )
+            }
+            "voice.chunk_duration_ms" => {
+                dto.voice_chunk_duration_ms = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("chunk_duration_ms: {e}")))?,
+                    10,
+                    60_000,
+                )
+            }
+            "privacy.mode" => {
+                dto.privacy_mode = v
+                    .parse()
+                    .map_err(|e| UiError::InvalidConfig(format!("privacy.mode: {e}")))?
+            }
+            "compensation.ttl_hours" => {
+                dto.compensation_ttl_hours = clamp_range(
+                    v.parse()
+                        .map_err(|e| UiError::InvalidConfig(format!("ttl_hours: {e}")))?,
+                    1,
+                    8_760,
+                )
+            }
+            "tts.enabled" => {
+                dto.tts_enabled = v
+                    .parse()
+                    .map_err(|e| UiError::InvalidConfig(format!("tts.enabled: {e}")))?
+            }
             "tts.model_path" => dto.tts_model_path = v.clone(),
             // W7 LLM —— 只解析非 secret 字段。
-            "llm.enabled" => dto.llm_enabled = v.parse().map_err(|e| UiError::InvalidConfig(format!("llm.enabled: {e}")))?,
+            "llm.enabled" => {
+                dto.llm_enabled = v
+                    .parse()
+                    .map_err(|e| UiError::InvalidConfig(format!("llm.enabled: {e}")))?
+            }
             "llm.base_url" => dto.llm_base_url = v.clone(),
             "llm.model" => dto.llm_model = v.clone(),
             "llm.provider_url" => dto.llm_provider_url = v.clone(),
@@ -239,9 +323,8 @@ pub fn merge_from_kv(kv: &[(String, String)]) -> UiResult<SettingsView> {
                 dto.uia_allowed_apps = if v.is_empty() {
                     Vec::new()
                 } else {
-                    serde_json::from_str(v).map_err(|e| {
-                        UiError::InvalidConfig(format!("uia.allowed_apps: {e}"))
-                    })?
+                    serde_json::from_str(v)
+                        .map_err(|e| UiError::InvalidConfig(format!("uia.allowed_apps: {e}")))?
                 };
             }
             // 忽略未知 key 以及 secret 派生 key("llm.api_key" / "llm.api_key_present")
@@ -365,8 +448,14 @@ pub enum LlmTestFailure {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LlmTestResult {
-    Ok { latency_ms: u64, model: String },
-    Failed { reason: LlmTestFailure, message: String },
+    Ok {
+        latency_ms: u64,
+        model: String,
+    },
+    Failed {
+        reason: LlmTestFailure,
+        message: String,
+    },
 }
 
 /// 纯函数：`LlmError` → 前端可消费的失败分类（可单测，无需网络）。
@@ -482,7 +571,10 @@ mod tests {
         assert!(restored.llm_enabled);
         assert_eq!(restored.llm_base_url, "https://api.deepseek.com/v1");
         assert_eq!(restored.llm_model, "deepseek-chat");
-        assert_eq!(restored.llm_provider_url, "https://platform.deepseek.com/api_keys");
+        assert_eq!(
+            restored.llm_provider_url,
+            "https://platform.deepseek.com/api_keys"
+        );
     }
 
     #[test]
@@ -492,7 +584,10 @@ mod tests {
         assert!(!dto.llm_api_key_present);
         assert_eq!(dto.llm_base_url, "https://api.deepseek.com/v1");
         assert_eq!(dto.llm_model, "deepseek-chat");
-        assert_eq!(dto.llm_provider_url, "https://platform.deepseek.com/api_keys");
+        assert_eq!(
+            dto.llm_provider_url,
+            "https://platform.deepseek.com/api_keys"
+        );
     }
 
     #[test]
@@ -541,14 +636,20 @@ mod tests {
     #[test]
     fn merge_from_kv_ignores_secret_derived_keys() {
         let kv = vec![
-            ("llm.api_key".to_string(), "sk-should-be-ignored".to_string()),
+            (
+                "llm.api_key".to_string(),
+                "sk-should-be-ignored".to_string(),
+            ),
             ("llm.api_key_present".to_string(), "true".to_string()),
             ("llm.enabled".to_string(), "true".to_string()),
         ];
         let view = merge_from_kv(&kv).unwrap();
         assert!(view.llm_enabled);
         // 读取接口不解析 secret 派生 key。
-        assert!(!view.llm_api_key_present, "view state comes from SecretStore");
+        assert!(
+            !view.llm_api_key_present,
+            "view state comes from SecretStore"
+        );
     }
 
     /// SettingsUpdate → SettingsView 的非 secret 字段映射正确。
@@ -564,7 +665,10 @@ mod tests {
         let view = SettingsView::from(&update);
         assert_eq!(view.voice_threads, 8);
         assert!(view.llm_enabled);
-        assert!(!view.llm_api_key_present, "view present flag filled by caller");
+        assert!(
+            !view.llm_api_key_present,
+            "view present flag filled by caller"
+        );
     }
 
     fn from_default_update() -> SettingsUpdate {
@@ -669,7 +773,11 @@ mod tests {
         );
 
         let conn = state.kernel.conn();
-        let kv = state.kernel.config_repo().list(&conn).expect("config_repo list");
+        let kv = state
+            .kernel
+            .config_repo()
+            .list(&conn)
+            .expect("config_repo list");
         let uia_kv = kv
             .iter()
             .find(|(k, _)| k == "uia.allowed_apps")
@@ -683,7 +791,11 @@ mod tests {
     #[test]
     fn update_settings_persists_and_reloads_allowed_apps() {
         let tmp = tempfile::NamedTempFile::new().expect("create tempfile");
-        let path = tmp.path().to_str().expect("tempfile path is utf-8").to_string();
+        let path = tmp
+            .path()
+            .to_str()
+            .expect("tempfile path is utf-8")
+            .to_string();
 
         {
             let state = crate::state::AppState::new_file(&path).expect("AppState::new_file");
@@ -698,7 +810,8 @@ mod tests {
         }
 
         {
-            let state = crate::state::AppState::new_file(&path).expect("AppState::new_file phase 2");
+            let state =
+                crate::state::AppState::new_file(&path).expect("AppState::new_file phase 2");
             let apps = state.kernel.allowed_apps();
             assert_eq!(
                 *apps,

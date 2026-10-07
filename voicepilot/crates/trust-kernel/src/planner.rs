@@ -111,7 +111,10 @@ impl RealtimeSnapshot {
             self.voice.sample_count
         ));
         if !self.memory.prev_turns.is_empty() {
-            s.push_str(&format!("- 上文：{}\n", self.memory.prev_turns.join(" ｜ ")));
+            s.push_str(&format!(
+                "- 上文：{}\n",
+                self.memory.prev_turns.join(" ｜ ")
+            ));
         }
         truncate_chars(&s, CONTEXT_BUDGET_CHARS)
     }
@@ -295,7 +298,8 @@ impl PlannerPipeline {
             }
         }
 
-        self.plan_with_llm(trimmed, &manifests, input.snapshot.as_ref()).await
+        self.plan_with_llm(trimmed, &manifests, input.snapshot.as_ref())
+            .await
     }
 
     /// 关键词未命中后的 LLM 路径(4-6 步)。仅 `llm` feature 下编译。
@@ -309,10 +313,20 @@ impl PlannerPipeline {
         let mut trace = self.trace();
 
         let Some(llm) = self.kernel.llm_client() else {
-            return Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace));
+            return Ok((
+                PlanResult::Unmatched {
+                    text: trimmed.to_string(),
+                },
+                trace,
+            ));
         };
         if !llm.is_enabled() || self.kernel.privacy_mode() {
-            return Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace));
+            return Ok((
+                PlanResult::Unmatched {
+                    text: trimmed.to_string(),
+                },
+                trace,
+            ));
         }
 
         // Phase B：长期记忆检索注入（按当前输入召回 top-3，带来源声明）。
@@ -344,7 +358,10 @@ impl PlannerPipeline {
             crate::llm::client::LlmClient::ROUTE_TOOL_SCHEMA_VERSION,
             &llm_text,
         );
-        let cached_hit = self.kernel.lookup_route_cache(&cache_key, now_ms).unwrap_or(None);
+        let cached_hit = self
+            .kernel
+            .lookup_route_cache(&cache_key, now_ms)
+            .unwrap_or(None);
         if let Some(hit) = cached_hit {
             if self.snapshot.resolve_candidate(&hit.skill_id).is_some() {
                 let slots = serde_json::from_str(&hit.slots_json).unwrap_or_default();
@@ -369,8 +386,8 @@ impl PlannerPipeline {
                 if let Some(skill_id) = &resp.matched_skill_id {
                     // 只接受候选内(启用 + 有执行 target)的 skill_id。
                     if self.snapshot.resolve_candidate(skill_id).is_some() {
-                        let slots_json = serde_json::to_string(&resp.slots)
-                            .unwrap_or_else(|_| "[]".to_string());
+                        let slots_json =
+                            serde_json::to_string(&resp.slots).unwrap_or_else(|_| "[]".to_string());
                         let _ = self.kernel.record_route_cache(
                             &cache_key,
                             skill_id,
@@ -403,8 +420,8 @@ impl PlannerPipeline {
 
             // 双层防御校验(与 router_bridge 一致):
             // 校验 #1 — 模板语法 + 引用合法性。
-            let template_ok = crate::skills::template::SlotTemplateEngine::validate_dag(&dag)
-                .is_ok();
+            let template_ok =
+                crate::skills::template::SlotTemplateEngine::validate_dag(&dag).is_ok();
             // 校验 #2 — 边引用 + 循环规格(结构校验)。
             let structure_ok = dag.validate_edges().is_ok() && dag.validate_loop_specs().is_ok();
             if template_ok && structure_ok {
@@ -426,7 +443,12 @@ impl PlannerPipeline {
         trace.latency_ms += started.elapsed().as_millis() as u64;
         match chat {
             Ok(answer) => Ok((PlanResult::Chat { text: answer }, trace)),
-            Err(_) => Ok((PlanResult::Unmatched { text: trimmed.to_string() }, trace)),
+            Err(_) => Ok((
+                PlanResult::Unmatched {
+                    text: trimmed.to_string(),
+                },
+                trace,
+            )),
         }
     }
 
@@ -438,7 +460,12 @@ impl PlannerPipeline {
         _manifests: &[crate::skills::manifest::SkillManifest],
         _snapshot: Option<&RealtimeSnapshot>,
     ) -> Result<(PlanResult, PlannerTrace)> {
-        Ok((PlanResult::Unmatched { text: trimmed.to_string() }, self.trace()))
+        Ok((
+            PlanResult::Unmatched {
+                text: trimmed.to_string(),
+            },
+            self.trace(),
+        ))
     }
 
     fn trace(&self) -> PlannerTrace {

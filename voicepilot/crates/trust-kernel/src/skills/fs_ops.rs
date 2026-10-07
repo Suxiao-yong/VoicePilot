@@ -9,7 +9,7 @@ use crate::approval::approver::Approver;
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
-use crate::skills::simple::{run_simple, simple_manifest, slot_text, truncate_chars, SimpleInput};
+use crate::skills::simple::{SimpleInput, run_simple, simple_manifest, slot_text, truncate_chars};
 use std::collections::HashMap;
 use std::path::PathBuf;
 

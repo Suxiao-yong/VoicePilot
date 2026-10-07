@@ -47,7 +47,10 @@ fn keyring_store_missing_returns_none() {
     let store = KeyringSecretStore::default();
     let _guard = Cleanup { store: &store };
     assert!(
-        store.get_secret(TEST_KEY).expect("get missing key").is_none(),
+        store
+            .get_secret(TEST_KEY)
+            .expect("get missing key")
+            .is_none(),
         "missing keyring entry must read as None"
     );
 }

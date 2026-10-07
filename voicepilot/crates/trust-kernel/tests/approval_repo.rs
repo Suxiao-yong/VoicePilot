@@ -69,8 +69,10 @@ fn list_for_task_returns_all_approvals() {
         [],
     ).unwrap();
 
-    repo.create(&conn, &sample_approval("a1", "t1", "s1")).unwrap();
-    repo.create(&conn, &sample_approval("a2", "t1", "s2")).unwrap();
+    repo.create(&conn, &sample_approval("a1", "t1", "s1"))
+        .unwrap();
+    repo.create(&conn, &sample_approval("a2", "t1", "s2"))
+        .unwrap();
 
     let list = repo.list_for_task(&conn, "t1").unwrap();
     assert_eq!(list.len(), 2);
@@ -78,7 +80,11 @@ fn list_for_task_returns_all_approvals() {
 
 #[test]
 fn approval_decision_round_trips() {
-    for d in [ApprovalDecision::Allow, ApprovalDecision::Deny, ApprovalDecision::Modify] {
+    for d in [
+        ApprovalDecision::Allow,
+        ApprovalDecision::Deny,
+        ApprovalDecision::Modify,
+    ] {
         let s = d.as_str();
         let back = ApprovalDecision::parse(s).expect("must round-trip");
         assert_eq!(d, back);

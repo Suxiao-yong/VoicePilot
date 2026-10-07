@@ -17,8 +17,8 @@
 use crate::voice::error::{VoiceError, VoiceResult};
 use sherpa_rs::tts::{VitsTts, VitsTtsConfig};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Debug, Clone)]
 pub struct SherpaTtsConfig {
@@ -218,7 +218,10 @@ mod tests {
             num_threads: 1,
             speed: 1.0,
         };
-        assert_eq!(a, b, "configs differing only in sample_rate should be equal");
+        assert_eq!(
+            a, b,
+            "configs differing only in sample_rate should be equal"
+        );
     }
 
     #[test]

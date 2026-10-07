@@ -17,8 +17,8 @@ mod tests {
     use trust_kernel::compensation::executor::auto_reverse;
     use trust_kernel::compensation::types::{CompensationLevel, ConflictPolicy};
     use trust_kernel::kernel::TrustKernel;
-    use trust_kernel::skills::common::create_post_commit_compensation_with_payload;
     use trust_kernel::repo::step_repo::StepRecord;
+    use trust_kernel::skills::common::create_post_commit_compensation_with_payload;
 
     /// 辅助:创建 task + step,返回 step_id。
     fn setup_step(kernel: &TrustKernel, step_id: &str, task_desc: &str) -> String {
@@ -53,7 +53,9 @@ mod tests {
         auto_reverse(&kernel, &comp).unwrap();
 
         // 标记 status=reversed(模拟 task.compensate 的 finalize)。
-        kernel.mark_compensation_status(&comp_id, "reversed").unwrap();
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
 
         let final_comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(final_comp.status, "reversed");
@@ -89,9 +91,14 @@ mod tests {
         let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         auto_reverse(&kernel, &comp).unwrap();
 
-        assert!(!note_path.exists(), "note file must be deleted after reverse");
+        assert!(
+            !note_path.exists(),
+            "note file must be deleted after reverse"
+        );
 
-        kernel.mark_compensation_status(&comp_id, "reversed").unwrap();
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
         let final_comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(final_comp.status, "reversed");
         assert_eq!(final_comp.compensate_fn, "note.reverse_capture");
@@ -124,9 +131,14 @@ mod tests {
         let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         auto_reverse(&kernel, &comp).unwrap();
 
-        assert!(!md_path.exists(), "markdown file must be deleted after reverse");
+        assert!(
+            !md_path.exists(),
+            "markdown file must be deleted after reverse"
+        );
 
-        kernel.mark_compensation_status(&comp_id, "reversed").unwrap();
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
         let final_comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(final_comp.status, "reversed");
         assert_eq!(final_comp.compensate_fn, "research.reverse_save");
@@ -156,7 +168,9 @@ mod tests {
         // 空 fields → no-op Ok,无需 Playwright。
         auto_reverse(&kernel, &comp).unwrap();
 
-        kernel.mark_compensation_status(&comp_id, "reversed").unwrap();
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
         let final_comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(final_comp.status, "reversed");
         assert_eq!(final_comp.compensate_fn, "form.reverse_prepare");
@@ -184,7 +198,9 @@ mod tests {
         let comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         auto_reverse(&kernel, &comp).unwrap();
 
-        kernel.mark_compensation_status(&comp_id, "reversed").unwrap();
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
         let final_comp = kernel.get_compensation(&comp_id).unwrap().unwrap();
         assert_eq!(final_comp.status, "reversed");
     }

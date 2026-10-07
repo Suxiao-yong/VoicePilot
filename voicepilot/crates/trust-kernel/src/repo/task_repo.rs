@@ -3,7 +3,7 @@
 use crate::error::Result;
 use crate::state::TaskState;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,12 +139,11 @@ impl TaskRepo {
     }
 }
 
-fn parse_rfc3339_col(
-    s: String,
-    col: usize,
-) -> Result<chrono::DateTime<Utc>> {
+fn parse_rfc3339_col(s: String, col: usize) -> Result<chrono::DateTime<Utc>> {
     chrono::DateTime::parse_from_rfc3339(&s)
         .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e)))
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
+        })
         .map_err(Into::into)
 }

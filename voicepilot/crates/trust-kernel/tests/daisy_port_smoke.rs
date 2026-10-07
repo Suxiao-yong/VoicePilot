@@ -49,11 +49,7 @@ fn all_ported_skills_pass_snapshot_gate() {
     let snapshot = kernel.extension_snapshot();
     for id in ids {
         let r = snapshot.resolve_execution_target(&id);
-        assert!(
-            r.is_ok(),
-            "{id} 接线缺失（快照门解析失败）: {:?}",
-            r.err()
-        );
+        assert!(r.is_ok(), "{id} 接线缺失（快照门解析失败）: {:?}", r.err());
     }
 }
 
@@ -73,11 +69,7 @@ fn old_builtin_ids_still_dispatch() {
         "form.submit",
     ] {
         let r = snapshot.resolve_execution_target(id);
-        assert!(
-            r.is_ok(),
-            "{id} 接线缺失（快照门解析失败）: {:?}",
-            r.err()
-        );
+        assert!(r.is_ok(), "{id} 接线缺失（快照门解析失败）: {:?}", r.err());
     }
 }
 
@@ -115,7 +107,10 @@ async fn site_search_routes_to_open_url_without_llm() {
         .expect("plan");
     assert!(!trace.used_llm, "站内搜不应调用 LLM");
     match plan {
-        PlanResult::Skill { extension_id, slots } => {
+        PlanResult::Skill {
+            extension_id,
+            slots,
+        } => {
             assert_eq!(extension_id, "sys.open_url");
             assert_eq!(slots.len(), 1);
             assert_eq!(slots[0].kind, "url");

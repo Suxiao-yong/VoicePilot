@@ -31,12 +31,12 @@ use trust_kernel::policy::transaction::EffectManifest;
 use trust_kernel::repo::step_repo::{StepRecord, StepStatus};
 use trust_kernel::skills::common::create_post_commit_compensation;
 use trust_kernel::skills::manifest::{
-    files_organize_manifest, form_prepare_manifest, form_submit_manifest,
-    note_capture_manifest, research_save_manifest, task_compensate_manifest,
-    task_explain_manifest, task_repeat_verified_manifest,
+    files_organize_manifest, form_prepare_manifest, form_submit_manifest, note_capture_manifest,
+    research_save_manifest, task_compensate_manifest, task_explain_manifest,
+    task_repeat_verified_manifest,
 };
-use trust_kernel::skills::task_compensate::{execute_compensate, TaskCompensateInput};
-use trust_kernel::skills::task_repeat::{execute_repeat_verified, TaskRepeatVerifiedInput};
+use trust_kernel::skills::task_compensate::{TaskCompensateInput, execute_compensate};
+use trust_kernel::skills::task_repeat::{TaskRepeatVerifiedInput, execute_repeat_verified};
 use trust_kernel::tools::fs_paths::canonicalize;
 use trust_kernel::tools::fs_snapshot::snapshot_file;
 
@@ -106,8 +106,7 @@ fn verifier_strategy_manifest_all_strong_for_side_effect_skills() {
 fn task_explain_verifier_strategy_is_none() {
     let m = task_explain_manifest();
     assert_eq!(
-        m.verifier.strategy,
-        "none",
+        m.verifier.strategy, "none",
         "task.explain must be 'none' (read-only skill, spec §6.3)"
     );
 }
@@ -119,10 +118,7 @@ fn task_explain_verifier_strategy_is_none() {
 fn task_repeat_executor_returns_strong_evidence() {
     let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let kernel = TrustKernel::open_in_memory().unwrap();
-    let dir = std::env::temp_dir().join(format!(
-        "w10p1-smoke-repeat-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("w10p1-smoke-repeat-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::create_dir_all(dir.join("out")).unwrap();
     fs::write(dir.join("src").join("a.pdf"), b"pdf1").unwrap();
@@ -166,10 +162,7 @@ fn task_repeat_executor_returns_strong_evidence() {
 fn task_compensate_executor_returns_strong_evidence() {
     let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let kernel = TrustKernel::open_in_memory().unwrap();
-    let dir = std::env::temp_dir().join(format!(
-        "w10p1-smoke-comp-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("w10p1-smoke-comp-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(dir.join("orig")).unwrap();
     fs::create_dir_all(dir.join("curr")).unwrap();
     let orig = dir.join("orig").join("f.txt");
@@ -229,7 +222,7 @@ fn research_save_executor_returns_strong_evidence() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     install_python_mock(&kernel, RESEARCH_MOCK_SCRIPT);
 
-    use trust_kernel::skills::research_save::{execute_research_save, ResearchSaveInput};
+    use trust_kernel::skills::research_save::{ResearchSaveInput, execute_research_save};
     let approver = AutoApprover;
     let save_path = format!("Documents/research-{}.md", uuid::Uuid::new_v4());
     let input = ResearchSaveInput {
@@ -264,7 +257,7 @@ fn form_prepare_executor_returns_strong_evidence() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     install_python_mock(&kernel, FORM_PREPARE_MOCK_SCRIPT);
 
-    use trust_kernel::skills::form_prepare::{execute_form_prepare, FormPrepareInput};
+    use trust_kernel::skills::form_prepare::{FormPrepareInput, execute_form_prepare};
     let approver = AutoApprover;
     let mut fields = HashMap::new();
     fields.insert("#username".to_string(), "alice".to_string());
@@ -273,7 +266,9 @@ fn form_prepare_executor_returns_strong_evidence() {
     // 写入与 input.fields 一致的 values JSON,供 mock eval 读取返回。
     let values_path = temp_root.join(format!("values-{}.json", uuid::Uuid::new_v4()));
     std::fs::write(&values_path, serde_json::to_string(&fields).unwrap()).unwrap();
-    unsafe { std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path); }
+    unsafe {
+        std::env::set_var("FORM_PREPARE_VALUES_PATH", &values_path);
+    }
 
     let input = FormPrepareInput {
         task_id: "t1".to_string(),
@@ -292,7 +287,9 @@ fn form_prepare_executor_returns_strong_evidence() {
         "form.prepare must return strong evidence (W10 Plan 1)"
     );
 
-    unsafe { std::env::remove_var("FORM_PREPARE_VALUES_PATH"); }
+    unsafe {
+        std::env::remove_var("FORM_PREPARE_VALUES_PATH");
+    }
 }
 
 /// form.submit happy path → evidence_strength = "strong"。
@@ -307,10 +304,14 @@ fn form_submit_executor_returns_strong_evidence() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     install_python_mock(&kernel, FORM_SUBMIT_MOCK_SCRIPT);
     // mock 默认返回 current_url = .../success(与 input.url 不同)→ url_changed → Strong。
-    unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
-    unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
+    unsafe {
+        std::env::remove_var("MOCK_CURRENT_URL");
+    }
+    unsafe {
+        std::env::remove_var("MOCK_HAS_SUCCESS");
+    }
 
-    use trust_kernel::skills::form_submit::{execute_form_submit, FormSubmitInput};
+    use trust_kernel::skills::form_submit::{FormSubmitInput, execute_form_submit};
     let approver = AutoApprover;
     let input = FormSubmitInput {
         task_id: "t1".to_string(),

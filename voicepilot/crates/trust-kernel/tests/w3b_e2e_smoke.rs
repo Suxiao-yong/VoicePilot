@@ -24,12 +24,16 @@ fn end_to_end_files_organize_skill_smoke() {
     let step_id = "e2e-step-1".to_string();
     let goal = "把下载目录里的 PDF 移到论文文件夹";
     kernel.create_task(&task_id, goal).unwrap();
-    kernel.create_step(&StepRecord::new(&step_id, &task_id, 1)).unwrap();
+    kernel
+        .create_step(&StepRecord::new(&step_id, &task_id, 1))
+        .unwrap();
 
     // ===== Setup: temp filesystem with PDFs + a non-matching .txt =====
     let dir = tmp_dir();
-    let src_dir = dir.join("downloads"); fs::create_dir_all(&src_dir).unwrap();
-    let dest_dir = dir.join("papers"); fs::create_dir_all(&dest_dir).unwrap();
+    let src_dir = dir.join("downloads");
+    fs::create_dir_all(&src_dir).unwrap();
+    let dest_dir = dir.join("papers");
+    fs::create_dir_all(&dest_dir).unwrap();
     fs::write(src_dir.join("a.pdf"), b"pdf-a-content").unwrap();
     fs::write(src_dir.join("b.pdf"), b"pdf-b-content").unwrap();
     fs::write(src_dir.join("c.txt"), b"not-a-pdf").unwrap();
@@ -66,7 +70,8 @@ fn end_to_end_files_organize_skill_smoke() {
     };
     let approver = Arc::new(AutoApprover);
     let skill = FilesOrganizeSkill::new();
-    let execution = skill.execute(&kernel, &input, approver.as_ref())
+    let execution = skill
+        .execute(&kernel, &input, approver.as_ref())
         .expect("skill must succeed with AutoApprover");
 
     // ===== Assert: ToolResult V2 =====
@@ -74,13 +79,19 @@ fn end_to_end_files_organize_skill_smoke() {
     assert_eq!(tr.status, ToolStatus::Succeeded);
     assert_eq!(tr.evidence_strength, EvidenceStrength::Strong);
     assert_eq!(tr.compensation_level, CompensationLevel::Strong);
-    let comp_id: &str = tr.compensation_ref.as_ref().expect("compensation_ref must be set");
+    let comp_id: &str = tr
+        .compensation_ref
+        .as_ref()
+        .expect("compensation_ref must be set");
     assert!(!tr.idempotency_key.is_empty());
 
     // ===== Assert: filesystem state =====
     assert!(!src_dir.join("a.pdf").exists());
     assert!(!src_dir.join("b.pdf").exists());
-    assert!(src_dir.join("c.txt").exists(), "non-matching file must stay in place");
+    assert!(
+        src_dir.join("c.txt").exists(),
+        "non-matching file must stay in place"
+    );
     assert!(dest_dir.join("a.pdf").exists());
     assert!(dest_dir.join("b.pdf").exists());
     assert_eq!(fs::read(dest_dir.join("a.pdf")).unwrap(), b"pdf-a-content");
@@ -88,9 +99,18 @@ fn end_to_end_files_organize_skill_smoke() {
     // ===== Assert: step record fully populated =====
     let step = kernel.get_step(&step_id).unwrap().expect("step must exist");
     assert_eq!(step.status, StepStatus::Succeeded);
-    assert!(step.prepare_token.is_some(), "prepare_token must be persisted");
-    assert!(step.preconditions_hash.is_some(), "preconditions_hash must be persisted");
-    assert!(step.effect_manifest.is_some(), "effect_manifest must be persisted");
+    assert!(
+        step.prepare_token.is_some(),
+        "prepare_token must be persisted"
+    );
+    assert!(
+        step.preconditions_hash.is_some(),
+        "preconditions_hash must be persisted"
+    );
+    assert!(
+        step.effect_manifest.is_some(),
+        "effect_manifest must be persisted"
+    );
     assert_eq!(step.evidence_strength.as_deref(), Some("strong"));
     assert_eq!(step.compensation_ref.as_deref(), Some(comp_id));
 
@@ -98,12 +118,24 @@ fn end_to_end_files_organize_skill_smoke() {
     let approvals = kernel.list_approvals_for_task(&task_id).unwrap();
     assert_eq!(approvals.len(), 1);
     assert!(approvals[0].user_decision == trust_kernel::approval::types::ApprovalDecision::Allow);
-    assert_eq!(approvals[0].approval_scope, trust_kernel::approval::types::ApprovalScope::Single);
-    assert_eq!(approvals[0].e_level, trust_kernel::policy::types::ELevel::E2);
-    assert_eq!(approvals[0].d_level, trust_kernel::policy::types::DLevel::D2);
+    assert_eq!(
+        approvals[0].approval_scope,
+        trust_kernel::approval::types::ApprovalScope::Single
+    );
+    assert_eq!(
+        approvals[0].e_level,
+        trust_kernel::policy::types::ELevel::E2
+    );
+    assert_eq!(
+        approvals[0].d_level,
+        trust_kernel::policy::types::DLevel::D2
+    );
 
     // ===== Assert: compensation record persisted =====
-    let comp = kernel.get_compensation(comp_id).unwrap().expect("compensation must exist");
+    let comp = kernel
+        .get_compensation(comp_id)
+        .unwrap()
+        .expect("compensation must exist");
     assert_eq!(comp.level, CompensationLevel::Strong);
     assert_eq!(comp.status, "active");
     assert_eq!(comp.compensate_fn, "filesystem.reverse_move");
@@ -136,11 +168,15 @@ fn end_to_end_compensation_can_be_reversed_via_auto_reverse() {
     let task_id = "e2e-task-2".to_string();
     let step_id = "e2e-step-2".to_string();
     kernel.create_task(&task_id, "整理").unwrap();
-    kernel.create_step(&StepRecord::new(&step_id, &task_id, 1)).unwrap();
+    kernel
+        .create_step(&StepRecord::new(&step_id, &task_id, 1))
+        .unwrap();
 
     let dir = tmp_dir();
-    let src_dir = dir.join("dl"); fs::create_dir_all(&src_dir).unwrap();
-    let dest_dir = dir.join("out"); fs::create_dir_all(&dest_dir).unwrap();
+    let src_dir = dir.join("dl");
+    fs::create_dir_all(&src_dir).unwrap();
+    let dest_dir = dir.join("out");
+    fs::create_dir_all(&dest_dir).unwrap();
     fs::write(src_dir.join("x.pdf"), b"pdf-x").unwrap();
 
     let input = FilesOrganizeInput {
@@ -164,13 +200,24 @@ fn end_to_end_compensation_can_be_reversed_via_auto_reverse() {
     auto_reverse_move(&kernel, &comp).unwrap();
 
     // After reverse: file is back at src_dir/x.pdf.
-    assert!(src_dir.join("x.pdf").exists(), "file must be back at original location");
-    assert!(!dest_dir.join("x.pdf").exists(), "file must be removed from destination");
+    assert!(
+        src_dir.join("x.pdf").exists(),
+        "file must be back at original location"
+    );
+    assert!(
+        !dest_dir.join("x.pdf").exists(),
+        "file must be removed from destination"
+    );
 
     // Mark compensation as consumed.
-    kernel.mark_compensation_status(comp_id, "consumed").unwrap();
+    kernel
+        .mark_compensation_status(comp_id, "consumed")
+        .unwrap();
     let active = kernel.list_active_compensations().unwrap();
-    assert!(active.is_empty(), "compensation must no longer be active after consume");
+    assert!(
+        active.is_empty(),
+        "compensation must no longer be active after consume"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }

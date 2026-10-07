@@ -10,8 +10,8 @@
 //! 不测 Verifying/Compensating/LLM/Playwright 中断(不可中断路径,SLA 可能 > 1s,
 //! 在 task_cancelled audit event 中记录 sla_met: false,不阻塞)。
 
-use std::time::Instant;
 use chrono::Utc;
+use std::time::Instant;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::state::TaskState;
 use uuid::Uuid;
@@ -19,7 +19,9 @@ use uuid::Uuid;
 /// 辅助:创建 task 并 transition 到目标状态。
 fn setup_task_at_state(kernel: &TrustKernel, target: TaskState) -> String {
     let task_id = Uuid::new_v4().to_string();
-    kernel.create_task(&task_id, "kill switch SLA test").unwrap();
+    kernel
+        .create_task(&task_id, "kill switch SLA test")
+        .unwrap();
     // 按合法路径 transition 到目标态
     use TaskState::*;
     match target {
@@ -59,11 +61,7 @@ fn assert_task_cancelled(kernel: &TrustKernel, task_id: &str) {
 fn assert_audit_has_event(kernel: &TrustKernel, task_id: &str, event_type: &str) {
     let events = kernel.list_audit_for_task(task_id).unwrap();
     let found = events.iter().any(|e| e.event_type == event_type);
-    assert!(
-        found,
-        "audit logs must contain event_type '{}'",
-        event_type
-    );
+    assert!(found, "audit logs must contain event_type '{}'", event_type);
 }
 
 #[test]
@@ -83,7 +81,11 @@ fn kill_switch_sla_met_from_idle() {
     let elapsed = t0.elapsed();
 
     assert_task_cancelled(&kernel, &task_id);
-    assert!(elapsed.as_millis() <= 100, "Idle kill switch must be ≤ 100ms, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 100,
+        "Idle kill switch must be ≤ 100ms, got {}ms",
+        elapsed.as_millis()
+    );
     assert_audit_has_event(&kernel, &task_id, "kill_switch_triggered");
     assert_audit_has_event(&kernel, &task_id, "task_cancelled");
 }
@@ -102,7 +104,11 @@ fn kill_switch_sla_met_from_listening() {
     let elapsed = t0.elapsed();
 
     assert_task_cancelled(&kernel, &task_id);
-    assert!(elapsed.as_millis() <= 1000, "Listening kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Listening kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
     assert_audit_has_event(&kernel, &task_id, "kill_switch_triggered");
     assert_audit_has_event(&kernel, &task_id, "task_cancelled");
 }
@@ -121,7 +127,11 @@ fn kill_switch_sla_met_from_planning() {
     let elapsed = t0.elapsed();
 
     assert_task_cancelled(&kernel, &task_id);
-    assert!(elapsed.as_millis() <= 1000, "Planning kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Planning kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 #[test]
@@ -138,7 +148,11 @@ fn kill_switch_sla_met_from_awaiting_approval() {
     let elapsed = t0.elapsed();
 
     assert_task_cancelled(&kernel, &task_id);
-    assert!(elapsed.as_millis() <= 1000, "AwaitingApproval kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "AwaitingApproval kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 #[test]
@@ -156,7 +170,11 @@ fn kill_switch_sla_met_from_executing() {
     let elapsed = t0.elapsed();
 
     assert_task_cancelled(&kernel, &task_id);
-    assert!(elapsed.as_millis() <= 1000, "Executing kill switch must be ≤ 1s, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() <= 1000,
+        "Executing kill switch must be ≤ 1s, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 #[test]
@@ -198,7 +216,8 @@ fn kill_switch_from_executing_audits_three_events() {
 
     // 断言 3 个事件都存在
     let ks = kill_switch_idx.expect("kill_switch_triggered event must exist");
-    let st = state_transition_to_cancelling_idx.expect("state_transition(to Cancelling) event must exist");
+    let st = state_transition_to_cancelling_idx
+        .expect("state_transition(to Cancelling) event must exist");
     let tc = task_cancelled_idx.expect("task_cancelled event must exist");
 
     // 断言顺序:kill_switch_triggered < state_transition(to Cancelling) < task_cancelled

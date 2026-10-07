@@ -6,7 +6,7 @@
 //! **注意:** `skills` 表已在 `migrations/001_init.sql` 创建,
 //! 不需要新建迁移。DB schema `version INTEGER`,所以 SkillRecord.version 是 i64。
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;

@@ -82,7 +82,10 @@ pub enum DagStatus {
     /// DAG 级不强制 1s SLA(node 执行时长可能 > 1s)。
     Cancelling,
     Succeeded,
-    Failed { failed_node: String, cause: String },
+    Failed {
+        failed_node: String,
+        cause: String,
+    },
     /// 决策 #8:循环失败时,若有成功节点 → PartiallySucceeded
     PartiallySucceeded {
         succeeded: Vec<String>,
@@ -161,7 +164,9 @@ pub enum DagNodeStatus {
     Running,
     /// 成功,output 存 JSON value
     Succeeded(serde_json::Value),
-    Failed { cause: String },
+    Failed {
+        cause: String,
+    },
     /// 条件分支未命中(决策 #5)
     Skipped,
 }
@@ -285,10 +290,7 @@ impl DagPlan {
 }
 
 /// 辅助:从 SkillManifest 列表查找指定 skill_id 的 manifest。
-pub fn find_manifest<'a>(
-    skills: &'a [SkillManifest],
-    skill_id: &str,
-) -> Option<&'a SkillManifest> {
+pub fn find_manifest<'a>(skills: &'a [SkillManifest], skill_id: &str) -> Option<&'a SkillManifest> {
     skills.iter().find(|s| s.id == skill_id)
 }
 

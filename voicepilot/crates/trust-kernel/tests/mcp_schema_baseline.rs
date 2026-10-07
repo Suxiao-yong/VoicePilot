@@ -148,15 +148,13 @@ metadata:
 }
 
 fn python_cmd() -> Option<&'static str> {
-    ["python", "python3"]
-        .into_iter()
-        .find(|candidate| {
-            std::process::Command::new(candidate)
-                .arg("--version")
-                .output()
-                .map(|out| out.status.success())
-                .unwrap_or(false)
-        })
+    ["python", "python3"].into_iter().find(|candidate| {
+        std::process::Command::new(candidate)
+            .arg("--version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    })
 }
 
 /// Kernel + temp skills dir + a User Skill bound to `tool_name` on
@@ -174,12 +172,10 @@ fn open_kernel_with_mock_server(
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
     let skill_md = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_md.parent().expect("skill dir parent")).expect("create skill dir");
-    fs::write(
-        skill_md,
-        mcp_tool_skill_md(skill_id, server_id, tool_name),
-    )
-    .expect("write MCP-backed user Skill");
+    std::fs::create_dir_all(skill_md.parent().expect("skill dir parent"))
+        .expect("create skill dir");
+    fs::write(skill_md, mcp_tool_skill_md(skill_id, server_id, tool_name))
+        .expect("write MCP-backed user Skill");
     {
         let conn = kernel.conn();
         McpServerRepo::new()
@@ -195,7 +191,11 @@ fn open_kernel_with_mock_server(
                     protocol_version: Some("2025-11-25".to_string()),
                     allowed_origins: None,
                     allowed_paths: None,
-                    command: Some(python_cmd().expect("python interpreter on PATH").to_string()),
+                    command: Some(
+                        python_cmd()
+                            .expect("python interpreter on PATH")
+                            .to_string(),
+                    ),
                     args: Some(serde_json::json!(["-c", MOCK_SCRIPT]).to_string()),
                     env: Some(
                         serde_json::json!({ "SCHEMA_STATE": state_file.to_string_lossy() })
@@ -220,8 +220,7 @@ fn mcp_tool_schema_change_rejected_on_second_call() {
     let server_id = format!("baseline-server-{}", Uuid::new_v4());
     let temp_root = tempfile::tempdir().expect("create temporary root");
     let state_file = temp_root.path().join("schema_state.txt");
-    let (kernel, _guard) =
-        open_kernel_with_mock_server(&skill_id, &server_id, "echo", &state_file);
+    let (kernel, _guard) = open_kernel_with_mock_server(&skill_id, &server_id, "echo", &state_file);
 
     // The McpTool dispatch arm emits the taint_propagated audit event on
     // success; audit_logs.step_id REFERENCES steps(step_id), so create the
@@ -282,8 +281,7 @@ fn mcp_tool_schema_baseline_resets_on_server_toggle() {
     let server_id = format!("baseline-reset-server-{}", Uuid::new_v4());
     let temp_root = tempfile::tempdir().expect("create temporary root");
     let state_file = temp_root.path().join("reset_state.txt");
-    let (kernel, _guard) =
-        open_kernel_with_mock_server(&skill_id, &server_id, "echo", &state_file);
+    let (kernel, _guard) = open_kernel_with_mock_server(&skill_id, &server_id, "echo", &state_file);
     kernel
         .create_task("task-reset-1", "baseline reset test")
         .expect("create task");
@@ -340,7 +338,9 @@ fn mcp_tool_schema_baseline_resets_on_server_toggle() {
 #[test]
 fn mcp_tool_missing_from_tools_list_rejected_before_call() {
     if python_cmd().is_none() {
-        eprintln!("skipping mcp_tool_missing_from_tools_list_rejected_before_call: python not on PATH");
+        eprintln!(
+            "skipping mcp_tool_missing_from_tools_list_rejected_before_call: python not on PATH"
+        );
         return;
     }
 

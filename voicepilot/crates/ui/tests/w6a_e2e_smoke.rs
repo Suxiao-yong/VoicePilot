@@ -2,7 +2,7 @@
 
 use tempfile::TempDir;
 use trust_kernel::approval::approver::AutoApprover;
-use voicepilot_ui::commands::{organize_files, OrganizeInput};
+use voicepilot_ui::commands::{OrganizeInput, organize_files};
 use voicepilot_ui::state::AppState;
 
 /// W6a §11.1 gate:端到端 organize_files 完整管道。
@@ -44,10 +44,7 @@ fn end_to_end_organize_files_with_auto_approver_full_pipeline() {
     assert_eq!(result.moved_paths.len(), 2);
     assert!(dest.join("a.txt").exists());
     assert!(dest.join("b.txt").exists());
-    assert!(
-        src.join("c.log").exists(),
-        "non-matching file untouched"
-    );
+    assert!(src.join("c.log").exists(), "non-matching file untouched");
 
     // 验证:审计链有预期事件。成功路径共 8 个 audit 事件:
     //   1. task_created              (create_task)

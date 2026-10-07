@@ -76,10 +76,7 @@ pub struct FailedToolCallSummary {
 
 impl TaskExplanation {
     /// 构造无 LLM 归因的解释(LLM 未配置 / step 非 Failed / LLM 失败回退)。
-    pub fn structured_only(
-        step: &StepRecord,
-        audit_logs: &[crate::audit::AuditEvent],
-    ) -> Self {
+    pub fn structured_only(step: &StepRecord, audit_logs: &[crate::audit::AuditEvent]) -> Self {
         Self {
             step_id: step.step_id.clone(),
             status: step.status,
@@ -103,7 +100,11 @@ fn extract_failed_tool_calls(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string(),
-            args: e.details.get("args").cloned().unwrap_or(serde_json::Value::Null),
+            args: e
+                .details
+                .get("args")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
             error_message: e
                 .details
                 .get("error")

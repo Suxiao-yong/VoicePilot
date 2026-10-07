@@ -23,9 +23,7 @@ use trust_kernel::llm::types::ExtractedSlot;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_executor::DagExecutor;
 use trust_kernel::skills::dag_repo::DagRepo;
-use trust_kernel::skills::dag_types::{
-    DagNode, DagPlan, DagStatus, IterableSource, LoopSpec,
-};
+use trust_kernel::skills::dag_types::{DagNode, DagPlan, DagStatus, IterableSource, LoopSpec};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
 
 /// 构造 literal SlotTemplate(用于直接构造 DagPlan 的 input_template)。
@@ -220,9 +218,7 @@ fn run_with_empty_user_slots_equivalent_to_w8() {
         max_total_steps: 5,
     };
 
-    let result = executor
-        .run(&plan, &[])
-        .expect("run must not infra-error");
+    let result = executor.run(&plan, &[]).expect("run must not infra-error");
     assert!(
         matches!(result.status, DagStatus::Succeeded),
         "empty user_slots with no ${{user.xxx}} dependency should Succeed, got {:?}",

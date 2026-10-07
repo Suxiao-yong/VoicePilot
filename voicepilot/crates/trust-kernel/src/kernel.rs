@@ -85,7 +85,7 @@ fn migrate_skill_env_credentials(
     src_dir: &std::path::Path,
     skill_id: &str,
 ) -> Vec<String> {
-    use crate::skills::common::{is_credential_env_key, MCP_SKILL_ENV_KEYRING_PREFIX};
+    use crate::skills::common::{MCP_SKILL_ENV_KEYRING_PREFIX, is_credential_env_key};
     let env_file = src_dir.join(".env");
     let Ok(content) = std::fs::read_to_string(&env_file) else {
         return Vec::new();

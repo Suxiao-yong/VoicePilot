@@ -130,10 +130,7 @@ impl ApprovalRegistry {
     ) -> (String, oneshot::Receiver<ApprovalDecision>) {
         let approval_id = format!("apr_{}", Uuid::new_v4());
         let (tx, rx) = oneshot::channel::<ApprovalDecision>();
-        self.senders
-            .lock()
-            .unwrap()
-            .insert(approval_id.clone(), tx);
+        self.senders.lock().unwrap().insert(approval_id.clone(), tx);
         (approval_id, rx)
     }
 
@@ -150,9 +147,7 @@ impl ApprovalRegistry {
     /// - 用 `dag_xxx` 前缀的 approval_request_id(与 `apr_xxx` 区分)
     /// - 投递 `DagApprovalPayload`(含 modified_plan)而非 `ApprovalDecision`
     // W9 修复(P1-15):删除未使用的 plan 参数(原 plan 仅用于日志占位,不影响 channel 语义)
-    pub fn create_dag_request(
-        &self,
-    ) -> (String, oneshot::Receiver<DagApprovalPayload>) {
+    pub fn create_dag_request(&self) -> (String, oneshot::Receiver<DagApprovalPayload>) {
         let approval_id = format!("dag_{}", Uuid::new_v4());
         let (tx, rx) = oneshot::channel::<DagApprovalPayload>();
         self.dag_senders
@@ -163,7 +158,10 @@ impl ApprovalRegistry {
     }
 
     /// W9 Plan 4:取出 DAG 骨架审批的 sender(由 `submit_dag_skeleton_approval` 调用)。
-    pub fn take_dag_sender(&self, approval_id: &str) -> Option<oneshot::Sender<DagApprovalPayload>> {
+    pub fn take_dag_sender(
+        &self,
+        approval_id: &str,
+    ) -> Option<oneshot::Sender<DagApprovalPayload>> {
         self.dag_senders.lock().unwrap().remove(approval_id)
     }
 
@@ -211,15 +209,10 @@ impl ApprovalRegistry {
     }
 
     /// 创建追问卡请求。返回 (clarification_request_id, receiver)。
-    pub fn create_clarify_request(
-        &self,
-    ) -> (String, oneshot::Receiver<usize>) {
+    pub fn create_clarify_request(&self) -> (String, oneshot::Receiver<usize>) {
         let id = format!("clf_{}", Uuid::new_v4());
         let (tx, rx) = oneshot::channel::<usize>();
-        self.clarify_senders
-            .lock()
-            .unwrap()
-            .insert(id.clone(), tx);
+        self.clarify_senders.lock().unwrap().insert(id.clone(), tx);
         (id, rx)
     }
 
@@ -285,10 +278,7 @@ impl TauriApprover {
     /// W9 Plan 4 测试 hook:返回最近一次 create_dag_request 生成的 approval_id。
     #[cfg(test)]
     pub fn latest_approval_id(&self) -> Option<String> {
-        self.latest_dag_approval_id
-            .lock()
-            .unwrap()
-            .clone()
+        self.latest_dag_approval_id.lock().unwrap().clone()
     }
 }
 
@@ -307,7 +297,8 @@ impl Approver for TauriApprover {
             let _ = app.emit("approval-request", payload);
         }
 
-        self.registry.wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
+        self.registry
+            .wait_for_decision(rx, DEFAULT_APPROVAL_TIMEOUT)
     }
 
     /// W9 Plan 4:DAG 骨架审批入口(委托给 inherent `approve_dag_skeleton_outcome`)。
@@ -379,14 +370,16 @@ impl TauriApprover {
             let _ = app.emit("dag-approval-request", payload);
         }
 
-        let dag_payload = self.registry.wait_for_dag_decision(rx, DEFAULT_APPROVAL_TIMEOUT);
+        let dag_payload = self
+            .registry
+            .wait_for_dag_decision(rx, DEFAULT_APPROVAL_TIMEOUT);
         match dag_payload.decision {
             ApprovalDecision::Allow => Ok(DagApprovalOutcome::Allow),
             ApprovalDecision::Deny => Ok(DagApprovalOutcome::Deny),
             ApprovalDecision::Modify => {
-                let modified_plan = dag_payload.modified_plan.ok_or_else(|| {
-                    KernelError::Approval("Modify without modified_plan".into())
-                })?;
+                let modified_plan = dag_payload
+                    .modified_plan
+                    .ok_or_else(|| KernelError::Approval("Modify without modified_plan".into()))?;
                 Ok(DagApprovalOutcome::Modify {
                     modified_plan: Box::new(modified_plan),
                 })

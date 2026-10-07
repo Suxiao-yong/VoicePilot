@@ -17,7 +17,7 @@ use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::repo::step_repo::{StepRecord, StepStatus};
 use trust_kernel::skills::explanation_repo::{TaskExplanationRecord, TaskExplanationRepo};
-use trust_kernel::skills::task_explain::{execute_task_explain_with_llm, TaskExplainInput};
+use trust_kernel::skills::task_explain::{TaskExplainInput, execute_task_explain_with_llm};
 
 fn seed_failed_step(kernel: &TrustKernel, step_id: &str, task_id: &str) {
     kernel.create_task(task_id, "seed failed task").unwrap();
@@ -92,8 +92,7 @@ async fn explain_with_llm_succeeded_step_returns_structured_only() {
     let approver = AutoApprover;
     // 即使传 disabled LlmClient,step Succeeded 也不应触发 LLM 调用。
     let llm = trust_kernel::llm::client::LlmClient::disabled();
-    let result =
-        execute_task_explain_with_llm(&kernel, &input, &approver, Some(&llm)).await;
+    let result = execute_task_explain_with_llm(&kernel, &input, &approver, Some(&llm)).await;
 
     assert!(result.is_ok());
     let explanation = result.unwrap();
@@ -166,8 +165,7 @@ async fn explain_with_llm_failed_step_persists_and_audits() {
         limit: 10,
     };
     let approver = AutoApprover;
-    let result =
-        execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
+    let result = execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
 
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
     let explanation = result.unwrap();
@@ -219,8 +217,7 @@ async fn explain_with_llm_http_failure_falls_back_to_structured_only() {
         limit: 10,
     };
     let approver = AutoApprover;
-    let result =
-        execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
+    let result = execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
 
     assert!(result.is_ok(), "HTTP failure must not propagate");
     let explanation = result.unwrap();
@@ -265,8 +262,7 @@ async fn explain_with_llm_invalid_category_falls_back_to_structured_only() {
         limit: 10,
     };
     let approver = AutoApprover;
-    let result =
-        execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
+    let result = execute_task_explain_with_llm(&kernel, &input, &approver, Some(&client)).await;
 
     assert!(result.is_ok());
     let explanation = result.unwrap();

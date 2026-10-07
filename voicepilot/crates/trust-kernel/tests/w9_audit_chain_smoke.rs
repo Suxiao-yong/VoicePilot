@@ -123,7 +123,9 @@ fn audit_chain_hash_links_unbroken() {
 
     // 在同一 task 上触发 4 个审计事件,构建真实哈希链。
     // (不同 task 各只有 1 个 task_created 事件,prev_hash 全为 None,无法验证链路)
-    kernel.create_task("chain-task", "hash chain test goal").expect("create_task");
+    kernel
+        .create_task("chain-task", "hash chain test goal")
+        .expect("create_task");
     kernel
         .create_step(&StepRecord::new("chain-step-1", "chain-task", 1))
         .expect("create_step");
@@ -211,11 +213,11 @@ fn audit_chain_w9_new_5_events_recorded() {
     use trust_kernel::compensation::types::{CompensationLevel, ConflictPolicy};
     use trust_kernel::crypto::stronghold::StrongholdVault;
     use trust_kernel::gateway::check_taint_policy_and_audit;
-    use trust_kernel::policy::taint_repo::{TaintRepo, TaintRecord};
+    use trust_kernel::policy::taint_repo::{TaintRecord, TaintRepo};
     use trust_kernel::policy::types::EgressDest;
     use trust_kernel::repo::config_repo::ConfigRepo;
     use trust_kernel::skills::common::create_post_commit_compensation;
-    use trust_kernel::skills::task_compensate::{execute_compensate, TaskCompensateInput};
+    use trust_kernel::skills::task_compensate::{TaskCompensateInput, execute_compensate};
 
     let kernel = Arc::new(TrustKernel::open_in_memory().expect("open_in_memory"));
 
@@ -223,7 +225,10 @@ fn audit_chain_w9_new_5_events_recorded() {
     // 模式参考 w9_snapshot_encrypted_smoke.rs `setup_kernel_with_unlocked_vault`。
     let tmp = tempfile::TempDir::new().expect("create tempdir");
     let vault_path = tmp.path().join("stronghold.bin");
-    let vault_path_str = vault_path.to_str().expect("vault path is utf-8").to_string();
+    let vault_path_str = vault_path
+        .to_str()
+        .expect("vault path is utf-8")
+        .to_string();
     // leak tempdir 让它存活到测试结束(stronghold.save() 需要写文件)
     std::mem::forget(tmp);
     {
@@ -237,7 +242,9 @@ fn audit_chain_w9_new_5_events_recorded() {
     }
 
     // 创建 task + step(供 create_post_commit_compensation 用)
-    kernel.create_task("task-enc", "encrypt test goal").expect("create_task task-enc");
+    kernel
+        .create_task("task-enc", "encrypt test goal")
+        .expect("create_task task-enc");
     kernel
         .create_step(&StepRecord::new("step-enc", "task-enc", 1))
         .expect("create_step step-enc");
@@ -248,9 +255,8 @@ fn audit_chain_w9_new_5_events_recorded() {
         StrongholdVault::create("test_password", &conn).expect("StrongholdVault::create")
     };
     kernel.set_stronghold_vault(Some(Arc::new(vault)));
-    let moved: Vec<(PathBuf, PathBuf)> = vec![
-        (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
-    ];
+    let moved: Vec<(PathBuf, PathBuf)> =
+        vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
     let _comp_id = create_post_commit_compensation(
         &kernel,
         "step-enc",
@@ -315,7 +321,9 @@ fn audit_chain_w9_new_5_events_recorded() {
         .expect("upsert taint");
     }
     // check_taint_policy_and_audit 需要已存在的 task_id + step_id 满足 audit_logs FK
-    kernel.create_task("task-taint", "taint test goal").expect("create_task task-taint");
+    kernel
+        .create_task("task-taint", "taint test goal")
+        .expect("create_task task-taint");
     kernel
         .create_step(&StepRecord::new("step-taint", "task-taint", 1))
         .expect("create_step step-taint");
@@ -377,13 +385,14 @@ fn audit_chain_details_no_plaintext_secrets() {
     // 触发若干审计事件(create_task / create_step / compensation)
     // default 组合下 create_post_commit_compensation 走明文 PoC 分支(无 stronghold 加密),
     // 但审计 details 仅含 {comp_id, level, conflict_policy, ttl_expires},不含 reverse_payload。
-    kernel.create_task("privacy-task", "privacy test goal").expect("create_task");
+    kernel
+        .create_task("privacy-task", "privacy test goal")
+        .expect("create_task");
     kernel
         .create_step(&StepRecord::new("privacy-step", "privacy-task", 1))
         .expect("create_step");
-    let moved: Vec<(PathBuf, PathBuf)> = vec![
-        (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
-    ];
+    let moved: Vec<(PathBuf, PathBuf)> =
+        vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
     let _ = create_post_commit_compensation(
         &kernel,
         "privacy-step",
@@ -438,7 +447,10 @@ fn audit_chain_details_no_plaintext_secrets() {
         // 设置独立 vault_path(避免与 default data_dir 冲突)
         let tmp = tempfile::TempDir::new().expect("create tempdir");
         let vault_path = tmp.path().join("stronghold.bin");
-        let vault_path_str = vault_path.to_str().expect("vault path is utf-8").to_string();
+        let vault_path_str = vault_path
+            .to_str()
+            .expect("vault path is utf-8")
+            .to_string();
         std::mem::forget(tmp);
         {
             let conn = kernel.conn();
@@ -464,9 +476,8 @@ fn audit_chain_details_no_plaintext_secrets() {
         };
         kernel.set_stronghold_vault(Some(Arc::new(vault)));
 
-        let moved_enc: Vec<(PathBuf, PathBuf)> = vec![
-            (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
-        ];
+        let moved_enc: Vec<(PathBuf, PathBuf)> =
+            vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
         let _ = create_post_commit_compensation(
             &kernel,
             "privacy-enc-step",

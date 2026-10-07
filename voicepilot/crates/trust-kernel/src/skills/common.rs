@@ -634,7 +634,7 @@ mod tests {
     use crate::policy::transaction::EffectManifest;
     use crate::policy::types::{DLevel, ELevel};
     use crate::repo::step_repo::{StepRecord, StepStatus};
-    use crate::skills::manifest::{files_organize_manifest, SkillInput, SkillInputType};
+    use crate::skills::manifest::{SkillInput, SkillInputType, files_organize_manifest};
     use std::collections::HashMap;
     use std::path::PathBuf;
 

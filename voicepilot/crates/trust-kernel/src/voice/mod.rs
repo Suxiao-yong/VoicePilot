@@ -8,13 +8,13 @@
 //!
 //! All modules feature-gated under `voice` feature (default on).
 
-pub mod error;
-pub mod model;
-pub mod wav;
-pub mod vad;
 pub mod asr;
-pub mod tts;
 pub mod audio;
-pub mod router_bridge;
+pub mod error;
 pub mod listener;
+pub mod model;
 pub mod model_download;
+pub mod router_bridge;
+pub mod tts;
+pub mod vad;
+pub mod wav;

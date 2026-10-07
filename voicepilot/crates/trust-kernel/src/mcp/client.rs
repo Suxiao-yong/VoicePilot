@@ -10,7 +10,7 @@
 
 use crate::error::{KernelError, Result};
 use crate::mcp::transport::{
-    parse_line, write_message, IncomingMessage, JsonRpcId, JsonRpcRequest,
+    IncomingMessage, JsonRpcId, JsonRpcRequest, parse_line, write_message,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};

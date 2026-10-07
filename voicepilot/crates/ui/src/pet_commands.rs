@@ -59,7 +59,7 @@ pub fn exit_app(app: AppHandle) {
 #[link(name = "user32")]
 unsafe extern "system" {
     fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32)
-        -> i32;
+    -> i32;
 }
 
 const HWND_TOPMOST: isize = -1;

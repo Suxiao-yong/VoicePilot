@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver};
+use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::llm::client::LlmClient;
 use trust_kernel::policy::types::ELevel;
@@ -35,7 +35,7 @@ use trust_kernel::skills::dag_types::{
 };
 use trust_kernel::skills::explanation_repo::TaskExplanationRepo;
 #[cfg(feature = "voice")]
-use trust_kernel::skills::task_explain::{execute_task_explain_with_llm, TaskExplainInput};
+use trust_kernel::skills::task_explain::{TaskExplainInput, execute_task_explain_with_llm};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -91,7 +91,11 @@ fn llm_decompose_response_body(plan_json: &str) -> serde_json::Value {
 }
 
 /// 构造 wiremock mock 返回的 OpenAI-compatible explain_failure 响应 body。
-fn llm_explain_response_body(root_cause_zh: &str, category: &str, confidence: f32) -> serde_json::Value {
+fn llm_explain_response_body(
+    root_cause_zh: &str,
+    category: &str,
+    confidence: f32,
+) -> serde_json::Value {
     let arguments = serde_json::json!({
         "root_cause_zh": root_cause_zh,
         "category": category,
@@ -180,12 +184,10 @@ async fn scenario_1_llm_decomposes_two_node_dag_succeeds() {
     kernel.set_llm_client(Some(llm));
 
     // ===== Act: route_text_with_dag → DagPlan =====
-    let outcome = trust_kernel::voice::router_bridge::route_text_with_dag(
-        &kernel,
-        "请帮我处理这个多步任务",
-    )
-    .await
-    .unwrap();
+    let outcome =
+        trust_kernel::voice::router_bridge::route_text_with_dag(&kernel, "请帮我处理这个多步任务")
+            .await
+            .unwrap();
     let dag_plan = match outcome {
         trust_kernel::voice::router_bridge::RouteOutcome::DagPlan(p) => p,
         other => panic!("expected DagPlan, got {:?}", other),
@@ -199,7 +201,9 @@ async fn scenario_1_llm_decomposes_two_node_dag_succeeds() {
     let dag_repo = Arc::new(DagRepo::new());
     let kernel_arc = Arc::new(kernel);
     let executor = DagExecutor::new(kernel_arc.clone(), approver, dag_repo);
-    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
+    let result = executor
+        .run(&dag_plan, &[])
+        .expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded + 2 节点都 Succeeded =====
     assert!(
@@ -282,7 +286,9 @@ async fn scenario_2_form_submit_e3_perstep_approval_recorded() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act: DagExecutor::run — form.submit 会在 MCP 调用处失败,但 E3 审批已记录
-    let result = executor.run(&dag_plan, &[]).expect("run must not infra-error");
+    let result = executor
+        .run(&dag_plan, &[])
+        .expect("run must not infra-error");
 
     // ===== Assert: form.submit 节点 Failed(MCP 不可用)→ DAG Failed =====
     // 注:单节点失败 + 无已成功节点 → DagStatus::Failed
@@ -290,10 +296,7 @@ async fn scenario_2_form_submit_e3_perstep_approval_recorded() {
         DagStatus::Failed { failed_node, .. } => {
             assert_eq!(failed_node, "n1");
         }
-        other => panic!(
-            "expected Failed (MCP unavailable), got {:?}",
-            other
-        ),
+        other => panic!("expected Failed (MCP unavailable), got {:?}", other),
     }
     let n1_status = result.node_results.get("n1").expect("n1 must have status");
     assert!(
@@ -381,7 +384,9 @@ async fn scenario_3_dag_skeleton_deny_cancels_execution_zero_nodes_run() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act: DagExecutor::run — Deny 应让 0 节点执行
-    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed even on Deny");
+    let result = executor
+        .run(&dag_plan, &[])
+        .expect("DagExecutor::run must succeed even on Deny");
 
     // ===== Assert: DagStatus::Cancelled =====
     assert!(
@@ -488,8 +493,16 @@ async fn scenario_4_node_failed_yields_partially_succeeded_no_rollback_of_commit
 
     // ===== Assert: DagStatus::PartiallySucceeded =====
     match &result.status {
-        DagStatus::PartiallySucceeded { succeeded, failed_node, .. } => {
-            assert_eq!(succeeded, &vec!["n1".to_string()], "n1 must be in succeeded list");
+        DagStatus::PartiallySucceeded {
+            succeeded,
+            failed_node,
+            ..
+        } => {
+            assert_eq!(
+                succeeded,
+                &vec!["n1".to_string()],
+                "n1 must be in succeeded list"
+            );
             assert_eq!(failed_node, "n2");
         }
         other => panic!("expected PartiallySucceeded, got {:?}", other),
@@ -498,7 +511,11 @@ async fn scenario_4_node_failed_yields_partially_succeeded_no_rollback_of_commit
     // ===== Assert: n1 Succeeded,n2 Failed =====
     let n1_status = result.node_results.get("n1").expect("n1 must have status");
     let n2_status = result.node_results.get("n2").expect("n2 must have status");
-    assert!(n1_status.is_succeeded(), "n1 must be Succeeded, got {:?}", n1_status);
+    assert!(
+        n1_status.is_succeeded(),
+        "n1 must be Succeeded, got {:?}",
+        n1_status
+    );
     assert!(
         n2_status.is_failed(),
         "n2 must be Failed, got {:?}",
@@ -582,15 +599,24 @@ async fn scenario_5_task_explain_calls_llm_yields_root_cause_zh_and_category() {
     let kernel = TrustKernel::open_in_memory().unwrap();
     let task_id = format!("task-explain-{}", uuid::Uuid::new_v4());
     let step_id = format!("step-explain-{}", uuid::Uuid::new_v4());
-    kernel.create_task(&task_id, "test task for explain").unwrap();
+    kernel
+        .create_task(&task_id, "test task for explain")
+        .unwrap();
     kernel
         .create_step(&StepRecord::new(&step_id, &task_id, 1))
         .unwrap();
     // 标记 step 为 Failed(模拟失败,触发 LLM 归因)
-    kernel.update_step_status(&step_id, StepStatus::Failed).unwrap();
+    kernel
+        .update_step_status(&step_id, StepStatus::Failed)
+        .unwrap();
     // 写几条 audit_logs 给 LLM 归因用
     kernel
-        .audit_append_external(&task_id, Some(&step_id), "step_prepared", serde_json::json!({}))
+        .audit_append_external(
+            &task_id,
+            Some(&step_id),
+            "step_prepared",
+            serde_json::json!({}),
+        )
         .unwrap();
     kernel
         .audit_append_external(
@@ -670,7 +696,9 @@ async fn scenario_5_task_explain_calls_llm_yields_root_cause_zh_and_category() {
     );
     // spec §7.5 LLM 成本门禁:token_count 字段必须存在
     assert!(
-        explain_details.iter().any(|d| d.contains("\"token_count\":")),
+        explain_details
+            .iter()
+            .any(|d| d.contains("\"token_count\":")),
         "llm_explain_called must contain token_count field, got: {:?}",
         explain_details
     );
@@ -727,7 +755,9 @@ async fn scenario_6_loop_break_condition_not_triggered_for_string_items_complete
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act
-    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
+    let result = executor
+        .run(&dag_plan, &[])
+        .expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded =====
     assert!(
@@ -813,12 +843,10 @@ async fn scenario_7_llm_returns_invalid_skill_id_falls_back_to_single_skill_rout
     kernel.set_llm_client(Some(llm));
 
     // ===== Act: route_text_with_dag =====
-    let outcome = trust_kernel::voice::router_bridge::route_text_with_dag(
-        &kernel,
-        "做一些不认识的事情",
-    )
-    .await
-    .unwrap();
+    let outcome =
+        trust_kernel::voice::router_bridge::route_text_with_dag(&kernel, "做一些不认识的事情")
+            .await
+            .unwrap();
 
     // ===== Assert: RouteOutcome 不是 DagPlan(DAG 被拒绝) =====
     // 期望路径:LLM 校验失败 → 回退 route_with_llm → LLM classify_and_extract 解析失败
@@ -912,7 +940,9 @@ async fn scenario_8_loop_max_iterations_above_50_clamped_to_50() {
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
 
     // Act
-    let result = executor.run(&dag_plan, &[]).expect("DagExecutor::run must succeed");
+    let result = executor
+        .run(&dag_plan, &[])
+        .expect("DagExecutor::run must succeed");
 
     // ===== Assert: DagStatus::Succeeded =====
     assert!(

@@ -19,13 +19,13 @@
 //!   cargo test --manifest-path voicepilot\Cargo.toml -p trust-kernel --test w11_data_security_smoke
 
 use trust_kernel::error::KernelError;
-use trust_kernel::gateway::{check_taint_policy, ActionGateway};
+use trust_kernel::gateway::{ActionGateway, check_taint_policy};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::egress::{
     check_egress, count_egress, count_unconfirmed_egress, record_egress, redact_sensitive_content,
 };
-use trust_kernel::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
-use trust_kernel::policy::types::{DLevel, Effect, EgressDest, ELevel, Resource};
+use trust_kernel::policy::taint_repo::{TaintRepo, compute_value_hash, make_taint_record};
+use trust_kernel::policy::types::{DLevel, ELevel, Effect, EgressDest, Resource};
 
 fn load_gateway() -> ActionGateway {
     let cedar_src = include_str!("../src/policies/default.cedar");
@@ -41,13 +41,19 @@ fn to_value(s: &str) -> serde_json::Value {
 /// 1. D2 → RemoteLlm = Confirm(需用户确认才能外发)。
 #[test]
 fn d2_to_remote_llm_requires_confirm() {
-    assert_eq!(check_egress(DLevel::D2, EgressDest::RemoteLlm), Effect::Confirm);
+    assert_eq!(
+        check_egress(DLevel::D2, EgressDest::RemoteLlm),
+        Effect::Confirm
+    );
 }
 
 /// 2. D2 → RemoteMcp = Confirm。
 #[test]
 fn d2_to_remote_mcp_requires_confirm() {
-    assert_eq!(check_egress(DLevel::D2, EgressDest::RemoteMcp), Effect::Confirm);
+    assert_eq!(
+        check_egress(DLevel::D2, EgressDest::RemoteMcp),
+        Effect::Confirm
+    );
 }
 
 /// 3. D2 外发到 RemoteLlm,gateway.decide 返回 Confirm。
@@ -60,7 +66,13 @@ fn d2_egress_gateway_decide_confirm() {
         provenance: "user_direct".to_string(),
     };
     let decision = gw
-        .decide("send_to_remote_llm", ELevel::E3, &resource, Some(EgressDest::RemoteLlm), None)
+        .decide(
+            "send_to_remote_llm",
+            ELevel::E3,
+            &resource,
+            Some(EgressDest::RemoteLlm),
+            None,
+        )
         .unwrap();
     assert_eq!(decision.effect, Effect::Confirm);
     assert!(
@@ -74,7 +86,9 @@ fn d2_egress_gateway_decide_confirm() {
 #[test]
 fn d2_unconfirmed_egress_recorded_approved_false() {
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task("t-d2-unconf", "d2 unconfirmed egress test").unwrap();
+    kernel
+        .create_task("t-d2-unconf", "d2 unconfirmed egress test")
+        .unwrap();
 
     let egress_id = {
         let conn = kernel.conn();
@@ -93,7 +107,10 @@ fn d2_unconfirmed_egress_recorded_approved_false() {
 
     let (total, unconfirmed) = {
         let conn = kernel.conn();
-        (count_egress(&conn, "t-d2-unconf").unwrap(), count_unconfirmed_egress(&conn, "t-d2-unconf").unwrap())
+        (
+            count_egress(&conn, "t-d2-unconf").unwrap(),
+            count_unconfirmed_egress(&conn, "t-d2-unconf").unwrap(),
+        )
     };
     assert_eq!(total, 1);
     assert_eq!(unconfirmed, 1, "未确认外发必须 approved=0(门禁约束)");
@@ -103,12 +120,22 @@ fn d2_unconfirmed_egress_recorded_approved_false() {
 #[test]
 fn d2_confirmed_egress_recorded_approved_true() {
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task("t-d2-conf", "d2 confirmed egress test").unwrap();
+    kernel
+        .create_task("t-d2-conf", "d2 confirmed egress test")
+        .unwrap();
 
     let _egress_id = {
         let conn = kernel.conn();
-        record_egress(&conn, "t-d2-conf", DLevel::D2, "file:///docs/private.md", "remote_llm", true, 1024)
-            .unwrap()
+        record_egress(
+            &conn,
+            "t-d2-conf",
+            DLevel::D2,
+            "file:///docs/private.md",
+            "remote_llm",
+            true,
+            1024,
+        )
+        .unwrap()
     };
     let unconfirmed = {
         let conn = kernel.conn();
@@ -120,7 +147,10 @@ fn d2_confirmed_egress_recorded_approved_true() {
 /// 6. D2 → LocalFile = Allow(本地写由 E×D 覆盖,egress 不额外限制)。
 #[test]
 fn d2_to_local_file_egress_allowed() {
-    assert_eq!(check_egress(DLevel::D2, EgressDest::LocalFile), Effect::Allow);
+    assert_eq!(
+        check_egress(DLevel::D2, EgressDest::LocalFile),
+        Effect::Allow
+    );
 }
 
 // ===== 类别 2:D3 外发到 LLM(5)=====
@@ -128,7 +158,10 @@ fn d2_to_local_file_egress_allowed() {
 /// 7. D3 → RemoteLlm = Deny(凭据永不进入模型上下文)。
 #[test]
 fn d3_to_remote_llm_denied() {
-    assert_eq!(check_egress(DLevel::D3, EgressDest::RemoteLlm), Effect::Deny);
+    assert_eq!(
+        check_egress(DLevel::D3, EgressDest::RemoteLlm),
+        Effect::Deny
+    );
 }
 
 /// 8. D3 外发到 RemoteLlm,gateway.decide 硬拒("D3 red line")。
@@ -141,7 +174,13 @@ fn d3_egress_gateway_decide_hard_deny() {
         provenance: "user_direct".to_string(),
     };
     let decision = gw
-        .decide("send_to_remote_llm", ELevel::E3, &resource, Some(EgressDest::RemoteLlm), None)
+        .decide(
+            "send_to_remote_llm",
+            ELevel::E3,
+            &resource,
+            Some(EgressDest::RemoteLlm),
+            None,
+        )
         .unwrap();
     assert_eq!(decision.effect, Effect::Deny);
     assert!(
@@ -155,8 +194,16 @@ fn d3_egress_gateway_decide_hard_deny() {
 #[test]
 fn d3_redact_masks_password() {
     let redacted = redact_sensitive_content("password=super-secret-123", DLevel::D3);
-    assert!(redacted.contains("password=<REDACTED>"), "got: {}", redacted);
-    assert!(!redacted.contains("super-secret-123"), "real credential must be masked: {}", redacted);
+    assert!(
+        redacted.contains("password=<REDACTED>"),
+        "got: {}",
+        redacted
+    );
+    assert!(
+        !redacted.contains("super-secret-123"),
+        "real credential must be masked: {}",
+        redacted
+    );
 }
 
 /// 10. D3 内容脱敏:token / api_key 等凭据字段。
@@ -165,7 +212,11 @@ fn d3_redact_masks_token_and_api_key() {
     let redacted = redact_sensitive_content("api_key: sk-abcd1234 token=abc", DLevel::D3);
     assert!(redacted.contains("api_key=<REDACTED>"), "got: {}", redacted);
     assert!(redacted.contains("token=<REDACTED>"), "got: {}", redacted);
-    assert!(!redacted.contains("sk-abcd1234"), "credential leaked: {}", redacted);
+    assert!(
+        !redacted.contains("sk-abcd1234"),
+        "credential leaked: {}",
+        redacted
+    );
 }
 
 /// 11. D2 内容不脱敏(路径 / 文档原样)。
@@ -201,7 +252,12 @@ fn web_page_taint_blocked_from_tool_argument() {
         TaintRepo::new()
             .upsert(
                 &conn,
-                &make_taint_record(hash.clone(), "web_page".into(), vec!["web_page".into()], Some("t:s".into())),
+                &make_taint_record(
+                    hash.clone(),
+                    "web_page".into(),
+                    vec!["web_page".into()],
+                    Some("t:s".into()),
+                ),
             )
             .unwrap();
     }
@@ -225,9 +281,19 @@ fn egress_smuggling_via_tool_argument_blocked() {
         provenance: "user_direct".to_string(),
     };
     let decision = gw
-        .decide("fill_form_field", ELevel::E2, &resource, Some(EgressDest::ToolArgument), None)
+        .decide(
+            "fill_form_field",
+            ELevel::E2,
+            &resource,
+            Some(EgressDest::ToolArgument),
+            None,
+        )
         .unwrap();
-    assert_eq!(decision.effect, Effect::Deny, "用 ToolArgument 走私数据必须 Deny");
+    assert_eq!(
+        decision.effect,
+        Effect::Deny,
+        "用 ToolArgument 走私数据必须 Deny"
+    );
 }
 
 /// 15. D0 数据走私到 ToolArgument 也被 Deny(即使数据本身公开)。
@@ -240,7 +306,13 @@ fn d0_smuggled_to_tool_argument_still_denied() {
         provenance: "web_page".to_string(),
     };
     let decision = gw
-        .decide("inject_arg", ELevel::E0, &resource, Some(EgressDest::ToolArgument), None)
+        .decide(
+            "inject_arg",
+            ELevel::E0,
+            &resource,
+            Some(EgressDest::ToolArgument),
+            None,
+        )
         .unwrap();
     assert_eq!(decision.effect, Effect::Deny);
 }
@@ -258,7 +330,12 @@ fn llm_output_taint_blocked_from_filesystem() {
         TaintRepo::new()
             .upsert(
                 &conn,
-                &make_taint_record(hash.clone(), "llm_output".into(), vec!["llm_output".into()], Some("t:s".into())),
+                &make_taint_record(
+                    hash.clone(),
+                    "llm_output".into(),
+                    vec!["llm_output".into()],
+                    Some("t:s".into()),
+                ),
             )
             .unwrap();
     }
@@ -281,10 +358,26 @@ fn multi_taint_blocked_from_both_dangerous_sinks() {
     {
         let conn = kernel.conn();
         let repo = TaintRepo::new();
-        repo.upsert(&conn, &make_taint_record(hash.clone(), "web_page".into(), vec!["web_page".into()], None))
-            .unwrap();
-        repo.upsert(&conn, &make_taint_record(hash.clone(), "llm_output".into(), vec!["llm_output".into()], None))
-            .unwrap();
+        repo.upsert(
+            &conn,
+            &make_taint_record(
+                hash.clone(),
+                "web_page".into(),
+                vec!["web_page".into()],
+                None,
+            ),
+        )
+        .unwrap();
+        repo.upsert(
+            &conn,
+            &make_taint_record(
+                hash.clone(),
+                "llm_output".into(),
+                vec!["llm_output".into()],
+                None,
+            ),
+        )
+        .unwrap();
     }
     {
         let conn = kernel.conn();
@@ -311,7 +404,12 @@ fn web_scraped_input_elevation_blocked() {
         TaintRepo::new()
             .upsert(
                 &conn,
-                &make_taint_record(hash.clone(), "web_page".into(), vec!["web_page".into()], None),
+                &make_taint_record(
+                    hash.clone(),
+                    "web_page".into(),
+                    vec!["web_page".into()],
+                    None,
+                ),
             )
             .unwrap();
     }
@@ -351,7 +449,12 @@ fn user_input_taint_allowed_all_sinks() {
         TaintRepo::new()
             .upsert(
                 &conn,
-                &make_taint_record(hash.clone(), "user_input".into(), vec!["user_input".into()], None),
+                &make_taint_record(
+                    hash.clone(),
+                    "user_input".into(),
+                    vec!["user_input".into()],
+                    None,
+                ),
             )
             .unwrap();
     }

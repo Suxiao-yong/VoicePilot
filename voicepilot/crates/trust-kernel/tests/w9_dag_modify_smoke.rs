@@ -29,11 +29,17 @@ impl ScriptedApprover {
 }
 
 impl Approver for ScriptedApprover {
-    fn prompt(&self, _manifest: &trust_kernel::policy::transaction::EffectManifest) -> trust_kernel::approval::types::ApprovalDecision {
+    fn prompt(
+        &self,
+        _manifest: &trust_kernel::policy::transaction::EffectManifest,
+    ) -> trust_kernel::approval::types::ApprovalDecision {
         trust_kernel::approval::types::ApprovalDecision::Allow
     }
 
-    fn approve_dag_skeleton(&self, _plan: &DagPlan) -> trust_kernel::error::Result<DagApprovalOutcome> {
+    fn approve_dag_skeleton(
+        &self,
+        _plan: &DagPlan,
+    ) -> trust_kernel::error::Result<DagApprovalOutcome> {
         let mut guard = self.outcomes.lock().unwrap();
         if guard.is_empty() {
             return Ok(DagApprovalOutcome::Deny);
@@ -81,7 +87,9 @@ fn modify_then_approve_allow_runs_modified_plan() {
 
     // 第一次 Modify → 第二次 Allow
     let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan.clone()) },
+        DagApprovalOutcome::Modify {
+            modified_plan: Box::new(modified_plan.clone()),
+        },
         DagApprovalOutcome::Allow,
     ]));
 
@@ -89,8 +97,14 @@ fn modify_then_approve_allow_runs_modified_plan() {
     let result = executor.run(&original_plan, &[]).unwrap();
 
     // 验证:DagStatus::Succeeded(modified_plan 被执行)
-    assert!(matches!(result.status, trust_kernel::skills::dag_types::DagStatus::Succeeded),
-        "expected Succeeded, got {:?}", result.status);
+    assert!(
+        matches!(
+            result.status,
+            trust_kernel::skills::dag_types::DagStatus::Succeeded
+        ),
+        "expected Succeeded, got {:?}",
+        result.status
+    );
 }
 
 #[test]
@@ -117,9 +131,9 @@ fn modify_with_invalid_modified_plan_fails_validation() {
     let mut modified_plan = original_plan.clone();
     modified_plan.nodes = vec![modified_node];
 
-    let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
-    ]));
+    let approver = Arc::new(ScriptedApprover::new(vec![DagApprovalOutcome::Modify {
+        modified_plan: Box::new(modified_plan),
+    }]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
     let result = executor.run(&original_plan, &[]);
@@ -152,9 +166,9 @@ fn modify_with_escalated_risk_ceiling_rejected() {
     let mut modified_plan = original_plan.clone();
     modified_plan.nodes = vec![modified_node];
 
-    let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
-    ]));
+    let approver = Arc::new(ScriptedApprover::new(vec![DagApprovalOutcome::Modify {
+        modified_plan: Box::new(modified_plan),
+    }]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
     let result = executor.run(&original_plan, &[]);
@@ -162,7 +176,11 @@ fn modify_with_escalated_risk_ceiling_rejected() {
     // 验证:返回 Err(KernelError::Skill("risk ceiling escalated ..."))
     assert!(result.is_err(), "expected Err for escalated risk_ceiling");
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(err_msg.contains("risk ceiling escalated"), "got: {}", err_msg);
+    assert!(
+        err_msg.contains("risk ceiling escalated"),
+        "got: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -180,8 +198,12 @@ fn second_modify_returns_dag_modify_limit_exceeded() {
 
     // 第一次 Modify → 第二次仍 Modify → 应返回 DagModifyLimitExceeded
     let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan_v1) },
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan_v2) },
+        DagApprovalOutcome::Modify {
+            modified_plan: Box::new(modified_plan_v1),
+        },
+        DagApprovalOutcome::Modify {
+            modified_plan: Box::new(modified_plan_v2),
+        },
     ]));
 
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
@@ -205,7 +227,10 @@ fn second_modify_returns_dag_modify_limit_exceeded() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1, "dag_modify_limit_exceeded audit event must be emitted");
+    assert_eq!(
+        count, 1,
+        "dag_modify_limit_exceeded audit event must be emitted"
+    );
 }
 
 #[test]
@@ -223,7 +248,9 @@ fn modify_emits_complete_audit_events() {
     modified_plan.nodes = vec![modified_node];
 
     let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
+        DagApprovalOutcome::Modify {
+            modified_plan: Box::new(modified_plan),
+        },
         DagApprovalOutcome::Allow,
     ]));
 
@@ -245,9 +272,18 @@ fn modify_emits_complete_audit_events() {
     //          dag_skeleton_modified → dag_plan_created(modified_plan_with_id) →
     //          dag_skeleton_approved(decision=allow, phase=after_modify) →
     //          dag_node_started → dag_node_succeeded → dag_completed
-    assert!(event_types.iter().any(|e| e == "dag_plan_created"), "missing dag_plan_created");
-    assert!(event_types.iter().any(|e| e == "dag_skeleton_modified"), "missing dag_skeleton_modified");
-    assert!(event_types.iter().any(|e| e == "dag_skeleton_approved"), "missing dag_skeleton_approved");
+    assert!(
+        event_types.iter().any(|e| e == "dag_plan_created"),
+        "missing dag_plan_created"
+    );
+    assert!(
+        event_types.iter().any(|e| e == "dag_skeleton_modified"),
+        "missing dag_skeleton_modified"
+    );
+    assert!(
+        event_types.iter().any(|e| e == "dag_skeleton_approved"),
+        "missing dag_skeleton_approved"
+    );
 
     // 验证 dag_skeleton_modified details 不含 input_template / nodes 内容(隐私约束)
     let mut stmt2 = conn
@@ -261,9 +297,21 @@ fn modify_emits_complete_audit_events() {
         .unwrap();
     // W9 修复(P1-9):解析 JSON 后检查字段,避免字符串 contains 误判
     let details: serde_json::Value = serde_json::from_str(&details_str).unwrap();
-    assert!(details.get("input_template").is_none(), "details must not contain input_template field, got: {}", details_str);
-    assert!(details.get("nodes").is_none(), "details must not contain nodes field (may contain input_template in nodes), got: {}", details_str);
-    assert!(details.get("modified_node_count").is_some(), "details must contain modified_node_count, got: {}", details_str);
+    assert!(
+        details.get("input_template").is_none(),
+        "details must not contain input_template field, got: {}",
+        details_str
+    );
+    assert!(
+        details.get("nodes").is_none(),
+        "details must not contain nodes field (may contain input_template in nodes), got: {}",
+        details_str
+    );
+    assert!(
+        details.get("modified_node_count").is_some(),
+        "details must contain modified_node_count, got: {}",
+        details_str
+    );
 }
 
 #[test]
@@ -278,7 +326,9 @@ fn modify_then_deny_cancels_dag() {
 
     // 第一次 Modify → 第二次 Deny
     let approver = Arc::new(ScriptedApprover::new(vec![
-        DagApprovalOutcome::Modify { modified_plan: Box::new(modified_plan) },
+        DagApprovalOutcome::Modify {
+            modified_plan: Box::new(modified_plan),
+        },
         DagApprovalOutcome::Deny,
     ]));
 
@@ -286,8 +336,14 @@ fn modify_then_deny_cancels_dag() {
     let result = executor.run(&original_plan, &[]).unwrap();
 
     // 验证:DagStatus::Cancelled
-    assert!(matches!(result.status, trust_kernel::skills::dag_types::DagStatus::Cancelled),
-        "expected Cancelled, got {:?}", result.status);
+    assert!(
+        matches!(
+            result.status,
+            trust_kernel::skills::dag_types::DagStatus::Cancelled
+        ),
+        "expected Cancelled, got {:?}",
+        result.status
+    );
 
     // 验证审计:dag_completed(final_status=cancelled) 存在
     // W9 修复(P2-20):用 json_extract 替代 details LIKE,避免 JSON 字段顺序/转义导致 LIKE 失败
@@ -299,5 +355,8 @@ fn modify_then_deny_cancels_dag() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1, "dag_completed(cancelled) audit event must be emitted");
+    assert_eq!(
+        count, 1,
+        "dag_completed(cancelled) audit event must be emitted"
+    );
 }

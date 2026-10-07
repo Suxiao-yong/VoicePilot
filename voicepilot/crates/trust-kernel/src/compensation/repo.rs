@@ -5,7 +5,7 @@
 
 use crate::compensation::types::{CompensationLevel, CompensationRecord, ConflictPolicy};
 use crate::error::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 #[derive(Debug, Clone, Default)]
 pub struct CompensationRepo;
@@ -61,22 +61,53 @@ impl CompensationRepo {
             let reverse_payload: String = r.get::<_, Option<String>>(8)?.unwrap_or_default();
             let compensate_fn: String = r.get::<_, Option<String>>(9)?.unwrap_or_default();
             Ok((
-                comp_id, step_id, level, snapshot_encrypted, ttl_expires, status,
-                snapshot_vault_ref, conflict_policy, reverse_payload, compensate_fn,
+                comp_id,
+                step_id,
+                level,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy,
+                reverse_payload,
+                compensate_fn,
             ))
         })?;
         if let Some(row_result) = rows.next() {
-            let (comp_id, step_id, level_str, snapshot_encrypted, ttl_expires, status,
-                 snapshot_vault_ref, conflict_policy_str, reverse_payload, compensate_fn) = row_result?;
-            let level = CompensationLevel::parse(&level_str)
-                .ok_or_else(|| crate::error::KernelError::Compensation(format!("invalid level: {}", level_str)))?;
-            let conflict_policy = ConflictPolicy::parse(&conflict_policy_str)
-                .ok_or_else(|| crate::error::KernelError::Compensation(format!("invalid conflict_policy: {}", conflict_policy_str)))?;
+            let (
+                comp_id,
+                step_id,
+                level_str,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy_str,
+                reverse_payload,
+                compensate_fn,
+            ) = row_result?;
+            let level = CompensationLevel::parse(&level_str).ok_or_else(|| {
+                crate::error::KernelError::Compensation(format!("invalid level: {}", level_str))
+            })?;
+            let conflict_policy = ConflictPolicy::parse(&conflict_policy_str).ok_or_else(|| {
+                crate::error::KernelError::Compensation(format!(
+                    "invalid conflict_policy: {}",
+                    conflict_policy_str
+                ))
+            })?;
 
             // W9 Plan 2: 直接用真实列,不再调 parse_poc_payload。
             Ok(Some(CompensationRecord {
-                comp_id, step_id, level, snapshot_encrypted, ttl_expires, status,
-                snapshot_vault_ref, conflict_policy, compensate_fn, reverse_payload,
+                comp_id,
+                step_id,
+                level,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy,
+                compensate_fn,
+                reverse_payload,
             }))
         } else {
             Ok(None)
@@ -109,22 +140,53 @@ impl CompensationRepo {
             let reverse_payload: String = r.get::<_, Option<String>>(8)?.unwrap_or_default();
             let compensate_fn: String = r.get::<_, Option<String>>(9)?.unwrap_or_default();
             Ok((
-                comp_id, step_id, level, snapshot_encrypted, ttl_expires, status,
-                snapshot_vault_ref, conflict_policy, reverse_payload, compensate_fn,
+                comp_id,
+                step_id,
+                level,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy,
+                reverse_payload,
+                compensate_fn,
             ))
         })?;
         let mut out = Vec::new();
         for row_result in rows {
-            let (comp_id, step_id, level_str, snapshot_encrypted, ttl_expires, status,
-                 snapshot_vault_ref, conflict_policy_str, reverse_payload, compensate_fn) = row_result?;
-            let level = CompensationLevel::parse(&level_str)
-                .ok_or_else(|| crate::error::KernelError::Compensation(format!("invalid level: {}", level_str)))?;
-            let conflict_policy = ConflictPolicy::parse(&conflict_policy_str)
-                .ok_or_else(|| crate::error::KernelError::Compensation(format!("invalid conflict_policy: {}", conflict_policy_str)))?;
+            let (
+                comp_id,
+                step_id,
+                level_str,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy_str,
+                reverse_payload,
+                compensate_fn,
+            ) = row_result?;
+            let level = CompensationLevel::parse(&level_str).ok_or_else(|| {
+                crate::error::KernelError::Compensation(format!("invalid level: {}", level_str))
+            })?;
+            let conflict_policy = ConflictPolicy::parse(&conflict_policy_str).ok_or_else(|| {
+                crate::error::KernelError::Compensation(format!(
+                    "invalid conflict_policy: {}",
+                    conflict_policy_str
+                ))
+            })?;
             // W9 Plan 2: 直接用真实列,不再调 parse_poc_payload。
             out.push(CompensationRecord {
-                comp_id, step_id, level, snapshot_encrypted, ttl_expires, status,
-                snapshot_vault_ref, conflict_policy, compensate_fn, reverse_payload,
+                comp_id,
+                step_id,
+                level,
+                snapshot_encrypted,
+                ttl_expires,
+                status,
+                snapshot_vault_ref,
+                conflict_policy,
+                compensate_fn,
+                reverse_payload,
             });
         }
         Ok(out)

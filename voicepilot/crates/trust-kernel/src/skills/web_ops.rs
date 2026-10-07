@@ -9,8 +9,8 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
 use crate::skills::simple::{
-    curl_get, ensure_yt_dlp, run_cmd, run_simple, simple_manifest, slot_text, strip_html_tags,
-    truncate_chars, validate_ytdlp_url, SimpleInput,
+    SimpleInput, curl_get, ensure_yt_dlp, run_cmd, run_simple, simple_manifest, slot_text,
+    strip_html_tags, truncate_chars, validate_ytdlp_url,
 };
 use std::collections::HashMap;
 

@@ -134,10 +134,7 @@ pub trait UiaAdapter {
     /// the exact window (`{action, app_name, title}`), not just the query
     /// that may have matched several windows. Default body degrades to
     /// `find_window` with an empty title — real backends override.
-    fn find_window_titled(
-        &self,
-        query: &str,
-    ) -> Result<Option<(UiaElementHandle, String)>> {
+    fn find_window_titled(&self, query: &str) -> Result<Option<(UiaElementHandle, String)>> {
         Ok(self.find_window(query)?.map(|h| (h, String::new())))
     }
 }

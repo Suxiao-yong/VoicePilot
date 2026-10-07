@@ -6,8 +6,8 @@
 
 #![cfg(feature = "stronghold")]
 
-use iota_stronghold::procedures::{AeadCipher, AeadDecrypt, AeadEncrypt, WriteVault};
 use iota_stronghold::Location;
+use iota_stronghold::procedures::{AeadCipher, AeadDecrypt, AeadEncrypt, WriteVault};
 use tauri_plugin_stronghold::stronghold::Stronghold;
 
 #[test]
@@ -20,7 +20,11 @@ fn stronghold_api_smoke() {
 
     // 1. 验证 Stronghold::new 真实签名(2 个参数:path + password)
     let stronghold = Stronghold::new(&vault_path, password);
-    assert!(stronghold.is_ok(), "Stronghold::new failed: {:?}", stronghold.err());
+    assert!(
+        stronghold.is_ok(),
+        "Stronghold::new failed: {:?}",
+        stronghold.err()
+    );
     let stronghold = stronghold.unwrap();
 
     // 2. 验证 create_client API
@@ -39,7 +43,11 @@ fn stronghold_api_smoke() {
         location: key_location.clone(),
     };
     let write_result = client.execute_procedure(write_proc);
-    assert!(write_result.is_ok(), "WriteVault failed: {:?}", write_result.err());
+    assert!(
+        write_result.is_ok(),
+        "WriteVault failed: {:?}",
+        write_result.err()
+    );
 
     // 4. 验证 AeadEncrypt procedure
     let plaintext = b"hello stronghold".to_vec();
@@ -52,10 +60,18 @@ fn stronghold_api_smoke() {
         key: key_location.clone(),
     };
     let encrypt_result = client.execute_procedure(encrypt_proc);
-    assert!(encrypt_result.is_ok(), "AeadEncrypt failed: {:?}", encrypt_result.err());
+    assert!(
+        encrypt_result.is_ok(),
+        "AeadEncrypt failed: {:?}",
+        encrypt_result.err()
+    );
     let combined = encrypt_result.unwrap();
     // AeadEncrypt output = tag (16 bytes) + ciphertext
-    assert_eq!(combined.len(), 16 + plaintext.len(), "tag + ciphertext length mismatch");
+    assert_eq!(
+        combined.len(),
+        16 + plaintext.len(),
+        "tag + ciphertext length mismatch"
+    );
 
     // 5. 验证 AeadDecrypt procedure(roundtrip)
     let tag = combined[..16].to_vec();
@@ -69,7 +85,11 @@ fn stronghold_api_smoke() {
         key: key_location.clone(),
     };
     let decrypt_result = client.execute_procedure(decrypt_proc);
-    assert!(decrypt_result.is_ok(), "AeadDecrypt failed: {:?}", decrypt_result.err());
+    assert!(
+        decrypt_result.is_ok(),
+        "AeadDecrypt failed: {:?}",
+        decrypt_result.err()
+    );
     let decrypted = decrypt_result.unwrap();
     assert_eq!(decrypted, plaintext, "decrypt roundtrip mismatch");
 

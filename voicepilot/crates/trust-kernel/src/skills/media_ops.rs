@@ -12,8 +12,8 @@ use crate::kernel::TrustKernel;
 use crate::skills::common::create_post_commit_compensation_with_payload;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
 use crate::skills::simple::{
-    ensure_ffmpeg, ensure_yt_dlp, require_bin, run_cmd, run_simple, simple_manifest, slot_text,
-    slot_text_opt, truncate_chars, validate_ytdlp_url, SimpleInput,
+    SimpleInput, ensure_ffmpeg, ensure_yt_dlp, require_bin, run_cmd, run_simple, simple_manifest,
+    slot_text, slot_text_opt, truncate_chars, validate_ytdlp_url,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -99,11 +99,7 @@ pub fn clear_winner(query: &str, titles: &[String]) -> Option<usize> {
         })
         .map(|(i, _)| i)
         .collect();
-    if hits.len() == 1 {
-        Some(hits[0])
-    } else {
-        None
-    }
+    if hits.len() == 1 { Some(hits[0]) } else { None }
 }
 
 /// 歌名搜索消歧（P3 追问卡唯一调用点）：`ytsearch1:/bilisearch1:` 改拉 top-3 标题，
@@ -211,9 +207,8 @@ pub fn execute_media_download(
             let ytdlp_s = ytdlp.to_string_lossy().into_owned();
             // P3：歌名搜索先拉 top-3 消歧（明确胜出直下，否则追问卡；超时回 top-1）。
             // 拉取失败回退 P1 行为（ytsearch1: 直下首个结果），不新增失败面。
-            let (final_url, assumed) =
-                resolve_search_choice(&ytdlp_s, approver, url.trim())
-                    .unwrap_or_else(|_| (url.trim().to_string(), None));
+            let (final_url, assumed) = resolve_search_choice(&ytdlp_s, approver, url.trim())
+                .unwrap_or_else(|_| (url.trim().to_string(), None));
             let dl_dir = dirs::download_dir().unwrap_or_else(|| PathBuf::from("."));
             let mut owned_args: Vec<String> = vec![];
             if audio_only {
@@ -498,7 +493,10 @@ pub fn execute_media_clip_chorus(
     let seconds = clip_seconds(inputs);
     let mut map = HashMap::new();
     map.insert("path".to_string(), serde_json::json!(source));
-    map.insert("seconds".to_string(), serde_json::json!(seconds.to_string()));
+    map.insert(
+        "seconds".to_string(),
+        serde_json::json!(seconds.to_string()),
+    );
     run_simple(
         kernel,
         approver,
@@ -801,17 +799,15 @@ mod tests {
 
     #[test]
     fn chorus_start_parses_first_float_skipping_noise() {
-        assert_eq!(
-            parse_chorus_start("librosa 警告\n  83.24\n"),
-            Some(83.24)
-        );
+        assert_eq!(parse_chorus_start("librosa 警告\n  83.24\n"), Some(83.24));
         assert!(parse_chorus_start("no numbers here\n").is_none());
         assert!(parse_chorus_start("").is_none());
     }
 
     #[test]
     fn ffmpeg_duration_parses_hms() {
-        let stderr = "ffmpeg version 7.1\n  Duration: 00:01:02.34, start: 0.000000, bitrate: 128 kb/s\n";
+        let stderr =
+            "ffmpeg version 7.1\n  Duration: 00:01:02.34, start: 0.000000, bitrate: 128 kb/s\n";
         let dur = parse_ffmpeg_duration(stderr).unwrap();
         assert!((dur - 62.0).abs() < 1.0, "{dur}");
         assert!(parse_ffmpeg_duration("no duration line\n").is_none());
@@ -853,7 +849,9 @@ mod tests {
         use std::sync::Mutex;
         static ENV_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = ENV_MUTEX.lock().unwrap();
-        unsafe { std::env::set_var("VP_PYTHON_BIN", "vp-no-such-python-xyz"); }
+        unsafe {
+            std::env::set_var("VP_PYTHON_BIN", "vp-no-such-python-xyz");
+        }
         let kernel = TrustKernel::open_in_memory().unwrap();
         let err = execute_media_clip_chorus(
             &kernel,
@@ -863,7 +861,9 @@ mod tests {
             &serde_json::json!({"path": "C:/v/a.mp3"}),
         )
         .unwrap_err();
-        unsafe { std::env::remove_var("VP_PYTHON_BIN"); }
+        unsafe {
+            std::env::remove_var("VP_PYTHON_BIN");
+        }
         assert!(format!("{err:?}").contains("python"), "{err:?}");
     }
 }

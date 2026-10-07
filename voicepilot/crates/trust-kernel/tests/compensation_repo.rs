@@ -1,5 +1,5 @@
-use trust_kernel::compensation::types::{CompensationLevel, CompensationRecord, ConflictPolicy};
 use trust_kernel::compensation::repo::CompensationRepo;
+use trust_kernel::compensation::types::{CompensationLevel, CompensationRecord, ConflictPolicy};
 use trust_kernel::db;
 use trust_kernel::repo::step_repo::{StepRecord, StepRepo};
 use trust_kernel::repo::task_repo::{TaskRecord, TaskRepo};
@@ -10,10 +10,16 @@ fn fresh_conn() -> rusqlite::Connection {
     // Pre-create parent task + step rows so compensations.step_id FK is satisfied.
     // (compensations.step_id REFERENCES steps(step_id) ON DELETE CASCADE)
     let task_repo = TaskRepo::new();
-    task_repo.create(&conn, &TaskRecord::new("task-comp", "compensation test")).unwrap();
+    task_repo
+        .create(&conn, &TaskRecord::new("task-comp", "compensation test"))
+        .unwrap();
     let step_repo = StepRepo::new();
-    step_repo.create(&conn, &StepRecord::new("step-1", "task-comp", 0)).unwrap();
-    step_repo.create(&conn, &StepRecord::new("s", "task-comp", 1)).unwrap();
+    step_repo
+        .create(&conn, &StepRecord::new("step-1", "task-comp", 0))
+        .unwrap();
+    step_repo
+        .create(&conn, &StepRecord::new("s", "task-comp", 1))
+        .unwrap();
     conn
 }
 
@@ -58,10 +64,13 @@ fn mark_consumed_updates_status() {
     let conn = fresh_conn();
     let repo = CompensationRepo::new();
     let rec = CompensationRecord {
-        comp_id: "comp-2".to_string(), step_id: "s".to_string(),
+        comp_id: "comp-2".to_string(),
+        step_id: "s".to_string(),
         level: CompensationLevel::BestEffort,
-        snapshot_encrypted: None, ttl_expires: "2026-07-19T16:00:00Z".to_string(),
-        status: "active".to_string(), snapshot_vault_ref: None,
+        snapshot_encrypted: None,
+        ttl_expires: "2026-07-19T16:00:00Z".to_string(),
+        status: "active".to_string(),
+        snapshot_vault_ref: None,
         conflict_policy: ConflictPolicy::RequireConfirmation,
         compensate_fn: "filesystem.reverse_move".to_string(),
         reverse_payload: "{}".to_string(),
@@ -78,10 +87,13 @@ fn list_active_returns_only_active() {
     let repo = CompensationRepo::new();
     for (id, status) in [("c1", "active"), ("c2", "consumed"), ("c3", "active")] {
         let rec = CompensationRecord {
-            comp_id: id.to_string(), step_id: "s".to_string(),
+            comp_id: id.to_string(),
+            step_id: "s".to_string(),
             level: CompensationLevel::Strong,
-            snapshot_encrypted: None, ttl_expires: "2026-07-19T16:00:00Z".to_string(),
-            status: status.to_string(), snapshot_vault_ref: None,
+            snapshot_encrypted: None,
+            ttl_expires: "2026-07-19T16:00:00Z".to_string(),
+            status: status.to_string(),
+            snapshot_vault_ref: None,
             conflict_policy: ConflictPolicy::AutoReverse,
             compensate_fn: "filesystem.reverse_move".to_string(),
             reverse_payload: "{}".to_string(),

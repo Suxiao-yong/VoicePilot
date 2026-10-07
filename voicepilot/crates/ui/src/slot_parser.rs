@@ -83,7 +83,8 @@ fn path_regex() -> &'static Regex {
 fn app_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?:打开|启动|关闭|launch|open|quit)\s+(?P<app>[A-Za-z][A-Za-z0-9_\-.]*)").unwrap()
+        Regex::new(r"(?:打开|启动|关闭|launch|open|quit)\s+(?P<app>[A-Za-z][A-Za-z0-9_\-.]*)")
+            .unwrap()
     })
 }
 
@@ -95,7 +96,10 @@ fn number_regex() -> &'static Regex {
 fn recipient_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?:发送给|邮件给|发给|mailto:)\s*(?P<rcp>[\w\.\-]+@[\w\.\-]+|[\u4e00-\u9fa5]{2,4})").unwrap()
+        Regex::new(
+            r"(?:发送给|邮件给|发给|mailto:)\s*(?P<rcp>[\w\.\-]+@[\w\.\-]+|[\u4e00-\u9fa5]{2,4})",
+        )
+        .unwrap()
     })
 }
 
@@ -313,9 +317,7 @@ fn parse_slot_kind(kind: &str) -> SlotKind {
 ///
 /// 调用方:`commands::route_text` 在 `RouteDecision::SkillWithSlots` 分支调用，
 /// 以及无 llm 构建的快路由 slots 直通。
-pub fn convert_extracted_slots(
-    extracted: &[trust_kernel::llm::types::ExtractedSlot],
-) -> Vec<Slot> {
+pub fn convert_extracted_slots(extracted: &[trust_kernel::llm::types::ExtractedSlot]) -> Vec<Slot> {
     extracted
         .iter()
         .map(|s| Slot {
@@ -361,7 +363,10 @@ mod tests {
     #[test]
     fn parse_extracts_number_with_unit() {
         let slots = SlotParser::parse("整理 5 个文件");
-        let nums: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::Number).collect();
+        let nums: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::Number)
+            .collect();
         assert_eq!(nums.len(), 1);
         assert_eq!(nums[0].raw, "5");
     }
@@ -369,7 +374,10 @@ mod tests {
     #[test]
     fn parse_extracts_recipient_email() {
         let slots = SlotParser::parse("发送给 alice@example.com 报告");
-        let rcps: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::Recipient).collect();
+        let rcps: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::Recipient)
+            .collect();
         assert_eq!(rcps.len(), 1);
         assert_eq!(rcps[0].raw, "alice@example.com");
         assert!(rcps[0].high_risk);
@@ -378,7 +386,10 @@ mod tests {
     #[test]
     fn parse_extracts_delete_target_filename() {
         let slots = SlotParser::parse("删除 test.txt");
-        let dts: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::DeleteTarget).collect();
+        let dts: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::DeleteTarget)
+            .collect();
         assert_eq!(dts.len(), 1);
         assert_eq!(dts[0].raw, "test.txt");
         assert!(dts[0].high_risk);
@@ -396,7 +407,10 @@ mod tests {
         assert!(slots.len() >= 3, "expected >= 3 slots, got {}", slots.len());
         // 验证按 start 排序
         for i in 1..slots.len() {
-            assert!(slots[i - 1].start <= slots[i].start, "slots should be sorted by start");
+            assert!(
+                slots[i - 1].start <= slots[i].start,
+                "slots should be sorted by start"
+            );
         }
     }
 
@@ -446,7 +460,10 @@ mod tests {
     #[test]
     fn parse_extracts_chinese_recipient() {
         let slots = SlotParser::parse("发送给 张三 报告");
-        let rcps: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::Recipient).collect();
+        let rcps: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::Recipient)
+            .collect();
         assert_eq!(rcps.len(), 1);
         assert_eq!(rcps[0].raw, "张三");
         assert!(rcps[0].high_risk);
@@ -457,9 +474,16 @@ mod tests {
         // "删除 C:\foo\bar" 中 C:\foo\bar 同时匹配 path 和 delete_target,应去重为 Path slot。
         let slots = SlotParser::parse("删除 C:\\foo\\bar");
         let paths: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::Path).collect();
-        let dts: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::DeleteTarget).collect();
+        let dts: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::DeleteTarget)
+            .collect();
         assert_eq!(paths.len(), 1, "path slot should be extracted");
-        assert_eq!(dts.len(), 0, "delete_target should be deduped when it's a path");
+        assert_eq!(
+            dts.len(),
+            0,
+            "delete_target should be deduped when it's a path"
+        );
     }
 
     #[test]
@@ -473,7 +497,10 @@ mod tests {
     #[test]
     fn parse_extracts_number_without_unit() {
         let slots = SlotParser::parse("整理 5");
-        let nums: Vec<&Slot> = slots.iter().filter(|s| s.kind == SlotKind::Number).collect();
+        let nums: Vec<&Slot> = slots
+            .iter()
+            .filter(|s| s.kind == SlotKind::Number)
+            .collect();
         assert_eq!(nums.len(), 1);
         assert_eq!(nums[0].raw, "5");
     }
@@ -500,7 +527,9 @@ mod tests {
             let json = serde_json::to_string(&slot).unwrap();
             assert!(
                 json.contains(&format!("\"kind\":\"{}\"", expected)),
-                "expected kind={} in json: {}", expected, json
+                "expected kind={} in json: {}",
+                expected,
+                json
             );
         }
     }

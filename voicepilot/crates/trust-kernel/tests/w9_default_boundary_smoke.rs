@@ -32,18 +32,16 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use trust_kernel::approval::approver::{AutoApprover, Approver, DagApprovalOutcome};
+use trust_kernel::approval::approver::{Approver, AutoApprover, DagApprovalOutcome};
 use trust_kernel::compensation::types::{CompensationLevel, ConflictPolicy};
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::policy::types::{EgressDest, ELevel};
-use trust_kernel::skills::dag_executor::{topological_sort, DagExecutor};
+use trust_kernel::policy::types::{ELevel, EgressDest};
+use trust_kernel::skills::dag_executor::{DagExecutor, topological_sort};
 use trust_kernel::skills::dag_repo::DagRepo;
-use trust_kernel::skills::dag_types::{
-    DagNode, DagPlan, DagStatus, IterableSource, LoopSpec,
-};
+use trust_kernel::skills::dag_types::{DagNode, DagPlan, DagStatus, IterableSource, LoopSpec};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
 
 // ===== 辅助函数 =====
@@ -185,9 +183,8 @@ fn stronghold_feature_off_snapshot_encrypted_is_none() {
     // 通过 DB 查询 compensations 表验证 snapshot_encrypted / reverse_payload。
     let (kernel, _task_id, step_id) = setup_kernel_with_step("a1");
 
-    let moved_paths: Vec<(PathBuf, PathBuf)> = vec![
-        (PathBuf::from("src/a.txt"), PathBuf::from("dst/a.txt")),
-    ];
+    let moved_paths: Vec<(PathBuf, PathBuf)> =
+        vec![(PathBuf::from("src/a.txt"), PathBuf::from("dst/a.txt"))];
     let comp_id = trust_kernel::skills::common::create_post_commit_compensation(
         &kernel,
         &step_id,
@@ -298,10 +295,7 @@ fn stronghold_feature_off_reverse_payload_keeps_plaintext() {
         .unwrap();
     let rows: Vec<(String, Option<Vec<u8>>)> = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<Vec<u8>>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<Vec<u8>>>(1)?))
         })
         .unwrap()
         .filter_map(|r| r.ok())
@@ -597,11 +591,7 @@ fn dag_status_running_to_succeeded_legal() {
     let from = DagStatus::Running;
     let to = DagStatus::Succeeded;
     let result = DagStatus::transition(&from, &to);
-    assert!(
-        result,
-        "Running → Succeeded must be legal, got {}",
-        result
-    );
+    assert!(result, "Running → Succeeded must be legal, got {}", result);
 }
 
 #[test]

@@ -49,11 +49,11 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    create_post_commit_compensation_with_payload, finalize_step_success, invoke_mcp_tool,
-    record_approval_decision, validate_input_against_manifest, ApprovalContext,
+    ApprovalContext, create_post_commit_compensation_with_payload, finalize_step_success,
+    invoke_mcp_tool, record_approval_decision, validate_input_against_manifest,
 };
 use crate::skills::manifest::form_prepare_manifest;
-use crate::skills::verifiers::{verify_form_prepare, VerificationContext, VerificationOutcome};
+use crate::skills::verifiers::{VerificationContext, VerificationOutcome, verify_form_prepare};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 

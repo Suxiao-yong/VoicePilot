@@ -3,7 +3,7 @@
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::skills::repo::SkillRecord;
 use voicepilot_ui::skills_commands::{
-    import_external_skill, scan_external_skills, scan_external_skills_with_roots, SkillDto,
+    SkillDto, import_external_skill, scan_external_skills, scan_external_skills_with_roots,
 };
 use voicepilot_ui::state::AppState;
 

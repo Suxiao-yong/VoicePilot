@@ -1,5 +1,5 @@
 use trust_kernel::policy::risk_matrix::classify;
-use trust_kernel::policy::types::{DLevel::*, Effect::*, ELevel::*};
+use trust_kernel::policy::types::{DLevel::*, ELevel::*, Effect::*};
 
 #[test]
 fn d3_row_is_all_deny_red_line() {

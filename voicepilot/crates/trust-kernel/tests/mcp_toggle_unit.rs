@@ -41,8 +41,10 @@ fn toggle_enabled_flips_false_to_true() {
     let conn = setup();
     let repo = McpServerRepo::new();
     repo.create(&conn, &make_record("srv-2")).expect("create");
-    repo.toggle_enabled(&conn, "srv-2", false).expect("toggle off");
-    repo.toggle_enabled(&conn, "srv-2", true).expect("toggle on");
+    repo.toggle_enabled(&conn, "srv-2", false)
+        .expect("toggle off");
+    repo.toggle_enabled(&conn, "srv-2", true)
+        .expect("toggle on");
     let got = repo.get(&conn, "srv-2").expect("get").expect("exists");
     assert!(got.enabled);
 }
@@ -51,5 +53,6 @@ fn toggle_enabled_flips_false_to_true() {
 fn toggle_enabled_unknown_server_is_noop() {
     let conn = setup();
     let repo = McpServerRepo::new();
-    repo.toggle_enabled(&conn, "nonexistent", false).expect("toggle should not error");
+    repo.toggle_enabled(&conn, "nonexistent", false)
+        .expect("toggle should not error");
 }

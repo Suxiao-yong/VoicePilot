@@ -161,9 +161,9 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
             // 托盘 = 生命周期第二入口:打开主界面 / 退出程序。
             {
                 use tauri::{
+                    Manager,
                     menu::{Menu, MenuItem},
                     tray::TrayIconBuilder,
-                    Manager,
                 };
                 let open = MenuItem::with_id(app, "open-main", "打开主界面", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "exit-app", "退出程序", true, None::<&str>)?;
@@ -241,7 +241,7 @@ pub fn run(kernel: trust_kernel::kernel::TrustKernel) -> UiResult<()> {
                 }
             }
             let _ = app; // voice off 时消除 unused 警告
-                         // W6b:按需通过 app.get_webview_window("approval") 打开 Approval 窗口
+            // W6b:按需通过 app.get_webview_window("approval") 打开 Approval 窗口
             Ok(())
         })
         .run(tauri::generate_context!())

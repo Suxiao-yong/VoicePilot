@@ -92,9 +92,8 @@ impl ReverseFnRegistry {
 /// compatibility. The kernel parameter is unused (fs::rename needs no
 /// kernel access).
 pub fn auto_reverse_move(_kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
-    let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
-        KernelError::Compensation(format!("invalid reverse_payload: {}", e))
-    })?;
+    let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload)
+        .map_err(|e| KernelError::Compensation(format!("invalid reverse_payload: {}", e)))?;
 
     // Empty payload or missing/empty moves array → no-op success.
     let moves = match payload.get("moves").and_then(|m| m.as_array()) {
@@ -198,7 +197,11 @@ mod w10_plan2_tests {
         let registry = ReverseFnRegistry::new();
         let rec = make_rec("filesystem.reverse_move", r#"{"moves":[]}"#);
         let result = registry.call(&kernel, "filesystem.reverse_move", &rec);
-        assert!(result.is_ok(), "expected Ok for filesystem.reverse_move, got {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "expected Ok for filesystem.reverse_move, got {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -233,20 +236,42 @@ mod w10_plan2_tests {
 
         // filesystem.reverse_move(空 moves → no-op Ok)
         let rec_move = make_rec("filesystem.reverse_move", r#"{"moves":[]}"#);
-        assert!(registry.call(&kernel, "filesystem.reverse_move", &rec_move).is_ok());
+        assert!(
+            registry
+                .call(&kernel, "filesystem.reverse_move", &rec_move)
+                .is_ok()
+        );
 
         // note.reverse_capture(payload 缺 save_path → Err,证明函数已注册且被调用)
-        let rec_note = make_rec("note.reverse_capture", r#"{"save_path": "/nonexistent/pathxyz.txt"}"#);
+        let rec_note = make_rec(
+            "note.reverse_capture",
+            r#"{"save_path": "/nonexistent/pathxyz.txt"}"#,
+        );
         // 文件不存在 → idempotent Ok
-        assert!(registry.call(&kernel, "note.reverse_capture", &rec_note).is_ok());
+        assert!(
+            registry
+                .call(&kernel, "note.reverse_capture", &rec_note)
+                .is_ok()
+        );
 
         // research.reverse_save(同上,idempotent Ok)
-        let rec_research = make_rec("research.reverse_save", r#"{"save_path": "/nonexistent/pathxyz.md"}"#);
-        assert!(registry.call(&kernel, "research.reverse_save", &rec_research).is_ok());
+        let rec_research = make_rec(
+            "research.reverse_save",
+            r#"{"save_path": "/nonexistent/pathxyz.md"}"#,
+        );
+        assert!(
+            registry
+                .call(&kernel, "research.reverse_save", &rec_research)
+                .is_ok()
+        );
 
         // form.reverse_prepare(空 fields → no-op Ok,无需 Playwright)
         let rec_form = make_rec("form.reverse_prepare", r#"{"fields": {}}"#);
-        assert!(registry.call(&kernel, "form.reverse_prepare", &rec_form).is_ok());
+        assert!(
+            registry
+                .call(&kernel, "form.reverse_prepare", &rec_form)
+                .is_ok()
+        );
     }
 
     #[test]

@@ -1,15 +1,15 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::io::{self, Write};
 use trust_kernel::approval::approver::{Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
+use trust_kernel::mcp::handler::McpHandler;
+use trust_kernel::mcp::repo::McpServerRepo;
+use trust_kernel::mcp::server::McpServer;
 use trust_kernel::policy::transaction::EffectManifest;
 use trust_kernel::skills::dag_types::DagPlan;
 use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
 use trust_kernel::state::TaskState;
-use trust_kernel::mcp::handler::McpHandler;
-use trust_kernel::mcp::repo::McpServerRepo;
-use trust_kernel::mcp::server::McpServer;
 use uuid::Uuid;
 
 /// CLI Approver that prints the effect_manifest and prompts y/n on stdin.
@@ -48,7 +48,10 @@ impl Approver for CliApprover {
     ///
     /// W9 Plan 4:返回类型从 `ApprovalDecision` 改为 `DagApprovalOutcome`。
     /// CLI 无 Modify 入口(交互式 y/N 只产生 Allow/Deny),行为等价 W8。
-    fn approve_dag_skeleton(&self, plan: &DagPlan) -> trust_kernel::error::Result<DagApprovalOutcome> {
+    fn approve_dag_skeleton(
+        &self,
+        plan: &DagPlan,
+    ) -> trust_kernel::error::Result<DagApprovalOutcome> {
         println!("\n=== DAG Plan Skeleton ===");
         println!("  plan_id: {}", plan.plan_id);
         println!("  user_goal: {}", plan.user_goal);
@@ -87,8 +90,7 @@ impl Approver for CliApprover {
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("info".parse()?),
+            tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse()?),
         )
         .init();
 
@@ -100,10 +102,9 @@ fn main() -> Result<()> {
         return handle_eval_command(&args[2..]);
     }
 
-    let db_path = std::env::var("VOICEPILOT_DB")
-        .unwrap_or_else(|_| "voicepilot.db".to_string());
-    let kernel = TrustKernel::open_file(&db_path)
-        .map_err(|e| anyhow!("failed to open kernel: {}", e))?;
+    let db_path = std::env::var("VOICEPILOT_DB").unwrap_or_else(|_| "voicepilot.db".to_string());
+    let kernel =
+        TrustKernel::open_file(&db_path).map_err(|e| anyhow!("failed to open kernel: {}", e))?;
 
     println!("VoicePilot W1 — text command entry (no voice yet)");
     println!("DB: {}", db_path);
@@ -122,12 +123,20 @@ fn main() -> Result<()> {
     #[cfg(feature = "voice")]
     println!("  voice route <text>        Route text through SkillRouter (no audio, no execution)");
     #[cfg(feature = "voice")]
-    println!("  voice-dag <text>          Route text via W8 DAG-aware router (keyword→LLM decompose→W7 fallback)");
+    println!(
+        "  voice-dag <text>          Route text via W8 DAG-aware router (keyword→LLM decompose→W7 fallback)"
+    );
     #[cfg(feature = "voice")]
     println!("  voice listen             Record 5s audio, transcribe, route to Skill");
-    println!("  voice latency-stats [--since <dur>]  Show P50/P95/P99/max voice latency (W10 Plan 3)");
-    println!("  voice latency-prune [--days <N>]     Prune voice latency samples older than N days (default 30)");
-    println!("  audit coverage          Show audit event_type coverage (covered/uncovered/ratio, W10 Plan 5)");
+    println!(
+        "  voice latency-stats [--since <dur>]  Show P50/P95/P99/max voice latency (W10 Plan 3)"
+    );
+    println!(
+        "  voice latency-prune [--days <N>]     Prune voice latency samples older than N days (default 30)"
+    );
+    println!(
+        "  audit coverage          Show audit event_type coverage (covered/uncovered/ratio, W10 Plan 5)"
+    );
     println!("  quit");
     println!();
 
@@ -221,7 +230,10 @@ fn main() -> Result<()> {
             match kernel.get_task(task_id.trim()) {
                 Ok(Some(t)) => {
                     let audit = kernel.audit_count_for_task(task_id.trim()).unwrap_or(0);
-                    println!("task {} | status={:?} | audit_events={}", t.task_id, t.status, audit);
+                    println!(
+                        "task {} | status={:?} | audit_events={}",
+                        t.task_id, t.status, audit
+                    );
                     println!("  goal: {}", t.user_goal);
                 }
                 Ok(None) => println!("task not found"),
@@ -305,7 +317,10 @@ fn handle_policy_command(kernel: &TrustKernel, args: &str) {
         None
     };
 
-    match kernel.gateway().decide(tool, e_level, &resource, egress, None) {
+    match kernel
+        .gateway()
+        .decide(tool, e_level, &resource, egress, None)
+    {
         Ok(decision) => {
             println!("decision: {:?}", decision.effect);
             println!("  bundle_hash: {}", decision.policy_bundle_hash);
@@ -334,7 +349,11 @@ fn handle_move_command(kernel: &TrustKernel, args: &str) {
 
     // Phase 1: prepare.
     let prepared = match kernel.filesystem().prepare_move(
-        "cli-task", "cli-step", &src_refs, &dest, kernel.transaction_manager(),
+        "cli-task",
+        "cli-step",
+        &src_refs,
+        &dest,
+        kernel.transaction_manager(),
     ) {
         Ok(p) => p,
         Err(e) => {
@@ -342,16 +361,20 @@ fn handle_move_command(kernel: &TrustKernel, args: &str) {
             return;
         }
     };
-    println!("prepare OK: {} sources, {} bytes, {} conflicts",
-             prepared.manifest.sources.len(),
-             prepared.manifest.total_bytes,
-             prepared.manifest.conflicts.len());
+    println!(
+        "prepare OK: {} sources, {} bytes, {} conflicts",
+        prepared.manifest.sources.len(),
+        prepared.manifest.total_bytes,
+        prepared.manifest.conflicts.len()
+    );
     println!("  prepare_token: {}", prepared.token.token);
     println!("  preconditions_hash: {}", prepared.preconditions_hash);
 
     // Phase 2: commit.
     let committed = match kernel.filesystem().commit_move(
-        &prepared.token, &prepared.manifest, kernel.transaction_manager(),
+        &prepared.token,
+        &prepared.manifest,
+        kernel.transaction_manager(),
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -412,10 +435,22 @@ fn handle_organize_command(kernel: &TrustKernel, args: &str) {
         Ok(execution) => {
             println!("\n--- ToolResult V2 ---");
             println!("  status: {:?}", execution.tool_result.status);
-            println!("  evidence_strength: {:?}", execution.tool_result.evidence_strength);
-            println!("  compensation_ref: {:?}", execution.tool_result.compensation_ref);
-            println!("  compensation_level: {}", execution.tool_result.compensation_level.as_str());
-            println!("  idempotency_key: {}", execution.tool_result.idempotency_key);
+            println!(
+                "  evidence_strength: {:?}",
+                execution.tool_result.evidence_strength
+            );
+            println!(
+                "  compensation_ref: {:?}",
+                execution.tool_result.compensation_ref
+            );
+            println!(
+                "  compensation_level: {}",
+                execution.tool_result.compensation_level.as_str()
+            );
+            println!(
+                "  idempotency_key: {}",
+                execution.tool_result.idempotency_key
+            );
             println!("  moved: {} file(s)", execution.moved_paths.len());
             println!("  task_id: {}", task_id);
             println!("  step_id: {}", step_id);
@@ -465,7 +500,11 @@ fn handle_voice_list_models_command() {
     for m in &models {
         // SenseVoice 是目录模型(sherpa-onnx),以 model.onnx + tokens.txt 判定完整性。
         let complete = m.path.join("model.onnx").is_file() && m.path.join("tokens.txt").is_file();
-        let present = if complete { "[installed]" } else { "[missing]  " };
+        let present = if complete {
+            "[installed]"
+        } else {
+            "[missing]  "
+        };
         println!("  {} {} ({} MB)", present, m.name, m.size_hint_mb);
         println!("       path: {}", m.path.display());
         println!("       url:  {}", m.download_url);
@@ -497,8 +536,8 @@ fn handle_voice_transcribe_command(path: &str) -> anyhow::Result<()> {
     })
     .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let (samples, sample_rate) = read_wav(std::path::Path::new(path))
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let (samples, sample_rate) =
+        read_wav(std::path::Path::new(path)).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Resample to 16kHz if needed.
     let samples_16k = if sample_rate != 16000 {
@@ -539,8 +578,8 @@ fn resample_linear_cli(samples: &[i16], from: u32, to: u32) -> Vec<i16> {
 #[cfg(feature = "voice")]
 fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
     use trust_kernel::approval::approver::AutoApprover;
-    use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
     use trust_kernel::kernel::TrustKernel;
+    use trust_kernel::voice::router_bridge::{RouteOutcome, route_text};
 
     // Open in-memory kernel for routing only (no execution needed for route preview).
     let kernel = TrustKernel::open_in_memory()?;
@@ -558,7 +597,9 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
         // `voice-dag <text>` 子命令(调 route_text_with_dag)。
         #[cfg(feature = "llm")]
         RouteOutcome::DagPlan(_) => {
-            println!("(DAG plan not handled by `voice route` — use `voice-dag <text>` for DAG routing)");
+            println!(
+                "(DAG plan not handled by `voice route` — use `voice-dag <text>` for DAG routing)"
+            );
             Ok(())
         }
         RouteOutcome::Chat { text } => {
@@ -588,7 +629,7 @@ fn handle_voice_route_command(text: &str) -> anyhow::Result<()> {
 /// - `Empty`:打印空输入
 #[cfg(feature = "voice")]
 async fn handle_voice_dag_command(kernel: &TrustKernel, text: &str) -> anyhow::Result<()> {
-    use trust_kernel::voice::router_bridge::{route_text_with_dag, RouteOutcome};
+    use trust_kernel::voice::router_bridge::{RouteOutcome, route_text_with_dag};
 
     let outcome = route_text_with_dag(kernel, text)
         .await
@@ -649,17 +690,17 @@ async fn handle_voice_dag_command(kernel: &TrustKernel, text: &str) -> anyhow::R
 #[cfg(feature = "voice")]
 fn handle_voice_listen_command() -> anyhow::Result<()> {
     use trust_kernel::approval::approver::AutoApprover;
+    use trust_kernel::kernel::TrustKernel;
+    use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
     use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
     use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
-    use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+    use trust_kernel::voice::router_bridge::{RouteOutcome, route_text};
     use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
-    use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
-    use trust_kernel::kernel::TrustKernel;
 
     // 1. Record up to 5 seconds of audio.
     println!("Listening (5 seconds)...");
-    let recorder = AudioRecorder::new(AudioRecorderConfig::default())
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let recorder =
+        AudioRecorder::new(AudioRecorderConfig::default()).map_err(|e| anyhow::anyhow!("{}", e))?;
     let samples = recorder
         .record_with_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -700,14 +741,18 @@ fn handle_voice_listen_command() -> anyhow::Result<()> {
     match outcome {
         RouteOutcome::Routed { skill_id, .. } => {
             println!("Matched skill: {}", skill_id);
-            println!("(Skill execution requires user-supplied args; use `voicepilot organize` to run)");
+            println!(
+                "(Skill execution requires user-supplied args; use `voicepilot organize` to run)"
+            );
         }
         // W8 Plan 4:route_text (sync) 内部已把 RouteDecision::Dag(_) 映射为
         // Unmatched,理论上不会到达此 arm;此处防御性 arm 保持 match 穷尽。
         // voice listen pipeline 不调 route_text_with_dag,DAG 审批 UI 由 Plan 5 实现。
         #[cfg(feature = "llm")]
         RouteOutcome::DagPlan(_) => {
-            println!("(DAG plan not handled in voice listen pipeline — use `voice-dag <text>` for DAG routing)");
+            println!(
+                "(DAG plan not handled in voice listen pipeline — use `voice-dag <text>` for DAG routing)"
+            );
         }
         RouteOutcome::Chat { text } => {
             println!("Chat: {}", text);
@@ -736,7 +781,10 @@ fn handle_voice_latency_stats_command(kernel: &TrustKernel, args: &str) {
         match parse_duration_to_ms(dur_str.trim()) {
             Some(ms) => Some(ms),
             None => {
-                println!("invalid --since duration: {} (supported: 24h / 7d / 3600s / 60m)", dur_str);
+                println!(
+                    "invalid --since duration: {} (supported: 24h / 7d / 3600s / 60m)",
+                    dur_str
+                );
                 return;
             }
         }
@@ -749,9 +797,8 @@ fn handle_voice_latency_stats_command(kernel: &TrustKernel, args: &str) {
     };
 
     // since_offset_ms 是 "距今 N ms" 的下界,转为 epoch ms:now - offset
-    let since_epoch_ms = since_offset_ms.map(|offset| {
-        chrono::Utc::now().timestamp_millis() - offset
-    });
+    let since_epoch_ms =
+        since_offset_ms.map(|offset| chrono::Utc::now().timestamp_millis() - offset);
 
     match kernel.compute_voice_latency_stats(since_epoch_ms) {
         Ok(stats) => {
@@ -777,7 +824,10 @@ fn handle_voice_latency_prune_command(kernel: &TrustKernel, args: &str) {
         match days_str.trim().parse::<u32>() {
             Ok(d) => d,
             Err(_) => {
-                println!("invalid --days value: {} (expected positive integer)", days_str);
+                println!(
+                    "invalid --days value: {} (expected positive integer)",
+                    days_str
+                );
                 return;
             }
         }
@@ -792,7 +842,10 @@ fn handle_voice_latency_prune_command(kernel: &TrustKernel, args: &str) {
     let now_ms = chrono::Utc::now().timestamp_millis();
     match kernel.prune_voice_latency_older_than(days, now_ms) {
         Ok(deleted) => {
-            println!("pruned {} voice latency samples older than {} days", deleted, days);
+            println!(
+                "pruned {} voice latency samples older than {} days",
+                deleted, days
+            );
         }
         Err(e) => println!("error: {}", e),
     }
@@ -835,7 +888,11 @@ fn handle_audit_coverage_command(kernel: &TrustKernel) {
     use trust_kernel::audit_coverage::AuditCoverageChecker;
 
     let checker = AuditCoverageChecker::new(kernel);
-    match (checker.covered(), checker.uncovered(), checker.coverage_ratio()) {
+    match (
+        checker.covered(),
+        checker.uncovered(),
+        checker.coverage_ratio(),
+    ) {
         (Ok(covered), Ok(uncovered), Ok(ratio)) => {
             let total = checker.expected().len();
             println!("audit event_type coverage:");
@@ -887,12 +944,12 @@ fn handle_audit_coverage_command(kernel: &TrustKernel) {
 /// auto mode 下 E3/D3 走 AutoDenier(blocked=true),其他走 AutoApprover(skipped)。
 fn handle_eval_command(args: &[String]) -> Result<()> {
     use trust_kernel::skills::manifest::{
-        app_control_manifest, files_organize_manifest, form_prepare_manifest,
-        form_submit_manifest, note_capture_manifest, research_save_manifest,
-        task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
+        app_control_manifest, files_organize_manifest, form_prepare_manifest, form_submit_manifest,
+        note_capture_manifest, research_save_manifest, task_compensate_manifest,
+        task_explain_manifest, task_repeat_verified_manifest,
     };
-    use trust_kernel::skills::router::{RouteDecision, SkillRouter};
     use trust_kernel::skills::redteam::classify_malicious_intent;
+    use trust_kernel::skills::router::{RouteDecision, SkillRouter};
 
     // 解析 --input <json>
     let mut input_json: Option<&str> = None;
@@ -907,8 +964,8 @@ fn handle_eval_command(args: &[String]) -> Result<()> {
     }
 
     let input_str = input_json.ok_or_else(|| anyhow!("missing --input <json>"))?;
-    let input: serde_json::Value = serde_json::from_str(input_str)
-        .map_err(|e| anyhow!("invalid JSON in --input: {}", e))?;
+    let input: serde_json::Value =
+        serde_json::from_str(input_str).map_err(|e| anyhow!("invalid JSON in --input: {}", e))?;
 
     let transcript = input
         .get("transcript")

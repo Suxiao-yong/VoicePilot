@@ -46,7 +46,16 @@ pub struct CommitResult {
 
 /// In-memory store of active prepare tokens. W3 will move to SQLite.
 pub struct TransactionManager {
-    tokens: Mutex<HashMap<String, (PrepareToken, String /* task_id */, String /* step_id */)>>,
+    tokens: Mutex<
+        HashMap<
+            String,
+            (
+                PrepareToken,
+                String, /* task_id */
+                String, /* step_id */
+            ),
+        >,
+    >,
     ttl_seconds: i64,
 }
 

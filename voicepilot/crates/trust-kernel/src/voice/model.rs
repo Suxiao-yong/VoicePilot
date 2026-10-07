@@ -12,8 +12,7 @@ use std::path::PathBuf;
 pub const SENSE_VOICE_DIR_NAME: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17";
 
 /// 默认 SenseVoice 模型 tar.bz2 下载 URL(github releases)。
-pub const SENSE_VOICE_URL: &str =
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2";
+pub const SENSE_VOICE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2";
 
 /// SenseVoice 压缩包大小(用于进度提示,单位 MB,四舍五入)。
 pub const SENSE_VOICE_SIZE_MB: u32 = 1048;
@@ -119,8 +118,7 @@ impl ModelRegistry {
     ///
     /// sherpa-onnx 模型是目录而非单文件,故用 `is_dir()`。
     pub fn is_model_present(&self, name: &str) -> bool {
-        self.models_dir().join(name).is_dir()
-            || self.legacy_models_dir().join(name).is_dir()
+        self.models_dir().join(name).is_dir() || self.legacy_models_dir().join(name).is_dir()
     }
 
     /// 解析模型目录路径(canonical 优先,其次旧版 `%LOCALAPPDATA%` 兼容路径)。

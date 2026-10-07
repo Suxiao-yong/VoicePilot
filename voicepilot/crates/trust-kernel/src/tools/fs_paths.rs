@@ -14,12 +14,13 @@ pub fn canonicalize(input: &str) -> String {
 
     // Step 2: lowercase drive letter if present (e.g. "C:/" → "c:/").
     let mut chars = with_forward.chars().collect::<Vec<_>>();
-    let drive_lowered: String = if chars.len() >= 2 && chars[1] == ':' && chars[0].is_ascii_uppercase() {
-        chars[0] = chars[0].to_ascii_lowercase();
-        chars.into_iter().collect()
-    } else {
-        with_forward
-    };
+    let drive_lowered: String =
+        if chars.len() >= 2 && chars[1] == ':' && chars[0].is_ascii_uppercase() {
+            chars[0] = chars[0].to_ascii_lowercase();
+            chars.into_iter().collect()
+        } else {
+            with_forward
+        };
 
     // Step 3: split on '/', resolve "." and "..", collapse duplicates.
     let has_trailing_slash = drive_lowered.ends_with('/') && !drive_lowered.ends_with(":/");

@@ -31,8 +31,8 @@ pub struct McpAnnotations {
 /// 写操作 tool 名标记 —— 名字含任一标记即视为会产生副作用的写工具。
 /// 覆盖 mock 恶意 server 与真实 MCP 生态常见写工具命名。
 const WRITE_TOOL_MARKERS: &[&str] = &[
-    "write", "delete", "remove", "move", "create", "mkdir", "rmdir", "append",
-    "edit", "update", "patch", "save", "upload", "send", "export", "rm", "mv", "cp",
+    "write", "delete", "remove", "move", "create", "mkdir", "rmdir", "append", "edit", "update",
+    "patch", "save", "upload", "send", "export", "rm", "mv", "cp",
 ];
 
 /// 校验 MCP tool annotation 与实际行为的一致性(spec §6.1)。

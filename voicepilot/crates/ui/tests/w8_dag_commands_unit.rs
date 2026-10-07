@@ -10,11 +10,9 @@ use std::collections::HashMap;
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_repo::DagRepo;
-use trust_kernel::skills::dag_types::{
-    DagEdge, DagNode, DagNodeStatus, DagPlan, DagStatus,
-};
+use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagNodeStatus, DagPlan, DagStatus};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope};
-use voicepilot_ui::dag_commands::{get_dag_plan, list_dag_history, DagStatusFilter};
+use voicepilot_ui::dag_commands::{DagStatusFilter, get_dag_plan, list_dag_history};
 use voicepilot_ui::state::AppState;
 
 fn make_test_plan(plan_id: &str, _status: &DagStatus) -> DagPlan {
@@ -66,11 +64,7 @@ fn seed_plan(state: &AppState, plan_id: &str, status: &DagStatus) {
 #[test]
 fn list_dag_history_returns_all_when_filter_all() {
     let state = AppState::new_in_memory().unwrap();
-    seed_plan(
-        &state,
-        "p-001",
-        &DagStatus::Succeeded,
-    );
+    seed_plan(&state, "p-001", &DagStatus::Succeeded);
     seed_plan(
         &state,
         "p-002",
@@ -262,7 +256,10 @@ fn get_task_explanation_returns_record_for_step() {
         .unwrap();
     assert_eq!(result.explanation_id, "exp-001");
     assert_eq!(result.step_id, "step-explain-1");
-    assert_eq!(result.root_cause_zh, "MCP 服务器未启动,Playwright 工具调用失败");
+    assert_eq!(
+        result.root_cause_zh,
+        "MCP 服务器未启动,Playwright 工具调用失败"
+    );
     assert_eq!(result.category, "mcp_unavailable");
     assert!((result.confidence - 0.85).abs() < 0.001);
     assert_eq!(result.llm_model.as_deref(), Some("gpt-4o-mini"));
@@ -317,9 +314,7 @@ fn get_task_explanation_returns_a_record_for_multiple_records() {
         repo.create(&conn, &rec2).unwrap();
     }
 
-    let result = get_task_explanation(&state, "step-multi")
-        .unwrap()
-        .unwrap();
+    let result = get_task_explanation(&state, "step-multi").unwrap().unwrap();
     // 期望返回最新一条(exp-new,因 created_at DESC LIMIT 1)
     assert_eq!(result.step_id, "step-multi");
     assert_eq!(result.explanation_id, "exp-new");
@@ -344,7 +339,7 @@ fn get_task_explanation_returns_none_for_unknown_step() {
 // `approver_unit.rs::approval_registry_*` 覆盖(底层调 `ApprovalRegistry::create_request`),
 // 本文件其余 4 个测试覆盖 `submit_dag_skeleton_approval` 的真实 IPC 风险。
 
-use voicepilot_ui::dag_commands::{submit_dag_skeleton_approval, DagApprovalDecision};
+use voicepilot_ui::dag_commands::{DagApprovalDecision, submit_dag_skeleton_approval};
 
 #[test]
 fn full_dag_approval_flow_delivers_allow_decision() {
@@ -353,13 +348,9 @@ fn full_dag_approval_flow_delivers_allow_decision() {
     let (approval_id, rx) = state.approval_registry.create_dag_request();
 
     // 模拟用户点击 Allow
-    let delivered = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let delivered =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(delivered, "decision should be delivered");
 
     // 验证 oneshot 收到 Allow
@@ -382,13 +373,9 @@ fn full_dag_approval_flow_delivers_deny_decision() {
     let state = AppState::new_in_memory().unwrap();
     let (approval_id, rx) = state.approval_registry.create_dag_request();
 
-    let delivered = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Deny,
-        None,
-    )
-    .unwrap();
+    let delivered =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny, None)
+            .unwrap();
     assert!(delivered, "decision should be delivered");
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -411,22 +398,14 @@ fn submit_dag_skeleton_approval_returns_false_for_consumed_id() {
     let state = AppState::new_in_memory().unwrap();
     let (approval_id, _rx) = state.approval_registry.create_dag_request();
 
-    let first = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let first =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(first, "first submission should succeed");
 
-    let second = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Deny,
-        None,
-    )
-    .unwrap();
+    let second =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny, None)
+            .unwrap();
     assert!(
         !second,
         "second submission should fail (single-use semantic)"
@@ -436,12 +415,8 @@ fn submit_dag_skeleton_approval_returns_false_for_consumed_id() {
 #[test]
 fn submit_dag_skeleton_approval_returns_false_for_unknown_id() {
     let state = AppState::new_in_memory().unwrap();
-    let result = submit_dag_skeleton_approval(
-        &state,
-        "apr_nonexistent",
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let result =
+        submit_dag_skeleton_approval(&state, "apr_nonexistent", DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(!result, "unknown approval_id should return false");
 }

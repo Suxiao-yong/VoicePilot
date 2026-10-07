@@ -1,4 +1,4 @@
-use trust_kernel::policy::types::{Decision, DLevel, ELevel, Effect, EgressDest, Resource};
+use trust_kernel::policy::types::{DLevel, Decision, ELevel, Effect, EgressDest, Resource};
 
 #[test]
 fn e_level_round_trips_through_serde() {
@@ -21,7 +21,10 @@ fn d_level_round_trips_through_serde() {
 #[test]
 fn effect_serializes_as_lowercase_string() {
     assert_eq!(serde_json::to_string(&Effect::Allow).unwrap(), "\"allow\"");
-    assert_eq!(serde_json::to_string(&Effect::Confirm).unwrap(), "\"confirm\"");
+    assert_eq!(
+        serde_json::to_string(&Effect::Confirm).unwrap(),
+        "\"confirm\""
+    );
     assert_eq!(serde_json::to_string(&Effect::Deny).unwrap(), "\"deny\"");
 }
 

@@ -1,6 +1,6 @@
 //! E×D risk matrix — V1.1 §4.1.
 
-use crate::policy::types::{DLevel, Effect, ELevel};
+use crate::policy::types::{DLevel, ELevel, Effect};
 
 /// Classify (E, D) → Effect per V1.1 §4.1 matrix.
 /// D3 row: all deny (red line).

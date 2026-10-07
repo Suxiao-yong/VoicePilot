@@ -35,8 +35,8 @@
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use tauri_plugin_stronghold::stronghold::Stronghold;
 // W9 审查修复 P1-1:用 Zeroizing 包装 derived_key,Drop 时自动清零,
 // 替代不可靠的 drop(derived_key)。
@@ -171,8 +171,13 @@ fn derive_key_argon2id(
     salt: &[u8],
 ) -> Result<Zeroizing<[u8; ARGON2_OUTPUT_LEN]>, StrongholdError> {
     use argon2::{Algorithm, Argon2, Params, Version};
-    let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(ARGON2_OUTPUT_LEN))
-        .map_err(|e| StrongholdError::EncryptionFailed(format!("argon2 params: {}", e)))?;
+    let params = Params::new(
+        ARGON2_M_COST,
+        ARGON2_T_COST,
+        ARGON2_P_COST,
+        Some(ARGON2_OUTPUT_LEN),
+    )
+    .map_err(|e| StrongholdError::EncryptionFailed(format!("argon2 params: {}", e)))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut out = Zeroizing::new([0u8; ARGON2_OUTPUT_LEN]);
     argon2
@@ -207,7 +212,7 @@ fn generate_encryption_key() -> Zeroizing<Vec<u8>> {
 
 /// 持久化 salt(base64 编码)到 app_config.stronghold.salt。
 fn persist_salt(conn: &Connection, salt: &[u8]) -> Result<(), StrongholdError> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD};
     let encoded = STANDARD.encode(salt);
     crate::repo::config_repo::ConfigRepo::new()
         .set(conn, KV_KEY_SALT, &encoded)
@@ -218,7 +223,7 @@ fn persist_salt(conn: &Connection, salt: &[u8]) -> Result<(), StrongholdError> {
 /// 从 app_config.stronghold.salt 加载 salt(base64 解码)。
 /// 返回 None 表示 key 不存在(首次启动)。
 fn load_salt(conn: &Connection) -> Result<Option<Vec<u8>>, StrongholdError> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::{Engine, engine::general_purpose::STANDARD};
     let repo = crate::repo::config_repo::ConfigRepo::new();
     let encoded_opt = repo
         .get(conn, KV_KEY_SALT)
@@ -226,9 +231,9 @@ fn load_salt(conn: &Connection) -> Result<Option<Vec<u8>>, StrongholdError> {
     match encoded_opt {
         None => Ok(None),
         Some(encoded) => {
-            let salt = STANDARD
-                .decode(encoded.trim())
-                .map_err(|e| StrongholdError::VaultCorrupted(format!("salt base64 decode: {}", e)))?;
+            let salt = STANDARD.decode(encoded.trim()).map_err(|e| {
+                StrongholdError::VaultCorrupted(format!("salt base64 decode: {}", e))
+            })?;
             if salt.len() != SALT_LEN {
                 return Err(StrongholdError::VaultCorrupted(format!(
                     "salt len {} != expected {}",
@@ -283,19 +288,15 @@ pub fn set_stronghold_enabled_in_config(
     enabled: bool,
 ) -> Result<(), StrongholdError> {
     let repo = crate::repo::config_repo::ConfigRepo::new();
-    repo.set(
-        conn,
-        KV_KEY_ENABLED,
-        if enabled { "true" } else { "false" },
-    )
-    .map_err(|e| StrongholdError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
+    repo.set(conn, KV_KEY_ENABLED, if enabled { "true" } else { "false" })
+        .map_err(|e| StrongholdError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
     Ok(())
 }
 
 // ===== W9 Plan 1 Task 4/5: StrongholdVault 生命周期 + 加密方法 =====
 
-use iota_stronghold::procedures::{AeadCipher, AeadDecrypt, AeadEncrypt, WriteVault};
 use iota_stronghold::Location;
+use iota_stronghold::procedures::{AeadCipher, AeadDecrypt, AeadEncrypt, WriteVault};
 
 impl StrongholdVault {
     /// 创建新 vault(首次启动时调用)。
@@ -401,7 +402,8 @@ impl StrongholdVault {
 
         // 6. 写入 inner + 标记 unlocked
         *self.inner.lock().unwrap() = Some(stronghold);
-        self.unlocked.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.unlocked
+            .store(true, std::sync::atomic::Ordering::SeqCst);
 
         // 提前 drop derived_key
         drop(derived_key);
@@ -415,7 +417,8 @@ impl StrongholdVault {
     /// Stronghold 句柄 take() 释放,其内部 KeyProvider Drop 时清零 NCKey。
     pub fn lock(&self) {
         *self.inner.lock().unwrap() = None;
-        self.unlocked.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.unlocked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// 是否已解锁(AtomicBool 无锁读)。
@@ -432,9 +435,8 @@ impl StrongholdVault {
     /// - 调用方(Plan 2 create_post_commit_compensation)据此跳过加密 + 标记 snapshot_vault_ref = "degraded"
     pub fn degraded(db: &Connection) -> Self {
         // W9 审查修复 P1-4:用绝对路径(temp_dir)而非相对路径,避免 cwd 不稳定。
-        let vault_path = resolve_vault_path(db).unwrap_or_else(|_| {
-            std::env::temp_dir().join("voicepilot-stronghold-degraded.bin")
-        });
+        let vault_path = resolve_vault_path(db)
+            .unwrap_or_else(|_| std::env::temp_dir().join("voicepilot-stronghold-degraded.bin"));
         Self {
             inner: Mutex::new(None),
             salt: None,
@@ -544,10 +546,7 @@ impl StrongholdVault {
     ///
     /// 审计事件由调用方(TrustKernel)负责写入,本方法仅返回 (vault, reason) 元组,
     /// 避免 StrongholdVault 持有 kernel 引用(防止循环依赖)。
-    pub fn enter_degraded_mode(
-        db: &Connection,
-        reason: &'static str,
-    ) -> (Self, &'static str) {
+    pub fn enter_degraded_mode(db: &Connection, reason: &'static str) -> (Self, &'static str) {
         let vault = Self::degraded(db);
         (vault, reason)
     }

@@ -5,5 +5,5 @@
 //! 本文件仅保留 re-export，既有调用方（ui voice_commands / CLI）不受影响。
 
 pub use crate::route_bridge::{
-    block_on_planner, route_text, route_text_with_dag, route_text_with_snapshot, RouteOutcome,
+    RouteOutcome, block_on_planner, route_text, route_text_with_dag, route_text_with_snapshot,
 };

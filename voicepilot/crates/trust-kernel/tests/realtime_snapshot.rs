@@ -105,9 +105,16 @@ async fn stale_snapshot_is_rejected_without_llm_call() {
         })
         .await
         .expect_err("stale snapshot must fail");
-    assert!(err.to_string().contains("stale realtime snapshot"), "got {err}");
     assert!(
-        server.received_requests().await.expect("requests").is_empty(),
+        err.to_string().contains("stale realtime snapshot"),
+        "got {err}"
+    );
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty(),
         "stale snapshot must not call the LLM"
     );
 }
@@ -129,7 +136,12 @@ async fn repeated_query_hits_classify_cache() {
         assert!(matches!(plan, PlanResult::Skill { .. }));
     }
     let requests = server.received_requests().await.expect("requests");
-    assert_eq!(requests.len(), 1, "second identical query must hit cache, got {}", requests.len());
+    assert_eq!(
+        requests.len(),
+        1,
+        "second identical query must hit cache, got {}",
+        requests.len()
+    );
 }
 
 #[tokio::test]

@@ -26,7 +26,10 @@ const CANARY: &str = "VP-EVAL-CANARY-2026";
 /// 仓库根 = CARGO_MANIFEST_DIR 上溯 3 级。
 fn repo_root() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../..").canonicalize().unwrap_or(manifest.join("../../.."))
+    manifest
+        .join("../../..")
+        .canonicalize()
+        .unwrap_or(manifest.join("../../.."))
 }
 
 fn evals_dir() -> PathBuf {
@@ -38,8 +41,7 @@ fn tests_dir() -> PathBuf {
 }
 
 fn read_file(path: &PathBuf) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
 }
 
 /// 统计 smoke 测试文件中 `#[test]` 测试函数数(按行精确匹配,避免注释干扰)。
@@ -49,9 +51,8 @@ fn count_tests(file: &str) -> usize {
 
 fn load_yaml(path: &PathBuf) -> Value {
     let content = read_file(path);
-    serde_yaml::from_str(&content).unwrap_or_else(|e| {
-        panic!("failed to parse YAML {}: {}", path.display(), e)
-    })
+    serde_yaml::from_str(&content)
+        .unwrap_or_else(|e| panic!("failed to parse YAML {}: {}", path.display(), e))
 }
 
 fn seq_len(v: &Value) -> usize {
@@ -87,7 +88,11 @@ fn functional_coverage_100_tasks() {
     assert_eq!(multis, 50, "must have exactly 50 multi_step tasks");
 
     // 门禁基数:单步 ≥ 95%(≥ 48/50)+ 多步 ≥ 80%(≥ 40/50)
-    assert!(singles >= 48, "single-step gate: need >= 48, got {}", singles);
+    assert!(
+        singles >= 48,
+        "single-step gate: need >= 48, got {}",
+        singles
+    );
     assert!(multis >= 40, "multi-step gate: need >= 40, got {}", multis);
 }
 
@@ -96,7 +101,10 @@ fn functional_coverage_100_tasks() {
 fn redteam_coverage_50_attacks() {
     let yaml_path = evals_dir().join("redteam/50_attacks.yaml");
     let content = read_file(&yaml_path);
-    assert!(content.contains(CANARY), "50_attacks.yaml must contain canary");
+    assert!(
+        content.contains(CANARY),
+        "50_attacks.yaml must contain canary"
+    );
     let data = load_yaml(&yaml_path);
     let attacks = data
         .get("attacks")
@@ -106,10 +114,19 @@ fn redteam_coverage_50_attacks() {
     use std::collections::HashMap;
     let mut per_category: HashMap<&str, usize> = HashMap::new();
     for a in attacks.as_sequence().unwrap() {
-        let cat = a.get("category").and_then(|v| v.as_str()).expect("attack must have category");
+        let cat = a
+            .get("category")
+            .and_then(|v| v.as_str())
+            .expect("attack must have category");
         *per_category.entry(cat).or_insert(0) += 1;
     }
-    for expected in ["prompt_extraction", "jailbreak", "pii", "excessive_agency", "hijacking"] {
+    for expected in [
+        "prompt_extraction",
+        "jailbreak",
+        "pii",
+        "excessive_agency",
+        "hijacking",
+    ] {
         assert_eq!(
             per_category.get(expected).copied().unwrap_or(0),
             10,
@@ -128,7 +145,11 @@ fn toctou_block_all_20() {
     let scenarios = data
         .get("scenarios")
         .expect("20_scenarios.yaml must have 'scenarios' key");
-    assert_eq!(seq_len(scenarios), 20, "must have exactly 20 TOCTOU scenarios");
+    assert_eq!(
+        seq_len(scenarios),
+        20,
+        "must have exactly 20 TOCTOU scenarios"
+    );
 
     let smoke = read_file(&tests_dir().join("w11_toctou_block_smoke.rs"));
     let test_count = count_tests(&smoke);
@@ -146,7 +167,11 @@ fn malicious_server_block_all_15() {
     let scenarios = data
         .get("scenarios")
         .expect("15_scenarios.yaml must have 'scenarios' key");
-    assert_eq!(seq_len(scenarios), 15, "must have exactly 15 malicious-server scenarios");
+    assert_eq!(
+        seq_len(scenarios),
+        15,
+        "must have exactly 15 malicious-server scenarios"
+    );
 
     let smoke = read_file(&tests_dir().join("w11_malicious_server_smoke.rs"));
     let test_count = count_tests(&smoke);
@@ -164,7 +189,11 @@ fn data_security_block_all_20() {
     let scenarios = data
         .get("scenarios")
         .expect("20_scenarios.yaml must have 'scenarios' key");
-    assert_eq!(seq_len(scenarios), 20, "must have exactly 20 data-security scenarios");
+    assert_eq!(
+        seq_len(scenarios),
+        20,
+        "must have exactly 20 data-security scenarios"
+    );
 
     let smoke = read_file(&tests_dir().join("w11_data_security_smoke.rs"));
     let test_count = count_tests(&smoke);

@@ -182,13 +182,13 @@ mod common {
 
 #[cfg(all(windows, feature = "uia"))]
 mod smoke {
-    use super::common::{with_temp_cwd, MockAdapter};
+    use super::common::{MockAdapter, with_temp_cwd};
     use trust_kernel::approval::approver::AutoApprover;
     use trust_kernel::compensation::types::CompensationLevel;
     use trust_kernel::kernel::TrustKernel;
     use trust_kernel::repo::step_repo::StepStatus;
-    use trust_kernel::skills::app_control::{execute_app_control, AppControlInput};
-    use trust_kernel::skills::note_capture::{execute_note_capture, NoteCaptureInput};
+    use trust_kernel::skills::app_control::{AppControlInput, execute_app_control};
+    use trust_kernel::skills::note_capture::{NoteCaptureInput, execute_note_capture};
     use trust_kernel::uiautomation::UiaAdapter;
 
     /// Test 1: `quick.app_control` launch notepad (mock adapter).
@@ -342,10 +342,10 @@ mod live_mcp {
     use trust_kernel::approval::approver::AutoApprover;
     use trust_kernel::kernel::TrustKernel;
     use trust_kernel::mcp::repo::McpServerRepo;
-    use trust_kernel::skills::app_control::{execute_app_control, AppControlInput};
+    use trust_kernel::skills::app_control::{AppControlInput, execute_app_control};
     use trust_kernel::skills::dag_executor::set_thread_local_uia_adapter;
-    use trust_kernel::uiautomation::adapter::McpUiaAdapter;
     use trust_kernel::uiautomation::UiaAdapter;
+    use trust_kernel::uiautomation::adapter::McpUiaAdapter;
 
     fn exe_path() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("MCP_WINDOWS_EXE") {

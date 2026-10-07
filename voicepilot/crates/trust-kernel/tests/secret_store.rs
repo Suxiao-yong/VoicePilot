@@ -6,9 +6,7 @@
 use std::sync::Arc;
 
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::secrets::{
-    InMemorySecretStore, SecretStore, LLM_API_KEY_NAME, KEYRING_SERVICE,
-};
+use trust_kernel::secrets::{InMemorySecretStore, KEYRING_SERVICE, LLM_API_KEY_NAME, SecretStore};
 
 #[test]
 fn in_memory_store_round_trips_secret() {
@@ -64,7 +62,9 @@ fn in_memory_store_delete_missing_is_noop() {
 #[test]
 fn keys_are_namespaced() {
     let store = InMemorySecretStore::default();
-    store.set_secret("voicepilot/other", "other").expect("set other");
+    store
+        .set_secret("voicepilot/other", "other")
+        .expect("set other");
     assert!(store.get_secret(LLM_API_KEY_NAME).expect("get").is_none());
 }
 

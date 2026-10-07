@@ -3,8 +3,8 @@
 //! Per MCP 2025-11-25 spec, messages are JSON-RPC 2.0 objects with camelCase
 //! field names. stdio transport uses NDJSON (one message per line).
 
-use serde::{Deserialize, Serialize};
 use serde::de::Error as SerdeError;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 
 /// JSON-RPC id — can be a number, string, or null (for notifications).
@@ -150,7 +150,9 @@ pub fn parse_line(line: &str) -> Result<Option<IncomingMessage>, serde_json::Err
         Ok(Some(IncomingMessage::Error(err)))
     } else {
         // Not a valid JSON-RPC message — re-parse as InvalidRequest for the error path.
-        Err(SerdeError::custom("message missing method/result/error field"))
+        Err(SerdeError::custom(
+            "message missing method/result/error field",
+        ))
     }
 }
 

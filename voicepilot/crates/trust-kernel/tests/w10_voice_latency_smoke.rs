@@ -47,7 +47,11 @@ fn find_sample_wav() -> Option<PathBuf> {
 /// 读取 WAV 文件为 16kHz mono i16 PCM 样本。使用 trust_kernel::voice::wav::read_wav。
 fn read_wav_samples(path: &std::path::Path) -> Vec<i16> {
     let (samples, sample_rate) = read_wav(path).expect("failed to read WAV fixture");
-    assert_eq!(sample_rate, 16000, "fixture must be 16kHz, got {}", sample_rate);
+    assert_eq!(
+        sample_rate, 16000,
+        "fixture must be 16kHz, got {}",
+        sample_rate
+    );
     samples
 }
 
@@ -68,7 +72,9 @@ fn p95_first_partial_transcript_under_500ms() {
     let wav_path = match find_sample_wav() {
         Some(p) => p,
         None => {
-            eprintln!("skip: no WAV fixture found (push_to_talk_sample.wav / w5_sample_organize.wav / w5_sample_yes.wav)");
+            eprintln!(
+                "skip: no WAV fixture found (push_to_talk_sample.wav / w5_sample_organize.wav / w5_sample_yes.wav)"
+            );
             return;
         }
     };
@@ -111,7 +117,10 @@ fn p95_first_partial_transcript_under_500ms() {
             break;
         }
     }
-    assert!(has_voiced, "WAV fixture must contain at least one voiced chunk");
+    assert!(
+        has_voiced,
+        "WAV fixture must contain at least one voiced chunk"
+    );
 
     for i in 0..100 {
         // t0 = VAD 检测首个 voiced chunk 的时刻(此处用 transcribe 调用前的时间近似,
@@ -119,9 +128,7 @@ fn p95_first_partial_transcript_under_500ms() {
         let t0 = std::time::Instant::now();
 
         // ASR 转写(模拟 partial transcript 生成,t1)
-        let transcript = engine
-            .transcribe(&samples)
-            .expect("transcribe failed");
+        let transcript = engine.transcribe(&samples).expect("transcribe failed");
         let t1 = std::time::Instant::now();
 
         let latency_ms = t1.duration_since(t0).as_millis() as u64;
