@@ -10,21 +10,23 @@
 //! - `cancel_voice_command` 设 kill_switch 为 true
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::voice::error::VoiceResult;
-use trust_kernel::voice::listener::{AudioRecorderAdapter, ListenOutcome, VoiceListener, VoiceRecorder};
-use trust_kernel::voice::model::ModelRegistry;
-use trust_kernel::voice::router_bridge::{block_on_planner, RouteOutcome};
-use trust_kernel::voice::vad::{VadConfig, VadDetector};
-use trust_kernel::voice::listener::ListenTimings;
 use trust_kernel::planner::{RealtimeSnapshot, SnapshotMemory, SnapshotVoice};
 use trust_kernel::turns::TurnRecord;
 use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
+use trust_kernel::voice::error::VoiceResult;
+use trust_kernel::voice::listener::ListenTimings;
+use trust_kernel::voice::listener::{
+    AudioRecorderAdapter, ListenOutcome, VoiceListener, VoiceRecorder,
+};
+use trust_kernel::voice::model::ModelRegistry;
+use trust_kernel::voice::router_bridge::{RouteOutcome, block_on_planner};
+use trust_kernel::voice::vad::{VadConfig, VadDetector};
 
 use crate::commands::RouteTextResult;
 use crate::slot_parser::{Slot, SlotParser};
@@ -73,10 +75,7 @@ pub trait VoiceListen: Send + Sync {
 /// 把 `VoiceListenOutcome` 转为 `VoiceListenResult`(纯函数,便于单元测试)。
 ///
 /// W6b-2 Task 5:接收 `cancel: &AtomicBool` 透传给 listener。
-pub fn voice_listen(
-    listener: &dyn VoiceListen,
-    cancel: &AtomicBool,
-) -> VoiceListenResult {
+pub fn voice_listen(listener: &dyn VoiceListen, cancel: &AtomicBool) -> VoiceListenResult {
     match listener.listen(cancel) {
         Ok(outcome) => match outcome {
             VoiceListenOutcome::Success {
@@ -133,10 +132,7 @@ impl VoiceRecorder for RmsEmitterRecorder {
         let chunk = self.inner.record_chunk(duration)?;
         // 语音典型 RMS 0.02~0.25,×4 增益映射到 UI 可用区间,截断到 1.0
         let level = (compute_rms(&chunk) * 4.0).min(1.0);
-        let _ = self.app.emit(
-            "audio-level",
-            AudioLevelPayload { level },
-        );
+        let _ = self.app.emit("audio-level", AudioLevelPayload { level });
         Ok(chunk)
     }
 }
@@ -324,9 +320,9 @@ impl VoiceListenImpl {
                 stopped_by_vad,
                 sample_count,
                 vad_backend,
-                voice_started_ago_ms: timings.voice_started_at.and_then(|t0| {
-                    now.duration_since(t0).ok().map(|d| d.as_millis() as u64)
-                }),
+                voice_started_ago_ms: timings
+                    .voice_started_at
+                    .and_then(|t0| now.duration_since(t0).ok().map(|d| d.as_millis() as u64)),
             },
             memory: SnapshotMemory { prev_turns },
             privacy_mode: false,
@@ -362,7 +358,9 @@ impl VoiceListenImpl {
         let rec = TurnRecord {
             turn_id: format!(
                 "turn-{}",
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(now_ms * 1_000_000)
+                chrono::Utc::now()
+                    .timestamp_nanos_opt()
+                    .unwrap_or(now_ms * 1_000_000)
             ),
             started_at_ms: now_ms,
             source: source.to_string(),
@@ -655,11 +653,9 @@ fn voice_listen_steps(
     //    改 language / num_threads 也触发缓存失效。
     let engine: Arc<SherpaAsrEngine> = {
         let mut cache = state.asr_cache.lock().map_err(|e| e.to_string())?;
-        let needs_reload =
-            cache_needs_reload(cache.as_ref().map(|e| e.config()), &asr_config);
+        let needs_reload = cache_needs_reload(cache.as_ref().map(|e| e.config()), &asr_config);
         if needs_reload {
-            let new_engine = SherpaAsrEngine::new(asr_config.clone())
-                .map_err(|e| e.to_string())?;
+            let new_engine = SherpaAsrEngine::new(asr_config.clone()).map_err(|e| e.to_string())?;
             *cache = Some(Arc::new(new_engine));
         }
         Arc::clone(cache.as_ref().expect("cache should be populated"))
@@ -670,14 +666,14 @@ fn voice_listen_steps(
     //    (500ms)emit audio-level 驱动 Siri 波形柱。
     let recorder: Arc<dyn VoiceRecorder> = Arc::new(RmsEmitterRecorder {
         inner: Arc::new(
-            AudioRecorderAdapter::new(AudioRecorderConfig::default())
-                .map_err(|e| e.to_string())?,
+            AudioRecorderAdapter::new(AudioRecorderConfig::default()).map_err(|e| e.to_string())?,
         ),
         app: app.clone(),
     });
-    let listener = VoiceListenImpl::with_engine(recorder, engine, app.clone(), state.kernel.clone())
-        .with_manual_stop(manual_stop)
-        .with_tts_cooldown_until(tts_cooldown_until);
+    let listener =
+        VoiceListenImpl::with_engine(recorder, engine, app.clone(), state.kernel.clone())
+            .with_manual_stop(manual_stop)
+            .with_tts_cooldown_until(tts_cooldown_until);
 
     // 5. 执行 listen + 发射 transcription-final
     eprintln!("[voice] listen begin manual_stop={}", manual_stop);
@@ -787,11 +783,9 @@ pub async fn tts_command(
     };
     let engine: Arc<SherpaTtsEngine> = {
         let mut cache = state.tts_cache.lock().map_err(|e| e.to_string())?;
-        let needs_reload =
-            cache_needs_reload(cache.as_ref().map(|e| e.config()), &tts_config);
+        let needs_reload = cache_needs_reload(cache.as_ref().map(|e| e.config()), &tts_config);
         if needs_reload {
-            let new_engine = SherpaTtsEngine::new(tts_config.clone())
-                .map_err(|e| e.to_string())?;
+            let new_engine = SherpaTtsEngine::new(tts_config.clone()).map_err(|e| e.to_string())?;
             *cache = Some(Arc::new(new_engine));
         }
         Arc::clone(cache.as_ref().expect("tts cache should be populated"))
@@ -818,8 +812,7 @@ pub async fn tts_command(
     let wav_path = wav_dir.join(format!("tts-{}.wav", chrono::Utc::now().timestamp_millis()));
     // W6c P2 #2:用 engine.actual_sample_rate()(由模型决定,中文 VITS 通常 22050 Hz)
     // 而非 engine.config().sample_rate(16000 默认值),避免播放速度/音调失真。
-    wav::write_wav(&wav_path, &samples, engine.actual_sample_rate())
-        .map_err(|e| e.to_string())?;
+    wav::write_wav(&wav_path, &samples, engine.actual_sample_rate()).map_err(|e| e.to_string())?;
 
     // 6. 检查 cancel(简化实现:播放前检查一次,完整实现需在播放线程中循环检查)
     let interrupted = state.tts_cancel.load(std::sync::atomic::Ordering::SeqCst);
@@ -841,8 +834,7 @@ pub async fn tts_command(
     // 此估算有偏差是安全的:窗口过期偏早只退化为旧行为(无防护),不引入新风险。
     {
         let play_secs = samples.len() as f64 / engine.actual_sample_rate() as f64;
-        let cooldown_ms =
-            trust_kernel::voice::vad::VadConfig::default().tts_cooldown_ms as f64;
+        let cooldown_ms = trust_kernel::voice::vad::VadConfig::default().tts_cooldown_ms as f64;
         let until = std::time::SystemTime::now()
             + std::time::Duration::from_millis((play_secs * 1000.0) as u64 + cooldown_ms as u64);
         if let Ok(mut guard) = state.tts_cooldown_until.lock() {
@@ -988,9 +980,22 @@ mod tests {
             stopped_by_vad: true,
         };
         let payload = build_transcription_final_payload(&result).unwrap();
-        assert!(!payload.slots.is_empty(), "slots should not be empty for path/app text");
-        assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::Path)));
-        assert!(payload.slots.iter().any(|s| matches!(s.kind, crate::slot_parser::SlotKind::App)));
+        assert!(
+            !payload.slots.is_empty(),
+            "slots should not be empty for path/app text"
+        );
+        assert!(
+            payload
+                .slots
+                .iter()
+                .any(|s| matches!(s.kind, crate::slot_parser::SlotKind::Path))
+        );
+        assert!(
+            payload
+                .slots
+                .iter()
+                .any(|s| matches!(s.kind, crate::slot_parser::SlotKind::App))
+        );
     }
 
     // ===== W6c P2 #3:cache_needs_reload helper 测试 =====

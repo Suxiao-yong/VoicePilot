@@ -5,7 +5,7 @@
 
 use trust_kernel::compensation::types::{CompensationLevel, ConflictPolicy};
 use trust_kernel::policy::types::{DLevel, ELevel};
-use trust_kernel::skills::manifest::{form_submit_manifest, ApprovalMode, EgressKind};
+use trust_kernel::skills::manifest::{ApprovalMode, EgressKind, form_submit_manifest};
 
 #[test]
 fn form_submit_manifest_basic_fields() {
@@ -24,7 +24,11 @@ fn form_submit_manifest_basic_fields() {
 fn form_submit_manifest_risk_ceiling_is_e3() {
     // spec §2.4:提交不可逆 → E3(与 form.prepare 的 E2 区分)
     let m = form_submit_manifest();
-    assert_eq!(m.risk_ceiling, ELevel::E3, "form.submit risk_ceiling must be E3");
+    assert_eq!(
+        m.risk_ceiling,
+        ELevel::E3,
+        "form.submit risk_ceiling must be E3"
+    );
     assert_eq!(m.data_class_ceiling, DLevel::D2);
 }
 

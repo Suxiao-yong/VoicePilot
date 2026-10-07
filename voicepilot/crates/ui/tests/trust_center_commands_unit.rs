@@ -11,8 +11,8 @@ use trust_kernel::kernel::TrustKernel;
 use trust_kernel::mcp::repo::McpServerRecord;
 use voicepilot_ui::state::AppState;
 use voicepilot_ui::trust_center_commands::{
-    import_external_mcp, list_mcp_servers, register_mcp_server, remove_mcp_server,
-    scan_external_mcp, toggle_mcp_server, McpServerDto,
+    McpServerDto, import_external_mcp, list_mcp_servers, register_mcp_server, remove_mcp_server,
+    scan_external_mcp, toggle_mcp_server,
 };
 
 fn dto(server_id: &str) -> McpServerDto {

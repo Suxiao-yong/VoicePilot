@@ -42,11 +42,11 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    finalize_step_success, invoke_mcp_tool, record_approval_decision,
-    validate_input_against_manifest, ApprovalContext,
+    ApprovalContext, finalize_step_success, invoke_mcp_tool, record_approval_decision,
+    validate_input_against_manifest,
 };
 use crate::skills::manifest::form_submit_manifest;
-use crate::skills::verifiers::{verify_form_submit, VerificationContext, VerificationOutcome};
+use crate::skills::verifiers::{VerificationContext, VerificationOutcome, verify_form_submit};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
@@ -349,13 +349,17 @@ for line in sys.stdin:
         let path = temp_root.join(format!("calls-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, "[]").expect("seed calls file");
         // SAFETY: tests guarded by CWD_MUTEX serialize env mutations process-wide.
-        unsafe { std::env::set_var("FORM_SUBMIT_CALLS_PATH", &path); }
+        unsafe {
+            std::env::set_var("FORM_SUBMIT_CALLS_PATH", &path);
+        }
         path
     }
 
     fn clear_calls_env() {
         // SAFETY: see set_calls_env.
-        unsafe { std::env::remove_var("FORM_SUBMIT_CALLS_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_SUBMIT_CALLS_PATH");
+        }
     }
 
     #[test]

@@ -6,7 +6,6 @@
 //! `types` 模块始终编译(只依赖 serde/thiserror);
 //! `client` 模块在 `llm` feature 下编译(依赖 reqwest),Task 3 引入。
 
-pub mod types;
 #[cfg(feature = "llm")]
 pub mod client;
-
+pub mod types;

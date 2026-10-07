@@ -20,17 +20,15 @@ use std::sync::Arc;
 use crate::approval::approver::Approver;
 use crate::error::Result;
 use crate::kernel::TrustKernel;
-use crate::planner::{PlannerInput, PlannerPipeline, PlannerSource, PlanResult};
 #[cfg(feature = "llm")]
 use crate::planner::PlannerTrace;
+use crate::planner::{PlanResult, PlannerInput, PlannerPipeline, PlannerSource};
 
 #[derive(Debug)]
 pub enum RouteOutcome {
     /// Skill matched. Caller (CLI) prompts user for args, then invokes
     /// `FilesOrganizeSkill::execute` to run the prepare→approve→commit flow.
-    Routed {
-        skill_id: String,
-    },
+    Routed { skill_id: String },
     /// 无 Skill 命中时的 LLM 直接回答（聊天兜底）。调用方直接展示，不执行。
     Chat { text: String },
     /// W8 Plan 4 新增:LLM 拆解为多步 DAG。Caller 应弹 DAG 骨架审批 UI
@@ -74,7 +72,9 @@ pub fn route_text(
     // 驱动。keyword 命中路径不产生任何 task / audit / taint(既有行为)。
     let kernel = kernel.clone_arc();
     let text = trimmed.to_string();
-    block_on_planner(async move { route_via_pipeline(kernel, text, PlannerSource::Text, None).await })
+    block_on_planner(
+        async move { route_via_pipeline(kernel, text, PlannerSource::Text, None).await },
+    )
 }
 
 /// W8 Plan 4: 三级路由策略(spec §2.8)的 facade 入口。
@@ -105,7 +105,13 @@ pub async fn route_text_with_dag(
         return Ok(RouteOutcome::Empty);
     }
 
-    route_via_pipeline(kernel.clone_arc(), trimmed.to_string(), PlannerSource::Voice, None).await
+    route_via_pipeline(
+        kernel.clone_arc(),
+        trimmed.to_string(),
+        PlannerSource::Voice,
+        None,
+    )
+    .await
 }
 
 /// 带实时快照的语音路由入口（UI voice 路径用）。
@@ -136,7 +142,8 @@ fn audit_memory_injected(kernel: &TrustKernel, fact_ids: &[i64]) {
     let task_id = format!("task-memory-{}", uuid::Uuid::new_v4());
     {
         let conn = kernel.conn();
-        let placeholder = crate::repo::task_repo::TaskRecord::new(&task_id, "memory injection audit placeholder");
+        let placeholder =
+            crate::repo::task_repo::TaskRecord::new(&task_id, "memory injection audit placeholder");
         if let Err(e) = crate::repo::task_repo::TaskRepo::new().create(&conn, &placeholder) {
             tracing::warn!(error = ?e, "memory_injected audit: placeholder task create failed");
             return;
@@ -227,12 +234,8 @@ fn apply_dag_side_effects(
         latency_ms: trace.latency_ms,
         token_count: trace.token_count.unwrap_or(0) as u32,
     };
-    let _ = crate::llm::client::record_llm_decompose_called(
-        kernel,
-        &llm_task_id,
-        &dag.plan_id,
-        &stats,
-    );
+    let _ =
+        crate::llm::client::record_llm_decompose_called(kernel, &llm_task_id, &dag.plan_id, &stats);
 
     if let Err(e) = crate::llm::client::tag_dag_plan_literals(kernel, &llm_task_id, dag) {
         tracing::warn!(

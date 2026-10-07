@@ -32,7 +32,9 @@ pub enum DagApprovalOutcome {
     /// 用户调整 DAG 骨架后回传的 modified_plan。
     /// 由 `DagExecutor::run` 处理:审计 `dag_skeleton_modified` →
     /// `SlotTemplateEngine::validate_dag` 重新校验 → `run_modified` 第二次审批。
-    Modify { modified_plan: Box<DagPlan> },
+    Modify {
+        modified_plan: Box<DagPlan>,
+    },
 }
 
 impl DagApprovalOutcome {

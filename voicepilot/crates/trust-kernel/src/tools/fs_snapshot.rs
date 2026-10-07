@@ -123,9 +123,7 @@ fn file_identity(path: &Path, _meta: &fs::Metadata) -> Result<String> {
 
     let f = fs::File::open(path).map_err(KernelError::Io)?;
     let mut info: ByHandleFileInformation = Default::default();
-    let rc = unsafe {
-        GetFileInformationByHandle(f.as_raw_handle() as *mut _, &mut info)
-    };
+    let rc = unsafe { GetFileInformationByHandle(f.as_raw_handle() as *mut _, &mut info) };
     if rc == 0 {
         return Err(KernelError::Io(std::io::Error::last_os_error()));
     }

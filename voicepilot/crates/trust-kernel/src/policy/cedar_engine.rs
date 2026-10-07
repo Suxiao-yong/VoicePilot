@@ -9,8 +9,8 @@
 use crate::error::{KernelError, Result};
 use crate::policy::types::{Action, Resource};
 use cedar_policy::{
-    Authorizer, Context, Decision, Entities, Entity, EntityId, EntityTypeName, EntityUid,
-    PolicyId, PolicySet, Request, RestrictedExpression,
+    Authorizer, Context, Decision, Entities, Entity, EntityId, EntityTypeName, EntityUid, PolicyId,
+    PolicySet, Request, RestrictedExpression,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -36,9 +36,9 @@ impl CedarEngine {
         for p in parsed.policies() {
             let new_p = match p.annotation("id") {
                 Some(id_str) => {
-                    let new_id: PolicyId = id_str
-                        .parse()
-                        .map_err(|e| KernelError::CedarParse(format!("invalid @id {id_str:?}: {e}")))?;
+                    let new_id: PolicyId = id_str.parse().map_err(|e| {
+                        KernelError::CedarParse(format!("invalid @id {id_str:?}: {e}"))
+                    })?;
                     p.new_id(new_id)
                 }
                 None => p.clone(),
@@ -70,7 +70,9 @@ impl CedarEngine {
     /// A future task may expose full diagnostics via a richer return type.
     pub fn is_allowed(&self, action: &Action, resource: &Resource) -> Result<bool> {
         let (request, entities) = self.build_request(action, resource)?;
-        let response = self.authorizer.is_authorized(&request, &self.policies, &entities);
+        let response = self
+            .authorizer
+            .is_authorized(&request, &self.policies, &entities);
         Ok(response.decision() == Decision::Allow)
     }
 
@@ -78,8 +80,14 @@ impl CedarEngine {
     /// Useful for audit logging — V1.1 §8.1 `matched_policies` field.
     pub fn matched_policy_ids(&self, action: &Action, resource: &Resource) -> Result<Vec<String>> {
         let (request, entities) = self.build_request(action, resource)?;
-        let response = self.authorizer.is_authorized(&request, &self.policies, &entities);
-        Ok(response.diagnostics().reason().map(|p| p.to_string()).collect())
+        let response = self
+            .authorizer
+            .is_authorized(&request, &self.policies, &entities);
+        Ok(response
+            .diagnostics()
+            .reason()
+            .map(|p| p.to_string())
+            .collect())
     }
 
     /// Build the Cedar `Request` and `Entities` for a single (principal, action, resource) tuple.

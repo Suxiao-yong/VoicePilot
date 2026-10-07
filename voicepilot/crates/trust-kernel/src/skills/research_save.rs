@@ -41,11 +41,11 @@ use crate::policy::transaction::EffectManifest;
 use crate::policy::types::{DLevel, ELevel};
 use crate::repo::step_repo::{StepRecord, StepStatus};
 use crate::skills::common::{
-    create_post_commit_compensation_with_payload, finalize_step_success, invoke_mcp_tool,
-    record_approval_decision, validate_input_against_manifest, ApprovalContext,
+    ApprovalContext, create_post_commit_compensation_with_payload, finalize_step_success,
+    invoke_mcp_tool, record_approval_decision, validate_input_against_manifest,
 };
 use crate::skills::manifest::research_save_manifest;
-use crate::skills::verifiers::{verify_research_save, VerificationContext, VerificationOutcome};
+use crate::skills::verifiers::{VerificationContext, VerificationOutcome, verify_research_save};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;

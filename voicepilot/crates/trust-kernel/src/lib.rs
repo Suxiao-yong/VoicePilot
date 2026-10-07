@@ -4,25 +4,25 @@
 //! W2: Policy engine — types, E×D risk matrix, Cedar, Constraint, Egress, Transaction, Action Gateway.
 //! Voice / MCP / full ToolResult V2 land in W3+.
 
-pub mod error;
-pub mod state;
-pub mod db;
-pub mod audit;
-pub mod repo;
-pub mod kernel;
-pub mod policy;
-pub mod gateway;
-pub mod tools;
-pub mod compensation;
-pub mod toolresult;
-pub mod approval;
 pub mod allowed_paths;
-pub mod mcp;
-pub mod skills;
+pub mod approval;
+pub mod audit;
+pub mod compensation;
+pub mod db;
+pub mod error;
+pub mod extensions;
 /// 外部发现:只读扫描全局 Skills/MCP 配置,不启用任何东西。
 pub mod external_scan;
+pub mod gateway;
+pub mod kernel;
 pub mod llm;
-pub mod extensions;
+pub mod mcp;
+pub mod policy;
+pub mod repo;
+pub mod skills;
+pub mod state;
+pub mod toolresult;
+pub mod tools;
 // Wave 1 Task 1.2: 统一 PlannerPipeline(纯规划层,无 DB 副作用)。
 // 文本 / 语音 / CLI 共用;trace 持久化由任务运行层完成。
 pub mod planner;

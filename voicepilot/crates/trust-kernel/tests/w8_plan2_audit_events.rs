@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver};
+use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_executor::DagExecutor;
@@ -234,7 +234,12 @@ fn audit_emits_dag_completed_on_partially_succeeded() {
     executor.run(&plan, &[]).unwrap();
 
     let events = find_audit_events(&kernel_arc, "dag_completed");
-    assert_eq!(events.len(), 1, "expected 1 dag_completed, got: {:?}", events);
+    assert_eq!(
+        events.len(),
+        1,
+        "expected 1 dag_completed, got: {:?}",
+        events
+    );
     let e = &events[0];
     assert_eq!(e["final_status"], "partially_succeeded");
     assert_eq!(e["succeeded_count"], 1);

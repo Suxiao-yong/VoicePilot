@@ -36,7 +36,10 @@ fn vault_create_persists_salt_and_path() {
 
     let vault = StrongholdVault::create("test_password_123", &conn).expect("create vault");
     assert!(vault.is_unlocked(), "vault must be unlocked after create");
-    assert!(vault_path.exists(), "vault file must be created after save()");
+    assert!(
+        vault_path.exists(),
+        "vault file must be created after save()"
+    );
 
     // salt 持久化在 app_config
     let salt_kv = ConfigRepo::new()
@@ -58,7 +61,10 @@ fn vault_unlock_with_correct_password_succeeds() {
     assert!(!vault.is_unlocked(), "vault must be locked after lock()");
 
     vault.unlock("correct_password", &conn).expect("unlock");
-    assert!(vault.is_unlocked(), "vault must be unlocked after correct password");
+    assert!(
+        vault.is_unlocked(),
+        "vault must be unlocked after correct password"
+    );
 }
 
 /// 测试 3:create(password) -> lock() -> unlock(wrong_password) 返回 WrongPassword。
@@ -91,7 +97,10 @@ fn vault_encrypt_decrypt_roundtrip() {
 
     let plaintext = b"{\"moves\": [{\"from\": \"a.txt\", \"to\": \"b.txt\"}]}";
     let payload: EncryptedPayload = vault.encrypt(plaintext).expect("encrypt");
-    assert!(!payload.ciphertext.is_empty(), "ciphertext must be non-empty");
+    assert!(
+        !payload.ciphertext.is_empty(),
+        "ciphertext must be non-empty"
+    );
     assert_eq!(
         payload.nonce.len(),
         24,
@@ -212,14 +221,20 @@ fn vault_corrupted_returns_error() {
     vault.lock();
 
     // 写入垃圾数据覆盖 vault 文件
-    std::fs::write(&vault_path, b"corrupted vault data not a valid stronghold file")
-        .expect("write corrupted data");
+    std::fs::write(
+        &vault_path,
+        b"corrupted vault data not a valid stronghold file",
+    )
+    .expect("write corrupted data");
 
     // unlock 应返回 WrongPassword(Stronghold 加载失败被映射为 WrongPassword,
     // 因为攻击者无法区分 "密码错" 和 "文件损坏",防止侧信道)
     let err = vault.unlock("original_password", &conn).unwrap_err();
     assert!(
-        matches!(err, StrongholdError::WrongPassword | StrongholdError::VaultCorrupted(_)),
+        matches!(
+            err,
+            StrongholdError::WrongPassword | StrongholdError::VaultCorrupted(_)
+        ),
         "corrupted vault must return WrongPassword or VaultCorrupted, got: {:?}",
         err
     );

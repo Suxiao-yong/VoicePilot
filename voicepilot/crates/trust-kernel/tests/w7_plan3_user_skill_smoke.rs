@@ -19,10 +19,7 @@ use trust_kernel::skills::router::{RouteDecision, SkillRouter};
 use trust_kernel::skills::user_loader::{parse_skill_md, scan_user_skills};
 
 fn tmp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "voicepilot-w7p3-smoke-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("voicepilot-w7p3-smoke-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

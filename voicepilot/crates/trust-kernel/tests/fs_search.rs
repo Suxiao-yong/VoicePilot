@@ -14,12 +14,14 @@ fn search_files_returns_matching_pdf_files() {
     fs::write(dir.join("a.pdf"), b"pdf1").unwrap();
     fs::write(dir.join("b.pdf"), b"pdf2").unwrap();
     fs::write(dir.join("c.txt"), b"txt").unwrap();
-    let subdir = dir.join("sub"); fs::create_dir_all(&subdir).unwrap();
+    let subdir = dir.join("sub");
+    fs::create_dir_all(&subdir).unwrap();
     fs::write(subdir.join("d.pdf"), b"pdf3").unwrap();
 
     let tool = FilesystemTool::new();
     let results = tool.search_files(&dir, "*.pdf").unwrap();
-    let names: Vec<String> = results.iter()
+    let names: Vec<String> = results
+        .iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
         .collect();
     assert_eq!(names.len(), 3);

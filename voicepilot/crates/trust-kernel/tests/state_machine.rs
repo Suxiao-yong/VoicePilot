@@ -32,8 +32,20 @@ fn verifying_to_done_is_allowed() {
 
 #[test]
 fn kill_switch_can_cancel_from_any_non_terminal_state() {
-    for s in [Idle, Listening, Planning, AwaitingApproval, Executing, Verifying, Compensating] {
-        assert!(s.can_transition_to(Cancelled), "must allow Cancelled from {:?}", s);
+    for s in [
+        Idle,
+        Listening,
+        Planning,
+        AwaitingApproval,
+        Executing,
+        Verifying,
+        Compensating,
+    ] {
+        assert!(
+            s.can_transition_to(Cancelled),
+            "must allow Cancelled from {:?}",
+            s
+        );
     }
 }
 

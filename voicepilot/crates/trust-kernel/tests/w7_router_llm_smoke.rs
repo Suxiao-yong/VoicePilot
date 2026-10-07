@@ -119,7 +119,10 @@ async fn no_keyword_llm_high_confidence_returns_skill_with_slots() {
             assert_eq!(slots[0].kind, "url");
             assert_eq!(slots[1].kind, "object");
         }
-        other => panic!("expected SkillWithSlots(form.prepare, 2 slots), got {:?}", other),
+        other => panic!(
+            "expected SkillWithSlots(form.prepare, 2 slots), got {:?}",
+            other
+        ),
     }
 }
 

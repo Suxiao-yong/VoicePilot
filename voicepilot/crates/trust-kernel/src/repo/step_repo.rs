@@ -1,7 +1,7 @@
 //! Step repository — CRUD against SQLite `steps` table.
 
 use crate::error::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,12 +103,16 @@ impl StepRepo {
                 step.task_id,
                 step.step_order,
                 step.tool_name,
-                step.args.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default()),
+                step.args
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap_or_default()),
                 step.args_hash,
                 step.status.as_str(),
                 step.prepare_token,
                 step.preconditions_hash,
-                step.effect_manifest.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default()),
+                step.effect_manifest
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap_or_default()),
                 step.evidence_strength,
                 step.compensation_ref,
                 step.egress_performed as i64,
@@ -178,8 +182,13 @@ impl StepRepo {
                 started_at,
                 finished_at,
             ) = row_result?;
-            let status = StepStatus::parse(&status_str)
-                .ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(std::fmt::Error)))?;
+            let status = StepStatus::parse(&status_str).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    6,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::fmt::Error),
+                )
+            })?;
             let args = args_str.and_then(|s| serde_json::from_str(&s).ok());
             let effect_manifest = manifest_str.and_then(|s| serde_json::from_str(&s).ok());
             Ok(Some(StepRecord {
@@ -264,8 +273,13 @@ impl StepRepo {
                 started_at,
                 finished_at,
             ) = row_result?;
-            let status = StepStatus::parse(&status_str)
-                .ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(std::fmt::Error)))?;
+            let status = StepStatus::parse(&status_str).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    6,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::fmt::Error),
+                )
+            })?;
             let args = args_str.and_then(|s| serde_json::from_str(&s).ok());
             let effect_manifest = manifest_str.and_then(|s| serde_json::from_str(&s).ok());
             out.push(StepRecord {
@@ -303,7 +317,10 @@ impl StepRepo {
                     params![new_status.as_str(), now, step_id],
                 )?;
             }
-            StepStatus::Succeeded | StepStatus::Failed | StepStatus::Cancelled | StepStatus::Skipped => {
+            StepStatus::Succeeded
+            | StepStatus::Failed
+            | StepStatus::Cancelled
+            | StepStatus::Skipped => {
                 conn.execute(
                     "UPDATE steps SET status = ?1, finished_at = ?2 WHERE step_id = ?3",
                     params![new_status.as_str(), now, step_id],
@@ -331,7 +348,12 @@ impl StepRepo {
         conn.execute(
             "UPDATE steps SET prepare_token = ?1, preconditions_hash = ?2, effect_manifest = ?3
              WHERE step_id = ?4",
-            rusqlite::params![prepare_token, preconditions_hash, effect_manifest.to_string(), step_id],
+            rusqlite::params![
+                prepare_token,
+                preconditions_hash,
+                effect_manifest.to_string(),
+                step_id
+            ],
         )?;
         Ok(())
     }

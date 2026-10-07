@@ -146,14 +146,16 @@ impl FilesOrganizeSkill {
         }
 
         // Step 4: commit. On failure, mark step Failed before propagating.
-        let committed = kernel.filesystem().commit_move(
-            &prepared.token,
-            &prepared.manifest,
-            kernel.transaction_manager(),
-        )
-        .inspect_err(|_e| {
-            let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
-        })?;
+        let committed = kernel
+            .filesystem()
+            .commit_move(
+                &prepared.token,
+                &prepared.manifest,
+                kernel.transaction_manager(),
+            )
+            .inspect_err(|_e| {
+                let _ = kernel.update_step_status(&input.step_id, StepStatus::Failed);
+            })?;
 
         // Step 5: verify (Strong Verifier).
         // On verify failure, the move is already committed — we MUST create a
@@ -234,11 +236,7 @@ impl FilesOrganizeSkill {
         }
 
         // Step 7: persist post-commit state + assemble ToolResult.
-        kernel.update_step_post_commit(
-            &input.step_id,
-            "strong",
-            Some(&comp_id),
-        )?;
+        kernel.update_step_post_commit(&input.step_id, "strong", Some(&comp_id))?;
         kernel.update_step_status(&input.step_id, StepStatus::Succeeded)?;
         let finished_at = Utc::now();
 

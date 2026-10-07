@@ -15,14 +15,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::json;
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver};
+use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::llm::client::LlmClient;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_executor::DagExecutor;
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagPlan, DagStatus};
-use trust_kernel::skills::manifest::{task_explain_manifest, SkillManifest};
+use trust_kernel::skills::manifest::{SkillManifest, task_explain_manifest};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -65,9 +65,7 @@ fn explain_node(id: &str, limit: u32) -> DagNode {
     }
 }
 
-fn build_executor(
-    approver: Arc<dyn Approver>,
-) -> (Arc<TrustKernel>, DagExecutor) {
+fn build_executor(approver: Arc<dyn Approver>) -> (Arc<TrustKernel>, DagExecutor) {
     let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
     let dag_repo = Arc::new(DagRepo::new());
     let executor = DagExecutor::new(kernel.clone(), approver, dag_repo);
@@ -104,7 +102,10 @@ async fn e2e_single_node_dag_succeeds() {
     // Step 2: DagExecutor 执行
     let result = executor.run(&dag, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
-    let n1 = result.node_results.get("n1").expect("n1 must be in node_results");
+    let n1 = result
+        .node_results
+        .get("n1")
+        .expect("n1 must be in node_results");
     assert!(n1.is_succeeded(), "n1 should be Succeeded, got: {:?}", n1);
 }
 
@@ -139,7 +140,11 @@ async fn e2e_two_node_dag_succeeds_in_topo_order() {
         .expect("LLM decompose should succeed");
     let result = executor.run(&dag, &[]).unwrap();
     assert_eq!(result.status, DagStatus::Succeeded);
-    assert_eq!(result.node_results.len(), 2, "both nodes must be in results");
+    assert_eq!(
+        result.node_results.len(),
+        2,
+        "both nodes must be in results"
+    );
     assert!(
         result.node_results.get("n1").unwrap().is_succeeded(),
         "n1 should be Succeeded"

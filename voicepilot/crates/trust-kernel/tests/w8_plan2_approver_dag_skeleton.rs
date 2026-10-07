@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver, DagApprovalOutcome};
+use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagPlan};

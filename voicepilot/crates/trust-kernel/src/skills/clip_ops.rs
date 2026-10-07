@@ -10,7 +10,7 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillManifest};
 use crate::skills::simple::{
-    ps_sta, run_simple, simple_manifest, slot_text, truncate_chars, SimpleInput,
+    SimpleInput, ps_sta, run_simple, simple_manifest, slot_text, truncate_chars,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -157,7 +157,7 @@ pub fn sendkeys_for_spec(spec: &str) -> Result<String> {
             "win" | "windows" | "super" | "cmd" | "command" | "meta" => {
                 return Err(KernelError::Skill(
                     "SendKeys 不支持 Win 键（改说“打开XX”走应用启动）".to_string(),
-                ))
+                ));
             }
             "enter" | "return" => key = Some("{ENTER}".to_string()),
             "tab" => key = Some("{TAB}".to_string()),

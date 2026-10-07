@@ -53,8 +53,7 @@ fn import_external_skill_copies_manifest_only_and_starts_disabled() {
     );
     // 落盘文件必须等于已校验字节（不回读源盘，无读-拷竞态）。
     let on_disk =
-        std::fs::read_to_string(skills_dir.join("ext-imp").join("SKILL.md"))
-            .expect("read dest");
+        std::fs::read_to_string(skills_dir.join("ext-imp").join("SKILL.md")).expect("read dest");
     let (reparsed, _) =
         trust_kernel::skills::user_loader::parse_skill_md(&on_disk).expect("dest parses");
     assert_eq!(reparsed.id, manifest.id);
@@ -84,7 +83,9 @@ fn import_external_skill_rejects_duplicate_broken_and_relative() {
     assert!(kernel.import_external_skill(&bad).is_err());
 
     // 相对路径拒绝。
-    assert!(kernel
-        .import_external_skill(std::path::Path::new("relative/path"))
-        .is_err());
+    assert!(
+        kernel
+            .import_external_skill(std::path::Path::new("relative/path"))
+            .is_err()
+    );
 }

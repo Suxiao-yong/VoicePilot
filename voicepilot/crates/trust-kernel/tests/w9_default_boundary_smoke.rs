@@ -4,6 +4,9 @@
 //!   A. Stronghold feature off 行为(3 个):default 组合下 snapshot_encrypted = None
 //!      / StrongholdVault 不可用(stronghold_enabled() = false)
 //!      / reverse_payload 保留明文(向后兼容)
+//!      —— 仅"feature 关闭"组合下有意义,已加 `#[cfg(not(feature = "stronghold"))]`
+//!         逐个 gate(见各测试上方注释);有 feature 的组合由
+//!         w9_snapshot_encrypted_smoke.rs 覆盖
 //!   B. Taint 表空时 gateway 行为(2 个):空 taints 表 gateway 放行
 //!      / TaintRepo::find_by_value 查不存在 hash 返回 None
 //!   C. DAG Modify 占位行为(3 个):AutoApprover 不触发 Modify
@@ -23,22 +26,22 @@
 //! - 不调用真实 LLM / Tauri / Stronghold(feature 未启用)
 //! - 内省 audit_logs 表用 `conn.query_map` 直接 SQL
 //!
-//! 不写文件级 cfg gate,让 default 组合(--no-default-features)也能编译运行此文件。
+//! 不写文件级 cfg gate,让 default 组合(--no-default-features)也能编译运行此文件;
+//! 但 A 组 3 个强依赖"feature 关闭"语义的用例必须逐函数 gate,否则在
+//! `--features ...,stronghold` 组合下必然失败(曾因此连挂 2 个 job)。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use trust_kernel::approval::approver::{AutoApprover, Approver, DagApprovalOutcome};
+use trust_kernel::approval::approver::{Approver, AutoApprover, DagApprovalOutcome};
 use trust_kernel::compensation::types::{CompensationLevel, ConflictPolicy};
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::policy::types::{EgressDest, ELevel};
-use trust_kernel::skills::dag_executor::{topological_sort, DagExecutor};
+use trust_kernel::policy::types::{ELevel, EgressDest};
+use trust_kernel::skills::dag_executor::{DagExecutor, topological_sort};
 use trust_kernel::skills::dag_repo::DagRepo;
-use trust_kernel::skills::dag_types::{
-    DagNode, DagPlan, DagStatus, IterableSource, LoopSpec,
-};
+use trust_kernel::skills::dag_types::{DagNode, DagPlan, DagStatus, IterableSource, LoopSpec};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
 
 // ===== 辅助函数 =====
@@ -165,6 +168,10 @@ impl Approver for ModifyOnceThenAllowApprover {
 
 // ===== A. Stronghold feature off 行为(3 个)=====
 
+/// 仅在没有 stronghold feature 的组合下有意义:有 feature 时
+/// snapshot_encrypted 非空 + reverse_payload 为空列(见 persist_compensation_record)。
+/// 加了 gate,这个断言才不会在 `--features ...,stronghold` 组合下失败。
+#[cfg(not(feature = "stronghold"))]
 #[test]
 fn stronghold_feature_off_snapshot_encrypted_is_none() {
     // default 组合(无 stronghold feature)调用 create_post_commit_compensation,
@@ -176,9 +183,8 @@ fn stronghold_feature_off_snapshot_encrypted_is_none() {
     // 通过 DB 查询 compensations 表验证 snapshot_encrypted / reverse_payload。
     let (kernel, _task_id, step_id) = setup_kernel_with_step("a1");
 
-    let moved_paths: Vec<(PathBuf, PathBuf)> = vec![
-        (PathBuf::from("src/a.txt"), PathBuf::from("dst/a.txt")),
-    ];
+    let moved_paths: Vec<(PathBuf, PathBuf)> =
+        vec![(PathBuf::from("src/a.txt"), PathBuf::from("dst/a.txt"))];
     let comp_id = trust_kernel::skills::common::create_post_commit_compensation(
         &kernel,
         &step_id,
@@ -233,6 +239,9 @@ fn stronghold_feature_off_snapshot_encrypted_is_none() {
     );
 }
 
+/// stronghold feature 关闭时 `stronghold_enabled()` 恒 false;有 feature 时该
+/// 断言必然不成立,故 gate 掉(保持文件级"default 组合也能跑"的设计)。
+#[cfg(not(feature = "stronghold"))]
 #[test]
 fn stronghold_feature_off_degraded_vault_decrypt_returns_not_unlocked() {
     // default 组合下 stronghold feature 未启用,StrongholdVault 类型不存在
@@ -257,6 +266,8 @@ fn stronghold_feature_off_degraded_vault_decrypt_returns_not_unlocked() {
     );
 }
 
+/// 同上:只在无 stronghold feature 的组合下成立。
+#[cfg(not(feature = "stronghold"))]
 #[test]
 fn stronghold_feature_off_reverse_payload_keeps_plaintext() {
     // 反复调用 create_post_commit_compensation,验证所有记录的 reverse_payload
@@ -284,10 +295,7 @@ fn stronghold_feature_off_reverse_payload_keeps_plaintext() {
         .unwrap();
     let rows: Vec<(String, Option<Vec<u8>>)> = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<Vec<u8>>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<Vec<u8>>>(1)?))
         })
         .unwrap()
         .filter_map(|r| r.ok())
@@ -583,11 +591,7 @@ fn dag_status_running_to_succeeded_legal() {
     let from = DagStatus::Running;
     let to = DagStatus::Succeeded;
     let result = DagStatus::transition(&from, &to);
-    assert!(
-        result,
-        "Running → Succeeded must be legal, got {}",
-        result
-    );
+    assert!(result, "Running → Succeeded must be legal, got {}", result);
 }
 
 #[test]

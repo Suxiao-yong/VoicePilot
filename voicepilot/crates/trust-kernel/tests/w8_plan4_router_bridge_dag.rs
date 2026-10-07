@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::llm::client::LlmClient;
-use trust_kernel::voice::router_bridge::{route_text_with_dag, RouteOutcome};
+use trust_kernel::voice::router_bridge::{RouteOutcome, route_text_with_dag};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -106,7 +106,10 @@ async fn scenario_2_llm_disabled_returns_unmatched() {
         RouteOutcome::Unmatched { text } => {
             assert_eq!(text, "请讲解量子计算原理");
         }
-        other => panic!("LLM disabled should fall back to Unmatched, got {:?}", other),
+        other => panic!(
+            "LLM disabled should fall back to Unmatched, got {:?}",
+            other
+        ),
     }
 }
 
@@ -256,11 +259,7 @@ async fn scenario_7_llm_decompose_single_node_dag_returns_dag_plan() {
         .unwrap();
     match outcome {
         RouteOutcome::DagPlan(plan) => {
-            assert_eq!(
-                plan.nodes.len(),
-                1,
-                "single-node DAG is valid (spec §2.2)"
-            );
+            assert_eq!(plan.nodes.len(), 1, "single-node DAG is valid (spec §2.2)");
             assert_eq!(plan.nodes[0].skill_id, "files.organize");
         }
         other => panic!("expected DagPlan for single-node DAG, got {:?}", other),

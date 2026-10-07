@@ -2,7 +2,7 @@
 
 //! settings_commands 单元测试 —— get_settings/update_settings Tauri command 逻辑。
 
-use voicepilot_ui::settings_commands::{flatten_to_kv, merge_from_kv, SettingsView};
+use voicepilot_ui::settings_commands::{SettingsView, flatten_to_kv, merge_from_kv};
 
 #[test]
 fn settings_dto_default_has_sensible_values() {

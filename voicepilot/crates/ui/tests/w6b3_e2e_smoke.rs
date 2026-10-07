@@ -18,7 +18,7 @@ use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
 use voicepilot_ui::commands::{
-    organize_files, route_text, submit_approval, OrganizeInput, RouteTextResult,
+    OrganizeInput, RouteTextResult, organize_files, route_text, submit_approval,
 };
 use voicepilot_ui::state::AppState;
 
@@ -79,7 +79,10 @@ fn e2e_organize_files_with_auto_approver() {
     assert_eq!(content, "hello e2e");
 
     // 负面断言:src 文件应已移动走
-    assert!(!src_file.exists(), "src file should be moved away after organize");
+    assert!(
+        !src_file.exists(),
+        "src file should be moved away after organize"
+    );
 
     // 审计链验证:list_audit_recent 返回全局最近 N 条(此处 fresh DB 仅含本任务事件)。
     // 成功路径 8 个事件(参考 w6a_e2e_smoke.rs:52-60):
@@ -135,7 +138,9 @@ fn e2e_compute_diff_command_allowed() {
     );
     assert!(result.is_ok(), "err = {:?}", result.err());
     let diff = result.unwrap();
-    let diff_text = diff.diff_text.expect("diff_text should be Some for text files");
+    let diff_text = diff
+        .diff_text
+        .expect("diff_text should be Some for text files");
     assert!(
         diff_text.contains("+line2 modified"),
         "diff_text should contain '+line2 modified', got: {}",
@@ -155,7 +160,7 @@ fn e2e_is_voice_enabled_returns_false_without_feature() {
 #[cfg(not(feature = "voice"))]
 #[test]
 fn e2e_check_model_returns_disabled_without_feature() {
-    use voicepilot_ui::model_download_commands::{check_model_command, ModelStatus};
+    use voicepilot_ui::model_download_commands::{ModelStatus, check_model_command};
     let status = check_model_command();
     assert!(
         matches!(status, ModelStatus::Disabled),

@@ -7,9 +7,9 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::mcp::repo::{McpServerRecord, McpServerRepo};
 use crate::skills::manifest::{
-    files_organize_manifest, form_prepare_manifest, form_submit_manifest, research_save_manifest,
-    task_compensate_manifest, task_explain_manifest, task_repeat_verified_manifest,
-    SkillExecutionSpec, SkillManifest,
+    SkillExecutionSpec, SkillManifest, files_organize_manifest, form_prepare_manifest,
+    form_submit_manifest, research_save_manifest, task_compensate_manifest, task_explain_manifest,
+    task_repeat_verified_manifest,
 };
 // Daisy 移植 Skill 的 manifest 与各域模块同处（manifest.rs 只留旧 9 个）。
 use crate::skills::clip_ops::{
@@ -44,8 +44,8 @@ use crate::skills::web_ops::{
 };
 
 use super::types::{
-    resolve_execution_target, ExecutionTarget, ExtensionDescriptor, ExtensionSnapshot,
-    ExtensionSource,
+    ExecutionTarget, ExtensionDescriptor, ExtensionSnapshot, ExtensionSource,
+    resolve_execution_target,
 };
 
 #[derive(Debug, Clone)]

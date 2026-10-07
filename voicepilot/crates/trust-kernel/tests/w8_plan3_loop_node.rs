@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, Approver};
+use trust_kernel::approval::approver::{Approver, AutoApprover};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_executor::DagExecutor;
@@ -68,7 +68,11 @@ fn resolve_iterable_literal_returns_vec_of_strings() {
     };
     let plan = plan_with_loop(loop_spec);
     let result = executor.run(&plan, &[]);
-    assert!(result.is_ok(), "run should not error, got {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "run should not error, got {:?}",
+        result.err()
+    );
     let dag_result = result.unwrap();
     assert_eq!(dag_result.status, DagStatus::Succeeded);
 }
@@ -455,17 +459,10 @@ fn loop_node_succeeded_persists_to_dag_nodes() {
     let nodes = repo
         .list_nodes_by_plan(&conn, &plan.plan_id)
         .expect("list_nodes");
-    let n1 = nodes
-        .iter()
-        .find(|n| n.node_id == "n1")
-        .expect("n1 record");
+    let n1 = nodes.iter().find(|n| n.node_id == "n1").expect("n1 record");
     assert_eq!(n1.status, "succeeded");
-    assert!(
-        n1.output_json.is_some(),
-        "output_json should be populated"
-    );
-    let output: serde_json::Value =
-        serde_json::from_str(n1.output_json.as_ref().unwrap()).unwrap();
+    assert!(n1.output_json.is_some(), "output_json should be populated");
+    let output: serde_json::Value = serde_json::from_str(n1.output_json.as_ref().unwrap()).unwrap();
     assert!(output.is_array(), "output should be array");
     assert_eq!(
         output.as_array().unwrap().len(),
@@ -517,10 +514,7 @@ fn loop_node_failed_persists_to_dag_nodes() {
     let nodes = repo
         .list_nodes_by_plan(&conn, &plan.plan_id)
         .expect("list_nodes");
-    let n1 = nodes
-        .iter()
-        .find(|n| n.node_id == "n1")
-        .expect("n1 record");
+    let n1 = nodes.iter().find(|n| n.node_id == "n1").expect("n1 record");
     assert_eq!(n1.status, "failed");
     assert!(
         n1.error_message.is_some(),
@@ -557,10 +551,7 @@ fn loop_node_running_status_overwritten_by_terminal() {
     let nodes = repo
         .list_nodes_by_plan(&conn, &plan.plan_id)
         .expect("list_nodes");
-    let n1 = nodes
-        .iter()
-        .find(|n| n.node_id == "n1")
-        .expect("n1 record");
+    let n1 = nodes.iter().find(|n| n.node_id == "n1").expect("n1 record");
     assert_ne!(
         n1.status, "running",
         "status should be terminal, not running"

@@ -2,8 +2,11 @@
 # spec §六 Plan 3:rustdoc + typedoc → GitHub Pages
 #
 # 触发:
-#   push -> master:生成 rustdoc + typedoc,deploy 到 GitHub Pages
+#   push -> 主分支:生成 rustdoc + typedoc,deploy 到 GitHub Pages
 #   workflow_dispatch:手动重跑
+#
+# 分支名说明:见 ci.yml —— 仓库唯一远端分支 feat/realtime-snapshot-memory
+# 即默认分支,原来写死的 master 从未匹配上,本 workflow 一次都没跑过。
 #
 # 生成:
 #   - rustdoc:voicepilot/target/doc(workspace,no-deps)
@@ -14,7 +17,7 @@ name: docs
 
 on:
   push:
-    branches: [master]
+    branches: [feat/realtime-snapshot-memory]
     paths:
       - "voicepilot/crates/**/*.rs"
       - "voicepilot/crates/ui/web/src/**"

@@ -255,7 +255,7 @@ fn vad_ignores_speech_shorter_than_min_speech_ms() {
 
 use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::kernel::TrustKernel;
-use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+use trust_kernel::voice::router_bridge::{RouteOutcome, route_text};
 
 #[test]
 fn router_bridge_routes_files_organize_intent() {

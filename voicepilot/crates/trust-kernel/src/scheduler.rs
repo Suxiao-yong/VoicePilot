@@ -17,7 +17,7 @@
 use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::Arc;
 
 /// 调度 tick 间隔（秒级，到期精度 ±1s）。
@@ -129,7 +129,11 @@ fn parse_hhmm(s: &str) -> Option<(u32, u32)> {
     let s = s.replace("点", ":").replace("：", ":");
     let (h, m) = s.split_once(':')?;
     let hh: u32 = h.trim().parse().ok()?;
-    let mm: u32 = if m.trim().is_empty() { 0 } else { m.trim().parse().ok()? };
+    let mm: u32 = if m.trim().is_empty() {
+        0
+    } else {
+        m.trim().parse().ok()?
+    };
     Some((hh, mm))
 }
 
@@ -140,7 +144,10 @@ pub fn next_run_after(schedule: &Schedule, now_ms: i64) -> i64 {
             .checked_add(period_secs.checked_mul(1000).unwrap_or(i64::MAX))
             .unwrap_or(i64::MAX),
         Schedule::Daily { hh, mm } => {
-            let now = Utc.timestamp_millis_opt(now_ms).single().unwrap_or_else(Utc::now);
+            let now = Utc
+                .timestamp_millis_opt(now_ms)
+                .single()
+                .unwrap_or_else(Utc::now);
             // 本地时区的今日/明日 HH:mm。chrono Local 在 Windows 无 tzdata 依赖
             // （用系统 API），足够本用途；全 UTC 会让"每天早上八点"跑在错误钟点。
             let local_now: DateTime<chrono::Local> = now.into();
@@ -152,12 +159,13 @@ pub fn next_run_after(schedule: &Schedule, now_ms: i64) -> i64 {
             let target = match today_target {
                 Some(t) if t > local_now => t,
                 _ => {
-                    let tomorrow = local_now.date_naive().succ_opt().and_then(|d| {
-                        d.and_hms_opt(hh, mm, 0)
-                    });
-                    match tomorrow.and_then(|naive| {
-                        chrono::Local.from_local_datetime(&naive).single()
-                    }) {
+                    let tomorrow = local_now
+                        .date_naive()
+                        .succ_opt()
+                        .and_then(|d| d.and_hms_opt(hh, mm, 0));
+                    match tomorrow
+                        .and_then(|naive| chrono::Local.from_local_datetime(&naive).single())
+                    {
                         Some(t) => t,
                         // DST 缺口等极端情况：退化为 +24h（ponytail：边界兜底）。
                         None => local_now + chrono::Duration::hours(24),
@@ -228,8 +236,9 @@ pub fn create_job(
 }
 
 pub fn list_jobs(conn: &Connection) -> Result<Vec<AgentJob>> {
-    let mut stmt =
-        conn.prepare(&format!("SELECT {JOB_COLUMNS} FROM agent_jobs ORDER BY created_at_ms"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {JOB_COLUMNS} FROM agent_jobs ORDER BY created_at_ms"
+    ))?;
     let rows = stmt.query_map([], row_to_job)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(Into::into)
@@ -245,8 +254,9 @@ pub fn set_job_enabled(conn: &Connection, job_id: &str, enabled: bool) -> Result
 }
 
 pub fn get_job(conn: &Connection, job_id: &str) -> Result<Option<AgentJob>> {
-    let mut stmt =
-        conn.prepare(&format!("SELECT {JOB_COLUMNS} FROM agent_jobs WHERE job_id = ?1"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {JOB_COLUMNS} FROM agent_jobs WHERE job_id = ?1"
+    ))?;
     stmt.query_row(params![job_id], row_to_job)
         .optional()
         .map_err(Into::into)
@@ -364,46 +374,44 @@ pub type NotifyFn = Arc<dyn Fn(&AgentJob, &JobRun) + Send + Sync>;
 /// - `Routed` / `Unmatched` / `Empty` → 记录原样（需交互的作业转人工）。
 async fn execute_job(kernel: &Arc<TrustKernel>, job: &AgentJob) -> JobRun {
     let started = chrono::Utc::now().timestamp_millis();
-    let (outcome, result) = match crate::route_bridge::route_text_with_dag(kernel, &job.prompt).await
-    {
-        Ok(crate::route_bridge::RouteOutcome::Chat { text }) => ("chat".to_string(), text),
-        #[cfg(feature = "llm")]
-        Ok(crate::route_bridge::RouteOutcome::DagPlan(dag)) => {
-            // 阻塞执行放 spawn_blocking，避免卡 tokio runtime。
-            let kernel = kernel.clone();
-            let res = tokio::task::spawn_blocking(move || {
-                let approver: Arc<dyn crate::approval::approver::Approver> =
-                    Arc::new(crate::approval::approver::AutoDenier);
-                let executor = crate::skills::dag_executor::DagExecutor::new(
-                    kernel,
-                    approver,
-                    Arc::new(crate::skills::dag_repo::DagRepo::new()),
-                );
-                executor.run(&dag, &[])
-            })
-            .await;
-            match res {
-                Ok(Ok(dag_result)) => {
-                    let status = dag_result.status.as_str().to_string();
-                    let summary = summarize_dag_result(&dag_result);
-                    (status, summary)
+    let (outcome, result) =
+        match crate::route_bridge::route_text_with_dag(kernel, &job.prompt).await {
+            Ok(crate::route_bridge::RouteOutcome::Chat { text }) => ("chat".to_string(), text),
+            #[cfg(feature = "llm")]
+            Ok(crate::route_bridge::RouteOutcome::DagPlan(dag)) => {
+                // 阻塞执行放 spawn_blocking，避免卡 tokio runtime。
+                let kernel = kernel.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    let approver: Arc<dyn crate::approval::approver::Approver> =
+                        Arc::new(crate::approval::approver::AutoDenier);
+                    let executor = crate::skills::dag_executor::DagExecutor::new(
+                        kernel,
+                        approver,
+                        Arc::new(crate::skills::dag_repo::DagRepo::new()),
+                    );
+                    executor.run(&dag, &[])
+                })
+                .await;
+                match res {
+                    Ok(Ok(dag_result)) => {
+                        let status = dag_result.status.as_str().to_string();
+                        let summary = summarize_dag_result(&dag_result);
+                        (status, summary)
+                    }
+                    Ok(Err(e)) => ("failed".to_string(), format!("dag execute error: {e}")),
+                    Err(e) => ("failed".to_string(), format!("spawn_blocking: {e}")),
                 }
-                Ok(Err(e)) => ("failed".to_string(), format!("dag execute error: {e}")),
-                Err(e) => ("failed".to_string(), format!("spawn_blocking: {e}")),
             }
-        }
-        Ok(crate::route_bridge::RouteOutcome::Routed { skill_id }) => (
-            "routed".to_string(),
-            format!("命中技能 {skill_id}，需交互式执行（转人工确认卡）"),
-        ),
-        Ok(crate::route_bridge::RouteOutcome::Unmatched { text }) => {
-            ("unmatched".to_string(), text)
-        }
-        Ok(crate::route_bridge::RouteOutcome::Empty) => {
-            ("empty".to_string(), String::new())
-        }
-        Err(e) => ("failed".to_string(), e.to_string()),
-    };
+            Ok(crate::route_bridge::RouteOutcome::Routed { skill_id }) => (
+                "routed".to_string(),
+                format!("命中技能 {skill_id}，需交互式执行（转人工确认卡）"),
+            ),
+            Ok(crate::route_bridge::RouteOutcome::Unmatched { text }) => {
+                ("unmatched".to_string(), text)
+            }
+            Ok(crate::route_bridge::RouteOutcome::Empty) => ("empty".to_string(), String::new()),
+            Err(e) => ("failed".to_string(), e.to_string()),
+        };
     let finished = chrono::Utc::now().timestamp_millis();
     JobRun {
         run_id: String::new(), // 由 record_run 填
@@ -478,10 +486,7 @@ pub async fn run_due_jobs_once(kernel: &Arc<TrustKernel>, notify: &NotifyFn) -> 
 /// 独立线程 + current-thread runtime（`crate::planner::block_on_planner` 同构）：
 /// Tauri `setup` 等无 runtime 上下文处直接 `tokio::spawn` 会 panic
 ///（"there is no reactor running"），自带线程则处处可调。
-pub fn spawn_scheduler(
-    kernel: Arc<TrustKernel>,
-    notify: NotifyFn,
-) -> std::thread::JoinHandle<()> {
+pub fn spawn_scheduler(kernel: Arc<TrustKernel>, notify: NotifyFn) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -721,7 +726,10 @@ pub fn execute_task_jobs(kernel: &TrustKernel, _task_id: &str, _step_id: &str) -
             j.prompt.chars().take(80).collect::<String>(),
             j.next_run_at_ms
                 .map(|ms| chrono::DateTime::<Utc>::from_timestamp_millis(ms)
-                    .map(|d| d.with_timezone(&chrono::Local).format("%m-%d %H:%M").to_string())
+                    .map(|d| d
+                        .with_timezone(&chrono::Local)
+                        .format("%m-%d %H:%M")
+                        .to_string())
                     .unwrap_or_else(|| "?".to_string()))
                 .unwrap_or_else(|| "?".to_string()),
         ));
@@ -745,9 +753,7 @@ pub fn execute_task_unschedule(
     if set_job_enabled(&conn, &job_id, false)? {
         Ok(format!("已停用定时任务 {job_id}。"))
     } else {
-        Err(KernelError::Skill(format!(
-            "定时任务 {job_id} 不存在"
-        )))
+        Err(KernelError::Skill(format!("定时任务 {job_id} 不存在")))
     }
 }
 
@@ -755,7 +761,7 @@ pub fn execute_task_unschedule(
 mod tests {
     use super::*;
     use crate::db::run_migrations;
-use chrono::Timelike;
+    use chrono::Timelike;
 
     fn migrated() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -831,7 +837,11 @@ use chrono::Timelike;
             },
             now,
         );
-        assert_eq!(huge, i64::MAX, "huge period must saturate, not wrap negative");
+        assert_eq!(
+            huge,
+            i64::MAX,
+            "huge period must saturate, not wrap negative"
+        );
         // 合法边界：period*1000 仍在范围内 → 正常未来时刻。
         let ok = next_run_after(&Schedule::EveryN { period_secs: 60 }, now);
         assert_eq!(ok, now + 60_000);
@@ -849,7 +859,10 @@ use chrono::Timelike;
         let target_min = next_local.hour() * 60 + next_local.minute();
         let expected_min = 3 * 60 + 15;
         let diff = (target_min as i32 - expected_min as i32).abs();
-        assert!(diff <= 1, "daily next should hit 03:15 local, got {next_local}");
+        assert!(
+            diff <= 1,
+            "daily next should hit 03:15 local, got {next_local}"
+        );
         // 距离不超过 24h。
         assert!(next - now <= 25 * 3600_000);
     }
@@ -864,12 +877,19 @@ use chrono::Timelike;
         let due = claim_due_jobs(&conn, now + 3_600_001).unwrap();
         assert_eq!(due.len(), 1);
         let j1 = get_job(&conn, "j1").unwrap().unwrap();
-        assert!(j1.next_run_at_ms.unwrap() > now + 3_600_001, "claimed job advances");
+        assert!(
+            j1.next_run_at_ms.unwrap() > now + 3_600_001,
+            "claimed job advances"
+        );
         // 未到期不再领取（claim-then-run 防重复）。
         assert!(claim_due_jobs(&conn, now + 3_600_002).unwrap().is_empty());
         // 停用后不领取。
         set_job_enabled(&conn, "j1", false).unwrap();
-        assert!(claim_due_jobs(&conn, now + 99 * 3_600_000).unwrap().is_empty());
+        assert!(
+            claim_due_jobs(&conn, now + 99 * 3_600_000)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -881,7 +901,10 @@ use chrono::Timelike;
         let due = claim_due_jobs(&conn, now + 600_000).unwrap();
         assert_eq!(due.len(), 1);
         let j1 = get_job(&conn, "j1").unwrap().unwrap();
-        assert!(j1.next_run_at_ms.unwrap() > now + 600_000, "resume from now, no backfill");
+        assert!(
+            j1.next_run_at_ms.unwrap() > now + 600_000,
+            "resume from now, no backfill"
+        );
     }
 
     #[test]

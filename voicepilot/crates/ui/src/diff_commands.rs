@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 use tauri::State;
-use trust_kernel::tools::diff::{compute_file_diff, DiffResult};
+use trust_kernel::tools::diff::{DiffResult, compute_file_diff};
 
 use crate::error::UiError;
 use crate::state::AppState;
@@ -33,14 +33,8 @@ pub fn compute_diff_impl(
 
     // 通过 FilesystemTool 走 allowed_paths 检查(沿用 §6.1 安全模型)
     // assert_path_allowed 返 KernelError,通过 #[from] 自动转 UiError::Kernel
-    state
-        .kernel
-        .filesystem()
-        .assert_path_allowed(&src)?;
-    state
-        .kernel
-        .filesystem()
-        .assert_path_allowed(&dst)?;
+    state.kernel.filesystem().assert_path_allowed(&src)?;
+    state.kernel.filesystem().assert_path_allowed(&dst)?;
 
     let result = compute_file_diff(&src, &dst)?;
     Ok(result)

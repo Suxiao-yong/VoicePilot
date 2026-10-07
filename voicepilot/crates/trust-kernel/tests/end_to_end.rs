@@ -16,7 +16,9 @@ fn text_command_flows_through_state_machine_with_audit() {
     // 2. Listen → Plan → Await approval (text input simulates voice transcript)
     kernel.transition(&task_id, TaskState::Listening).unwrap();
     kernel.transition(&task_id, TaskState::Planning).unwrap();
-    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+    kernel
+        .transition(&task_id, TaskState::AwaitingApproval)
+        .unwrap();
 
     // 3. User approves (in W1: auto-approve for text commands; real approval UI in W2+)
     kernel.transition(&task_id, TaskState::Executing).unwrap();
@@ -45,7 +47,10 @@ fn illegal_transition_returns_error() {
 
     // IDLE → EXECUTING is illegal (must go through PLANNING → AWAITING_APPROVAL)
     let result = kernel.transition(&task_id, TaskState::Executing);
-    assert!(result.is_err(), "transition IDLE → EXECUTING must be rejected");
+    assert!(
+        result.is_err(),
+        "transition IDLE → EXECUTING must be rejected"
+    );
 }
 
 #[test]
@@ -55,7 +60,9 @@ fn kill_switch_cancels_from_executing() {
     kernel.create_task(&task_id, "goal").unwrap();
     kernel.transition(&task_id, TaskState::Listening).unwrap();
     kernel.transition(&task_id, TaskState::Planning).unwrap();
-    kernel.transition(&task_id, TaskState::AwaitingApproval).unwrap();
+    kernel
+        .transition(&task_id, TaskState::AwaitingApproval)
+        .unwrap();
     kernel.transition(&task_id, TaskState::Executing).unwrap();
 
     kernel.transition(&task_id, TaskState::Cancelled).unwrap();

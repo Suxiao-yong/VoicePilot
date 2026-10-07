@@ -17,8 +17,7 @@ use std::str;
 /// target 目录在 workspace root = voicepilot/
 /// 所以路径 = cli/../../target/debug/voicepilot.exe(上溯两级)
 fn voicepilot_bin() -> std::path::PathBuf {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     std::path::Path::new(&manifest_dir)
         .join("..")
         .join("..")
@@ -50,7 +49,10 @@ fn eval_subcommand_returns_valid_json_for_unknown_intent() {
     assert_eq!(v["transcript"], "totally unknown intent");
     assert!(v.get("skill_id").is_some(), "missing skill_id");
     assert!(v.get("risk_level").is_some(), "missing risk_level");
-    assert!(v.get("approval_decision").is_some(), "missing approval_decision");
+    assert!(
+        v.get("approval_decision").is_some(),
+        "missing approval_decision"
+    );
     assert!(v.get("commit_status").is_some(), "missing commit_status");
     assert!(v.get("blocked").is_some(), "missing blocked");
     assert!(v.get("block_reason").is_some(), "missing block_reason");
@@ -71,7 +73,11 @@ fn eval_subcommand_routes_files_organize_keyword() {
         .output()
         .expect("failed to run voicepilot eval");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = str::from_utf8(&output.stdout).expect("stdout not utf8");
     let v: serde_json::Value = serde_json::from_str(stdout).expect("stdout not valid JSON");
 
@@ -92,13 +98,20 @@ fn eval_subcommand_invalid_json_returns_error() {
     // 非 0 退出码
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("invalid JSON") || stderr.contains("parse"), "stderr: {}", stderr);
+    assert!(
+        stderr.contains("invalid JSON") || stderr.contains("parse"),
+        "stderr: {}",
+        stderr
+    );
 }
 
 // ===== W11 Plan 2: red team 恶意输入拦截(JSON 契约)=====
 
 fn run_eval(transcript: &str) -> serde_json::Value {
-    let input = format!(r#"{{"transcript":{},"mode":"auto"}}"#, serde_json::to_string(transcript).unwrap());
+    let input = format!(
+        r#"{{"transcript":{},"mode":"auto"}}"#,
+        serde_json::to_string(transcript).unwrap()
+    );
     let output = Command::new(voicepilot_bin())
         .args(["eval", "--input", &input])
         .env("VOICEPILOT_DB", ":memory:")
@@ -123,9 +136,13 @@ fn eval_subcommand_blocks_pii_attack() {
     assert_eq!(v["commit_status"], "aborted");
     assert_eq!(v["approval_decision"], "deny");
     // audit_trace 含 malicious_intent_detected 事件
-    let trace = v["audit_trace"].as_array().expect("audit_trace must be array");
+    let trace = v["audit_trace"]
+        .as_array()
+        .expect("audit_trace must be array");
     assert!(
-        trace.iter().any(|e| e["event_type"] == "malicious_intent_detected"),
+        trace
+            .iter()
+            .any(|e| e["event_type"] == "malicious_intent_detected"),
         "audit_trace must contain malicious_intent_detected"
     );
 }

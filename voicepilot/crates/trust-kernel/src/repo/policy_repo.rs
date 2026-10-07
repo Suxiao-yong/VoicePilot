@@ -1,7 +1,7 @@
 //! Policy repository — CRUD against SQLite `policies` table.
 
 use crate::error::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,16 +60,36 @@ impl PolicyRepo {
             let cedar_schema: Option<String> = r.get(6)?;
             let rust_constraints: Option<String> = r.get(7)?;
             Ok((
-                policy_id, version, rules_json, hash, enabled,
-                cedar_policies, cedar_schema, rust_constraints,
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
             ))
         })?;
         if let Some(row_result) = rows.next() {
-            let (policy_id, version, rules_json, hash, enabled,
-                 cedar_policies, cedar_schema, rust_constraints) = row_result?;
+            let (
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
+            ) = row_result?;
             Ok(Some(PolicyRecord {
-                policy_id, version, rules_json, hash, enabled: enabled != 0,
-                cedar_policies, cedar_schema, rust_constraints,
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled: enabled != 0,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
             }))
         } else {
             Ok(None)
@@ -92,17 +112,37 @@ impl PolicyRepo {
             let cedar_schema: Option<String> = r.get(6)?;
             let rust_constraints: Option<String> = r.get(7)?;
             Ok((
-                policy_id, version, rules_json, hash, enabled,
-                cedar_policies, cedar_schema, rust_constraints,
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
             ))
         })?;
         let mut out = Vec::new();
         for row_result in rows {
-            let (policy_id, version, rules_json, hash, enabled,
-                 cedar_policies, cedar_schema, rust_constraints) = row_result?;
+            let (
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
+            ) = row_result?;
             out.push(PolicyRecord {
-                policy_id, version, rules_json, hash, enabled: enabled != 0,
-                cedar_policies, cedar_schema, rust_constraints,
+                policy_id,
+                version,
+                rules_json,
+                hash,
+                enabled: enabled != 0,
+                cedar_policies,
+                cedar_schema,
+                rust_constraints,
             });
         }
         Ok(out)

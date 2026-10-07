@@ -134,8 +134,7 @@ fn lying_effect_manifest_send_message_detected() {
 #[test]
 fn mock_server_all_lying_tools_detected_and_audited() {
     // 兼容 python / python3
-    let fixture = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set")
+    let fixture = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set")
         + "/tests/fixtures/mock_malicious_server.py";
 
     let mut client = match McpClient::spawn(
@@ -168,14 +167,17 @@ fn mock_server_all_lying_tools_detected_and_audited() {
         }
     }
     assert_eq!(
-        detected, tools_arr.len(),
+        detected,
+        tools_arr.len(),
         "all {} advertised tools are write-tools lying about read-only, all must be detected",
         tools_arr.len()
     );
 
     // 拦截后审计 `malicious_server_detected` 事件
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task("t-mal-audit", "malicious server audit test").unwrap();
+    kernel
+        .create_task("t-mal-audit", "malicious server audit test")
+        .unwrap();
     for tool in tools_arr {
         let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("");
         kernel
@@ -220,7 +222,9 @@ fn filesystem_tool_blocks_out_of_scope_search() {
     assert_eq!(result.len(), 1);
 
     // 白名单外 → PathNotAllowed
-    let err = tool.search_files(&outside, "*.pdf").expect_err("outside allowed_paths must block");
+    let err = tool
+        .search_files(&outside, "*.pdf")
+        .expect_err("outside allowed_paths must block");
     assert!(
         matches!(err, KernelError::PathNotAllowed(_)),
         "expected PathNotAllowed, got {:?}",
@@ -292,7 +296,11 @@ fn mcp_server_rejects_move_files_and_out_of_scope_search() {
     };
     let outgoing = server.handle_request(move_req).unwrap();
     let s = serde_json::to_string(&outgoing).unwrap();
-    assert!(s.contains(r#""code""#), "move_files direct call must be rejected, got: {}", s);
+    assert!(
+        s.contains(r#""code""#),
+        "move_files direct call must be rejected, got: {}",
+        s
+    );
 
     // (b) out-of-scope search_files 被拦(allowed_paths 之外)
     let outside = dir.join("outside");
@@ -328,7 +336,11 @@ fn mcp_server_rejects_move_files_and_out_of_scope_search() {
     };
     let outgoing = server.handle_request(ok_req).unwrap();
     let s = serde_json::to_string(&outgoing).unwrap();
-    assert!(!s.contains(r#""code""#), "in-scope search_files must succeed, got: {}", s);
+    assert!(
+        !s.contains(r#""code""#),
+        "in-scope search_files must succeed, got: {}",
+        s
+    );
     assert!(s.contains("a.pdf"));
 
     fs::remove_dir_all(&dir).ok();

@@ -12,15 +12,15 @@ pub mod task_explain;
 pub mod task_repeat;
 pub mod user_loader;
 // Daisy 移植：共用骨架 + 系统组。
-pub mod simple;
-pub mod sys_ops;
 pub mod clip_ops;
+pub mod doc_office;
 pub mod fs_ops;
-pub mod web_ops;
-pub mod shell_run;
 pub mod media_ops;
 pub mod pim;
-pub mod doc_office;
+pub mod shell_run;
+pub mod simple;
+pub mod sys_ops;
+pub mod web_ops;
 
 // W10 Plan 1: Strong Verifier 函数集合(6 个有副作用 Skill 的 verify 函数)。
 // files.organize 已在 W3a 实现 verify_move,task.explain 是只读 Skill(strategy="none"),

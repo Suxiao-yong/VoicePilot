@@ -49,5 +49,9 @@ fn compute_diff_command_blocked_path() {
     );
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("path") || err_msg.contains("not allowed"), "err = {}", err_msg);
+    assert!(
+        err_msg.contains("path") || err_msg.contains("not allowed"),
+        "err = {}",
+        err_msg
+    );
 }

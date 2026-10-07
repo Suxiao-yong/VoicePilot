@@ -39,7 +39,11 @@ fn server_initialize_returns_protocol_2025_11_25_and_capabilities() {
     let outgoing = server.handle_request(req).unwrap();
     let s = serde_json::to_string(&outgoing).unwrap();
     // Must be a Response (not Error).
-    assert!(!s.contains(r#""code""#), "initialize must succeed, got: {}", s);
+    assert!(
+        !s.contains(r#""code""#),
+        "initialize must succeed, got: {}",
+        s
+    );
     assert!(s.contains(r#""protocolVersion":"2025-11-25""#));
     // Must advertise tools capability.
     assert!(s.contains(r#""tools""#));
@@ -90,7 +94,11 @@ fn server_tools_call_dispatches_search_files() {
     };
     let outgoing = server.handle_request(req).unwrap();
     let s = serde_json::to_string(&outgoing).unwrap();
-    assert!(!s.contains(r#""code""#), "tools/call search_files must succeed: {}", s);
+    assert!(
+        !s.contains(r#""code""#),
+        "tools/call search_files must succeed: {}",
+        s
+    );
     assert!(s.contains("a.pdf"));
 
     fs::remove_dir_all(&dir).ok();
@@ -199,7 +207,10 @@ fn run_stdio_skips_notifications() {
     let mut writer = Vec::new();
 
     server.run_stdio(reader, &mut writer).unwrap();
-    assert!(writer.is_empty(), "notification must not produce a response");
+    assert!(
+        writer.is_empty(),
+        "notification must not produce a response"
+    );
 }
 
 #[test]
@@ -219,7 +230,10 @@ fn run_stdio_continues_after_parse_error() {
     // Parse error response for the bad line, then tools/list response.
     let lines: Vec<&str> = output.lines().collect();
     assert!(lines.len() >= 2);
-    assert!(lines[0].contains(r#""code":-32700"#), "first must be parse error");
+    assert!(
+        lines[0].contains(r#""code":-32700"#),
+        "first must be parse error"
+    );
     assert!(lines[1].contains(r#""filesystem.search_files""#));
 }
 

@@ -7,7 +7,7 @@
 //! kernel so that audit events see the same DB state as task/step writes.
 
 use crate::error::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 

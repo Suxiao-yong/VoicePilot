@@ -63,7 +63,8 @@ fn kernel_step_lifecycle_persists_prepare_and_post_commit() {
     assert!(loaded.effect_manifest.is_some());
 
     // Update post-commit state.
-    k.update_step_post_commit("s1", "strong", Some("c1")).unwrap();
+    k.update_step_post_commit("s1", "strong", Some("c1"))
+        .unwrap();
     let loaded = k.get_step("s1").unwrap().unwrap();
     assert_eq!(loaded.evidence_strength.as_deref(), Some("strong"));
     assert_eq!(loaded.compensation_ref.as_deref(), Some("c1"));
@@ -165,14 +166,19 @@ fn kernel_audit_append_external_rejects_unknown_task() {
 
 #[test]
 fn kernel_replace_filesystem_enforces_allowed_paths() {
-    use trust_kernel::allowed_paths::AllowedPaths;
     use std::path::Path;
+    use trust_kernel::allowed_paths::AllowedPaths;
 
     let k = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
     let allowed = AllowedPaths::new(vec!["C:/Users".to_string()]);
     k.replace_filesystem_with_allowed_paths(allowed);
 
     // Path outside whitelist must be rejected.
-    let result = k.filesystem().search_files(Path::new("E:/elsewhere"), "*.pdf");
-    assert!(result.is_err(), "search_files outside allowed_paths must fail");
+    let result = k
+        .filesystem()
+        .search_files(Path::new("E:/elsewhere"), "*.pdf");
+    assert!(
+        result.is_err(),
+        "search_files outside allowed_paths must fail"
+    );
 }

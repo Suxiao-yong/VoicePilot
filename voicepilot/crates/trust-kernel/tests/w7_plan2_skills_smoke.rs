@@ -19,15 +19,12 @@ use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::repo::step_repo::{StepRecord, StepStatus};
 use trust_kernel::skills::executor::{FilesOrganizeInput, FilesOrganizeSkill};
-use trust_kernel::skills::task_compensate::{execute_compensate, TaskCompensateInput};
-use trust_kernel::skills::task_explain::{execute_explain, TaskExplainInput};
-use trust_kernel::skills::task_repeat::{execute_repeat_verified, TaskRepeatVerifiedInput};
+use trust_kernel::skills::task_compensate::{TaskCompensateInput, execute_compensate};
+use trust_kernel::skills::task_explain::{TaskExplainInput, execute_explain};
+use trust_kernel::skills::task_repeat::{TaskRepeatVerifiedInput, execute_repeat_verified};
 
 fn tmp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "voicepilot-w7p2-smoke-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("voicepilot-w7p2-smoke-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -200,8 +197,8 @@ fn e2e_explain_reads_audit_log_after_multiple_operations() {
         step_id: step_explain_id.clone(),
         limit: 10,
     };
-    let result = execute_explain(&kernel, &input, approver.as_ref())
-        .expect("task.explain must succeed");
+    let result =
+        execute_explain(&kernel, &input, approver.as_ref()).expect("task.explain must succeed");
     assert_eq!(result, task_explain_id);
 
     // Explain step: Succeeded with weak evidence (read-only).

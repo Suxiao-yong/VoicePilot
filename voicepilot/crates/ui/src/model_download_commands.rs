@@ -9,7 +9,7 @@ use tauri::AppHandle;
 use tauri::Emitter;
 #[cfg(feature = "voice")]
 use trust_kernel::voice::model_download::{
-    default_model_info, download_model, model_state, models_dir, DownloadProgress,
+    DownloadProgress, default_model_info, download_model, model_state, models_dir,
 };
 
 /// 模型状态(前端 ModelDownloadBar 用)。
@@ -57,7 +57,9 @@ pub fn check_model_command() -> ModelStatus {
             }
             Ok(trust_kernel::voice::model_download::ModelState::Missing) => ModelStatus::Missing,
             Ok(trust_kernel::voice::model_download::ModelState::Disabled) => ModelStatus::Disabled,
-            Ok(trust_kernel::voice::model_download::ModelState::Verifying) => ModelStatus::Verifying,
+            Ok(trust_kernel::voice::model_download::ModelState::Verifying) => {
+                ModelStatus::Verifying
+            }
             Ok(trust_kernel::voice::model_download::ModelState::Failed) => ModelStatus::Failed,
             Err(_) => ModelStatus::Missing,
         }

@@ -76,7 +76,8 @@ fn open_kernel_with_mcp_skill(
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
     let skill_path = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent")).expect("create skill dir");
+    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent"))
+        .expect("create skill dir");
     fs::write(
         &skill_path,
         mcp_tool_skill_md(skill_id, server_id, tool_name),
@@ -177,11 +178,13 @@ fn dispatch_rejects_disabled_extension_direct_call() {
         snapshot.resolve_candidate(&skill_id).is_none(),
         "disabled Skill must not be a planner candidate"
     );
-    assert!(snapshot
-        .resolve_execution_target(&skill_id)
-        .expect_err("disabled Skill must not resolve an execution target")
-        .to_string()
-        .contains("disabled"));
+    assert!(
+        snapshot
+            .resolve_execution_target(&skill_id)
+            .expect_err("disabled Skill must not resolve an execution target")
+            .to_string()
+            .contains("disabled")
+    );
 
     let result = dispatch_skill_executor(
         &skill_id,
@@ -208,10 +211,8 @@ fn dispatch_rejects_display_only_extension_before_executor_runs() {
     fs::create_dir_all(&skills_dir).expect("create temporary user Skills directory");
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
-    std::fs::create_dir_all(
-        skills_dir.join(format!("{skill_id}")).as_path(),
-    )
-    .expect("create skill dir");
+    std::fs::create_dir_all(skills_dir.join(format!("{skill_id}")).as_path())
+        .expect("create skill dir");
     fs::write(
         skills_dir.join(format!("{skill_id}/SKILL.md")),
         display_only_skill_md(&skill_id),
@@ -226,11 +227,13 @@ fn dispatch_rejects_display_only_extension_before_executor_runs() {
         snapshot.resolve_candidate(&skill_id).is_none(),
         "display-only Skill must not be an execution candidate"
     );
-    assert!(snapshot
-        .resolve_execution_target(&skill_id)
-        .expect_err("display-only Skill must not resolve an execution target")
-        .to_string()
-        .contains("has no execution target"));
+    assert!(
+        snapshot
+            .resolve_execution_target(&skill_id)
+            .expect_err("display-only Skill must not resolve an execution target")
+            .to_string()
+            .contains("has no execution target")
+    );
 
     let result = dispatch_skill_executor(
         &skill_id,
@@ -331,7 +334,9 @@ fn builtin_dispatch_audit_details_include_extension_metadata() {
         "builtin dispatch must carry source=builtin, got: {extension}"
     );
     assert_eq!(
-        extension.get("snapshot_id").and_then(|value| value.as_str()),
+        extension
+            .get("snapshot_id")
+            .and_then(|value| value.as_str()),
         Some(snapshot_id.as_str()),
         "details must carry the catalog snapshot_id, got: {extension}"
     );

@@ -1,7 +1,5 @@
 use trust_kernel::policy::types::{DLevel, ELevel};
-use trust_kernel::skills::manifest::{
-    files_organize_manifest, ApprovalMode, SkillInputType,
-};
+use trust_kernel::skills::manifest::{ApprovalMode, SkillInputType, files_organize_manifest};
 
 #[test]
 fn files_organize_manifest_has_correct_metadata() {
@@ -39,7 +37,10 @@ fn files_organize_manifest_uses_batch_once_approval() {
 #[test]
 fn files_organize_manifest_declares_strong_compensation() {
     let m = files_organize_manifest();
-    assert_eq!(m.compensation.level, trust_kernel::compensation::types::CompensationLevel::Strong);
+    assert_eq!(
+        m.compensation.level,
+        trust_kernel::compensation::types::CompensationLevel::Strong
+    );
     assert_eq!(m.compensation.ttl_seconds, 3600);
     assert_eq!(
         m.compensation.conflict_policy,
@@ -54,7 +55,10 @@ fn files_organize_manifest_declares_inputs_with_allowed_roots() {
     assert_eq!(source.input_type, SkillInputType::Directory);
     assert!(!source.allowed_roots.is_empty());
 
-    let dest = m.inputs.get("destination").expect("destination input required");
+    let dest = m
+        .inputs
+        .get("destination")
+        .expect("destination input required");
     assert_eq!(dest.input_type, SkillInputType::Directory);
     assert!(!dest.allowed_roots.is_empty());
 

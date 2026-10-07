@@ -324,9 +324,9 @@ mod tests {
     #[cfg(feature = "llm")]
     #[test]
     fn route_decision_dag_variant_constructs_and_matches() {
+        use crate::policy::types::ELevel;
         use crate::skills::dag_types::{DagNode, DagPlan};
         use crate::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
-        use crate::policy::types::ELevel;
         use std::collections::HashMap;
 
         let node = DagNode {
@@ -375,7 +375,11 @@ mod tests {
 pub fn match_site_search(text: &str) -> Option<String> {
     // (别名组, 搜索 URL 模板{q}, 站点首页)。首页用于无 query 的裸打开。
     const SITES: &[(&[&str], &str, &str)] = &[
-        (&["抖音"], "https://www.douyin.com/search/{q}", "https://www.douyin.com/"),
+        (
+            &["抖音"],
+            "https://www.douyin.com/search/{q}",
+            "https://www.douyin.com/",
+        ),
         (
             &["哔哩哔哩", "b站", "bilibili"],
             "https://search.bilibili.com/all?keyword={q}",
@@ -516,7 +520,10 @@ pub fn match_site_search(text: &str) -> Option<String> {
 pub fn match_site_home(text: &str) -> Option<String> {
     const HOME_ONLY: &[(&[&str], &str)] = &[
         (&["视频号", "微信视频号"], "https://channels.weixin.qq.com/"),
-        (&["红果", "红果短剧", "红果免费短剧"], "https://www.hongguoduanju.com/"),
+        (
+            &["红果", "红果短剧", "红果免费短剧"],
+            "https://www.hongguoduanju.com/",
+        ),
         (&["河马剧场", "河马短剧"], "https://www.kuaikaw.cn/"),
         (&["kimi"], "https://kimi.moonshot.cn/"),
         (&["豆包", "doubao"], "https://www.doubao.com/"),
@@ -528,7 +535,10 @@ pub fn match_site_home(text: &str) -> Option<String> {
     }
     let tl = t.to_lowercase();
     // 打开类动词是必要条件（"我爱B站"不触发）。
-    if !["打开", "启动", "进入", "访问", "上", "开"].iter().any(|v| tl.contains(v)) {
+    if !["打开", "启动", "进入", "访问", "上", "开"]
+        .iter()
+        .any(|v| tl.contains(v))
+    {
         return None;
     }
     for (aliases, home) in HOME_ONLY {
@@ -549,7 +559,10 @@ mod site_search_tests {
         assert!(url.starts_with("https://www.douyin.com/search/"), "{url}");
         assert!(!url.contains("世界杯"), "{url}");
         let url = match_site_search("在B站搜猫meme").unwrap();
-        assert!(url.starts_with("https://search.bilibili.com/all?keyword="), "{url}");
+        assert!(
+            url.starts_with("https://search.bilibili.com/all?keyword="),
+            "{url}"
+        );
     }
 
     #[test]
@@ -562,25 +575,35 @@ mod site_search_tests {
 
     #[test]
     fn site_search_covers_xiaohongshu_zhihu_taobao() {
-        assert!(match_site_search("小红书搜露营装备")
-            .unwrap()
-            .starts_with("https://www.xiaohongshu.com/"));
-        assert!(match_site_search("知乎搜RAG")
-            .unwrap()
-            .contains("zhihu.com"));
-        assert!(match_site_search("淘宝搜机械键盘")
-            .unwrap()
-            .contains("taobao.com"));
+        assert!(
+            match_site_search("小红书搜露营装备")
+                .unwrap()
+                .starts_with("https://www.xiaohongshu.com/")
+        );
+        assert!(
+            match_site_search("知乎搜RAG")
+                .unwrap()
+                .contains("zhihu.com")
+        );
+        assert!(
+            match_site_search("淘宝搜机械键盘")
+                .unwrap()
+                .contains("taobao.com")
+        );
     }
 
     #[test]
     fn site_search_covers_english_providers() {
-        assert!(match_site_search("github搜tauri")
-            .unwrap()
-            .starts_with("https://github.com/search?"));
-        assert!(match_site_search("在B站搜猫meme")
-            .unwrap()
-            .starts_with("https://search.bilibili.com/"));
+        assert!(
+            match_site_search("github搜tauri")
+                .unwrap()
+                .starts_with("https://github.com/search?")
+        );
+        assert!(
+            match_site_search("在B站搜猫meme")
+                .unwrap()
+                .starts_with("https://search.bilibili.com/")
+        );
     }
 
     #[test]
@@ -592,7 +615,10 @@ mod site_search_tests {
             match_site_home("打开红果"),
             Some("https://www.hongguoduanju.com/".to_string())
         );
-        assert_eq!(match_site_home("打开豆包"), Some("https://www.doubao.com/".to_string()));
+        assert_eq!(
+            match_site_home("打开豆包"),
+            Some("https://www.doubao.com/".to_string())
+        );
         // 无打开动词不触发。
         assert_eq!(match_site_home("我爱B站"), None);
     }

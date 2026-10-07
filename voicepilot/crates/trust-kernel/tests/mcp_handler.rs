@@ -22,7 +22,11 @@ fn mcp_handler_lists_filesystem_tools_with_full_schema() {
     // Each tool must have inputSchema, outputSchema, and annotations.
     for t in &tools {
         assert!(t.input_schema.is_object(), "{} missing inputSchema", t.name);
-        assert!(t.output_schema.is_object(), "{} missing outputSchema", t.name);
+        assert!(
+            t.output_schema.is_object(),
+            "{} missing outputSchema",
+            t.name
+        );
         // annotations must be present (even if all hints default to false).
         let _ann: &McpAnnotations = &t.annotations;
     }
@@ -57,7 +61,9 @@ fn mcp_handler_call_search_files_dispatches_to_filesystem() {
         "root": dir.to_string_lossy(),
         "pattern": "*.pdf"
     });
-    let result = handler.call_tool(&kernel, "filesystem.search_files", &args).unwrap();
+    let result = handler
+        .call_tool(&kernel, "filesystem.search_files", &args)
+        .unwrap();
     if let McpCallResult::Ok(value) = result {
         let matches = value.get("matches").and_then(|v| v.as_array()).unwrap();
         assert_eq!(matches.len(), 1);

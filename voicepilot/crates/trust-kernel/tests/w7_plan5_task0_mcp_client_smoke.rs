@@ -34,9 +34,21 @@ fn migration_adds_command_args_env_columns() {
         .unwrap()
         .filter_map(|r| r.ok())
         .collect();
-    assert!(cols.contains(&"command".to_string()), "command column missing: {:?}", cols);
-    assert!(cols.contains(&"args".to_string()), "args column missing: {:?}", cols);
-    assert!(cols.contains(&"env".to_string()), "env column missing: {:?}", cols);
+    assert!(
+        cols.contains(&"command".to_string()),
+        "command column missing: {:?}",
+        cols
+    );
+    assert!(
+        cols.contains(&"args".to_string()),
+        "args column missing: {:?}",
+        cols
+    );
+    assert!(
+        cols.contains(&"env".to_string()),
+        "env column missing: {:?}",
+        cols
+    );
 }
 
 // ---- Test 2: migration is idempotent ----
@@ -74,7 +86,10 @@ fn mcp_server_record_roundtrips_command_args_env() {
     repo.create(&conn, &rec).unwrap();
     let loaded = repo.get(&conn, "test").unwrap().unwrap();
     assert_eq!(loaded.command.as_deref(), Some("npx"));
-    assert_eq!(loaded.args.as_deref(), Some(r#"["-y","@playwright/mcp@latest"]"#));
+    assert_eq!(
+        loaded.args.as_deref(),
+        Some(r#"["-y","@playwright/mcp@latest"]"#)
+    );
     assert_eq!(loaded.env.as_deref(), Some("{}"));
 }
 
@@ -187,7 +202,9 @@ for line in sys.stdin:
     )
     .expect("spawning python mock must succeed");
 
-    client.initialize().expect("initialize handshake must succeed");
+    client
+        .initialize()
+        .expect("initialize handshake must succeed");
     let result = client
         .invoke_tool("echo", json!({"msg": "hello"}))
         .expect("tools/call echo must succeed");
@@ -211,7 +228,10 @@ fn kernel_boot_seeds_playwright_mcp_server_row() {
         .expect("playwright row must exist after kernel boot");
     assert_eq!(rec.server_id, "playwright");
     assert_eq!(rec.command.as_deref(), Some("npx"));
-    assert_eq!(rec.args.as_deref(), Some(r#"["-y","@playwright/mcp@latest"]"#));
+    assert_eq!(
+        rec.args.as_deref(),
+        Some(r#"["-y","@playwright/mcp@latest"]"#)
+    );
     assert_eq!(rec.allowed_paths.as_deref(), Some("[]"));
     assert!(rec.enabled, "playwright must be enabled by default at boot");
     // Idempotency on re-boot is covered by repo_insert_default_servers_is_idempotent_*

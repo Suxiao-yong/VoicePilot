@@ -12,8 +12,8 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
 use crate::skills::simple::{
-    run_simple, schtasks_once, simple_manifest, slot_text, slot_text_opt, truncate_chars,
-    SimpleInput,
+    SimpleInput, run_simple, schtasks_once, simple_manifest, slot_text, slot_text_opt,
+    truncate_chars,
 };
 use crate::skills::sys_ops::next_alarm_time;
 use std::collections::HashMap;

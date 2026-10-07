@@ -30,14 +30,28 @@ fn toolresult_serializes_with_all_v2_fields() {
 
 #[test]
 fn evidence_strength_serializes_as_lowercase() {
-    assert_eq!(serde_json::to_string(&EvidenceStrength::Strong).unwrap(), "\"strong\"");
-    assert_eq!(serde_json::to_string(&EvidenceStrength::Medium).unwrap(), "\"medium\"");
-    assert_eq!(serde_json::to_string(&EvidenceStrength::Weak).unwrap(), "\"weak\"");
+    assert_eq!(
+        serde_json::to_string(&EvidenceStrength::Strong).unwrap(),
+        "\"strong\""
+    );
+    assert_eq!(
+        serde_json::to_string(&EvidenceStrength::Medium).unwrap(),
+        "\"medium\""
+    );
+    assert_eq!(
+        serde_json::to_string(&EvidenceStrength::Weak).unwrap(),
+        "\"weak\""
+    );
 }
 
 #[test]
 fn tool_status_round_trips() {
-    for s in [ToolStatus::Succeeded, ToolStatus::Failed, ToolStatus::Cancelled, ToolStatus::Partial] {
+    for s in [
+        ToolStatus::Succeeded,
+        ToolStatus::Failed,
+        ToolStatus::Cancelled,
+        ToolStatus::Partial,
+    ] {
         let json = serde_json::to_string(&s).unwrap();
         let back: ToolStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);

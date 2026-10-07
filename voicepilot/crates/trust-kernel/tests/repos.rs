@@ -29,7 +29,8 @@ fn update_status_transitions_state() {
     let task = TaskRecord::new("task-2", "goal");
     repo.create(&conn, &task).unwrap();
 
-    repo.update_status(&conn, "task-2", TaskState::Planning).unwrap();
+    repo.update_status(&conn, "task-2", TaskState::Planning)
+        .unwrap();
     let loaded = repo.get(&conn, "task-2").unwrap().unwrap();
     assert_eq!(loaded.status, TaskState::Planning);
 }
@@ -72,13 +73,19 @@ fn update_step_status_advances_lifecycle() {
     let conn = fresh_db();
     let task_repo = TaskRepo::new();
     let step_repo = StepRepo::new();
-    task_repo.create(&conn, &TaskRecord::new("task-4", "goal")).unwrap();
+    task_repo
+        .create(&conn, &TaskRecord::new("task-4", "goal"))
+        .unwrap();
 
     let step = StepRecord::new("step-1", "task-4", 0);
     step_repo.create(&conn, &step).unwrap();
 
-    step_repo.update_status(&conn, "step-1", StepStatus::Running).unwrap();
-    step_repo.update_status(&conn, "step-1", StepStatus::Succeeded).unwrap();
+    step_repo
+        .update_status(&conn, "step-1", StepStatus::Running)
+        .unwrap();
+    step_repo
+        .update_status(&conn, "step-1", StepStatus::Succeeded)
+        .unwrap();
 
     let loaded = step_repo.get(&conn, "step-1").unwrap().unwrap();
     assert_eq!(loaded.status, StepStatus::Succeeded);
@@ -89,7 +96,9 @@ fn deleting_task_cascades_to_steps() {
     let conn = fresh_db();
     let task_repo = TaskRepo::new();
     let step_repo = StepRepo::new();
-    task_repo.create(&conn, &TaskRecord::new("task-5", "goal")).unwrap();
+    task_repo
+        .create(&conn, &TaskRecord::new("task-5", "goal"))
+        .unwrap();
     let step = StepRecord::new("step-1", "task-5", 0);
     step_repo.create(&conn, &step).unwrap();
 

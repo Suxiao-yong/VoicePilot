@@ -11,13 +11,13 @@
 
 use std::path::PathBuf;
 use trust_kernel::approval::approver::AutoApprover;
+use trust_kernel::kernel::TrustKernel;
+use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 use trust_kernel::voice::audio::{AudioRecorder, AudioRecorderConfig};
 use trust_kernel::voice::model::ModelRegistry;
-use trust_kernel::voice::router_bridge::{route_text, RouteOutcome};
+use trust_kernel::voice::router_bridge::{RouteOutcome, route_text};
 use trust_kernel::voice::vad::{VadConfig, VadDetector, VadOutcome};
 use trust_kernel::voice::wav::{read_wav, write_wav};
-use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
-use trust_kernel::kernel::TrustKernel;
 
 // ============================================================================
 // Tier 1: Pure-logic pipeline (runs in CI, no model/mic required)
@@ -108,8 +108,8 @@ fn w5_e2e_transcribe_real_wav_then_route() {
 #[test]
 #[ignore]
 fn w5_e2e_listen_live_microphone_end_to_end() {
-    let recorder = AudioRecorder::new(AudioRecorderConfig::default())
-        .expect("recorder init (mic?)");
+    let recorder =
+        AudioRecorder::new(AudioRecorderConfig::default()).expect("recorder init (mic?)");
     println!("Speak now (5s)...");
     let samples = recorder
         .record_with_timeout(std::time::Duration::from_secs(5))

@@ -7,7 +7,7 @@ use trust_kernel::extensions::registry::ExtensionCatalog;
 use trust_kernel::extensions::types::{ExecutionTarget, ExtensionDescriptor, ExtensionSource};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::mcp::repo::{McpServerRecord, McpServerRepo};
-use trust_kernel::skills::manifest::{files_organize_manifest, SkillExecutionSpec, SkillManifest};
+use trust_kernel::skills::manifest::{SkillExecutionSpec, SkillManifest, files_organize_manifest};
 use uuid::Uuid;
 
 fn manifest_for(id: &str) -> SkillManifest {
@@ -261,7 +261,8 @@ fn runtime_snapshot_reflects_skill_and_mcp_toggles() {
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
     let skill_path = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent")).expect("create skill dir");
+    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent"))
+        .expect("create skill dir");
 
     fs::write(
         &skill_path,
@@ -360,7 +361,8 @@ fn toggle_skill_reload_failure_rolls_back_database_and_snapshot() {
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
     let skill_path = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent")).expect("create skill dir");
+    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent"))
+        .expect("create skill dir");
 
     fs::write(
         &skill_path,
@@ -442,7 +444,8 @@ fn invalid_user_skill_target_does_not_block_builtin_catalog() {
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
     let skill_path = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent")).expect("create skill dir");
+    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent"))
+        .expect("create skill dir");
 
     fs::write(
         &skill_path,

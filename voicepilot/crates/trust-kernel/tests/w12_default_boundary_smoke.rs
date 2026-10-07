@@ -21,12 +21,14 @@ use std::path::PathBuf;
 /// 仓库根 = CARGO_MANIFEST_DIR 上溯 3 级。
 fn repo_root() -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../..").canonicalize().unwrap_or(manifest.join("../../.."))
+    manifest
+        .join("../../..")
+        .canonicalize()
+        .unwrap_or(manifest.join("../../.."))
 }
 
 fn read_file(path: &PathBuf) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
 }
 
 /// Fitness Function 1:deny.toml 存在 + 含 4 个关键 section。
@@ -60,8 +62,8 @@ fn ci_workflow_exists() {
 #[test]
 fn adr_completeness() {
     let adr_dir = repo_root().join("docs/adr");
-    let entries = fs::read_dir(&adr_dir)
-        .unwrap_or_else(|e| panic!("failed to read docs/adr: {}", e));
+    let entries =
+        fs::read_dir(&adr_dir).unwrap_or_else(|e| panic!("failed to read docs/adr: {}", e));
     let adr_count = entries
         .filter_map(|e| e.ok())
         .filter(|e| {

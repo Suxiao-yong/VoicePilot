@@ -31,8 +31,9 @@ impl McpHandler {
         vec![
             McpToolSchema {
                 name: "filesystem.search_files".to_string(),
-                description: "Walk a directory recursively and return files matching a glob pattern."
-                    .to_string(),
+                description:
+                    "Walk a directory recursively and return files matching a glob pattern."
+                        .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "additionalProperties": false,

@@ -40,7 +40,7 @@ async fn route_text_returns_empty_for_whitespace() {
 
 use tempfile::TempDir;
 use trust_kernel::approval::approver::AutoApprover;
-use voicepilot_ui::commands::{organize_files, OrganizeInput};
+use voicepilot_ui::commands::{OrganizeInput, organize_files};
 
 #[test]
 fn organize_files_with_auto_approver_commits_move() {
@@ -111,8 +111,8 @@ fn submit_approval_returns_false_for_unknown_id() {
 
 // ===== W8 Plan 5 Task 1: DAG 骨架审批 =====
 
-use voicepilot_ui::dag_commands::{submit_dag_skeleton_approval, DagApprovalDecision};
 use voicepilot_ui::approver::ApprovalRegistry;
+use voicepilot_ui::dag_commands::{DagApprovalDecision, submit_dag_skeleton_approval};
 
 #[test]
 fn submit_dag_skeleton_approval_delivers_decision() {
@@ -120,13 +120,9 @@ fn submit_dag_skeleton_approval_delivers_decision() {
     let _registry = ApprovalRegistry::new();
     // W9 Plan 4:DAG 审批必须用 create_dag_request(生成 dag_xxx 前缀)。
     let (approval_id2, _rx2) = state.approval_registry.create_dag_request();
-    let delivered = submit_dag_skeleton_approval(
-        &state,
-        &approval_id2,
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let delivered =
+        submit_dag_skeleton_approval(&state, &approval_id2, DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(delivered, "first submission should succeed");
 }
 
@@ -159,35 +155,22 @@ fn submit_dag_skeleton_approval_rejects_replay() {
     let state = AppState::new_in_memory().unwrap();
     let (approval_id, _rx) = state.approval_registry.create_dag_request();
 
-    let first = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Deny,
-        None,
-    )
-    .unwrap();
+    let first = submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Deny, None)
+        .unwrap();
     assert!(first, "first call should deliver");
 
-    let second = submit_dag_skeleton_approval(
-        &state,
-        &approval_id,
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let second =
+        submit_dag_skeleton_approval(&state, &approval_id, DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(!second, "replay should be rejected (single-use)");
 }
 
 #[test]
 fn submit_dag_skeleton_approval_unknown_id_returns_false() {
     let state = AppState::new_in_memory().unwrap();
-    let result = submit_dag_skeleton_approval(
-        &state,
-        "dag_nonexistent",
-        DagApprovalDecision::Allow,
-        None,
-    )
-    .unwrap();
+    let result =
+        submit_dag_skeleton_approval(&state, "dag_nonexistent", DagApprovalDecision::Allow, None)
+            .unwrap();
     assert!(!result, "unknown approval_request_id should return false");
 }
 
@@ -336,7 +319,11 @@ mod execute_skill_uia_tests {
         )
         .unwrap();
         set_thread_local_uia_adapter(None);
-        assert!(result.committed, "免审批后应直接提交，错误: {:?}", result.error);
+        assert!(
+            result.committed,
+            "免审批后应直接提交，错误: {:?}",
+            result.error
+        );
         assert!(result.error.is_none());
     }
 
@@ -357,7 +344,11 @@ mod execute_skill_uia_tests {
         )
         .unwrap();
         set_thread_local_uia_adapter(None);
-        assert!(result.committed, "免审批后应直接提交，错误: {:?}", result.error);
+        assert!(
+            result.committed,
+            "免审批后应直接提交，错误: {:?}",
+            result.error
+        );
         assert!(result.error.is_none());
     }
 }
@@ -381,7 +372,10 @@ fn needs_uia_adapter_gates_only_uia_skills() {
         "unknown.skill",
         "",
     ] {
-        assert!(!needs_uia_adapter(other), "{other} must not need the adapter");
+        assert!(
+            !needs_uia_adapter(other),
+            "{other} must not need the adapter"
+        );
     }
 }
 
@@ -409,8 +403,9 @@ fn clarification_timeout_returns_default_not_deny() {
     let state = AppState::new_in_memory().unwrap();
     let (_id, rx) = state.approval_registry.create_clarify_request();
     // 无人投递：50ms 超时回 default_index。
-    let got = state
-        .approval_registry
-        .wait_for_clarification(rx, std::time::Duration::from_millis(50), 1);
+    let got =
+        state
+            .approval_registry
+            .wait_for_clarification(rx, std::time::Duration::from_millis(50), 1);
     assert_eq!(got, 1);
 }

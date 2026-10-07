@@ -86,8 +86,8 @@ pub fn reload_skills(state: &AppState) -> UiResult<Vec<UserSkillDto>> {
 
 /// W7 Plan 3 逻辑函数:列出当前用户自定义 Skill(重新扫描目录)。
 pub fn list_user_skills(state: &AppState) -> UiResult<Vec<UserSkillDto>> {
-    let dir = user_loader::user_skills_dir()
-        .map_err(|e| crate::error::UiError::Tauri(e.to_string()))?;
+    let dir =
+        user_loader::user_skills_dir().map_err(|e| crate::error::UiError::Tauri(e.to_string()))?;
     let manifests = state.kernel.list_user_skill_manifests()?;
     let mut dtos = Vec::new();
     for m in &manifests {
@@ -139,9 +139,8 @@ pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDt
 
     // ===== 先解析源内容获取标准 id(决定目标目录名,防路径穿越) =====
     // parse 已校验 name(^[a-z][a-z0-9._-]{0,63}$),不含路径分隔符。
-    let content = std::fs::read_to_string(&canonical_src).map_err(|e| {
-        crate::error::UiError::Tauri(format!("read source failed: {}", e))
-    })?;
+    let content = std::fs::read_to_string(&canonical_src)
+        .map_err(|e| crate::error::UiError::Tauri(format!("read source failed: {}", e)))?;
     let (manifest, _) = user_loader::parse_skill_md(&content).map_err(|e| {
         crate::error::UiError::InvalidConfig(format!(
             "source is not a valid standard SKILL.md: {}",
@@ -150,8 +149,8 @@ pub fn import_skill(state: &AppState, source_path: &str) -> UiResult<UserSkillDt
     })?;
 
     // ===== Destination path confinement(标准目录式:{id}/SKILL.md) =====
-    let skills_dir = user_loader::user_skills_dir()
-        .map_err(|e| crate::error::UiError::Tauri(e.to_string()))?;
+    let skills_dir =
+        user_loader::user_skills_dir().map_err(|e| crate::error::UiError::Tauri(e.to_string()))?;
     let dest_dir = skills_dir.join(&manifest.id);
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| crate::error::UiError::Tauri(format!("create skill dir failed: {}", e)))?;
@@ -213,9 +212,7 @@ pub struct ExternalSkillDto {
     pub exec_tool: Option<String>,
 }
 
-fn to_external_skill_dto(
-    h: trust_kernel::external_scan::ExternalSkillHit,
-) -> ExternalSkillDto {
+fn to_external_skill_dto(h: trust_kernel::external_scan::ExternalSkillHit) -> ExternalSkillDto {
     ExternalSkillDto {
         source: h.source,
         sources: h.sources,
@@ -252,7 +249,9 @@ pub fn scan_external_skills_with_roots(
 /// 导入后默认关闭，用户在 Skills Manager 手动启用。目录伴随的 .env
 /// 中疑似凭据会收编进 keyring（源文件不动），key 名随 DTO 返回。
 pub fn import_external_skill(state: &AppState, dir: &str) -> UiResult<UserSkillDto> {
-    let (manifest, migrated_env_keys) = state.kernel.import_external_skill_with_env(Path::new(dir))?;
+    let (manifest, migrated_env_keys) = state
+        .kernel
+        .import_external_skill_with_env(Path::new(dir))?;
     let path = user_loader::user_skills_dir()
         .map_err(|e| crate::error::UiError::Tauri(e.to_string()))?
         .join(&manifest.id)
@@ -279,9 +278,7 @@ pub async fn import_external_skill_command(
 }
 
 #[tauri::command]
-pub async fn list_skills_command(
-    state: State<'_, AppState>,
-) -> Result<Vec<SkillDto>, String> {
+pub async fn list_skills_command(state: State<'_, AppState>) -> Result<Vec<SkillDto>, String> {
     list_skills(&state).map_err(Into::into)
 }
 

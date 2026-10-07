@@ -10,7 +10,7 @@ use crate::mcp::handler::{McpCallResult, McpHandler};
 use crate::mcp::transport::{
     JsonRpcError, JsonRpcErrorCode, JsonRpcId, JsonRpcRequest, JsonRpcResponse,
 };
-use crate::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
+use crate::policy::taint_repo::{TaintRepo, compute_value_hash, make_taint_record};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -125,10 +125,7 @@ impl McpServer {
         let params = params.unwrap_or(serde_json::Value::Null);
         // Spec issue #37: missing 'name' must return InvalidParams -32602,
         // not propagate as KernelError::Mcp and crash the stdio loop.
-        let name = match params
-            .get("name")
-            .and_then(|v| v.as_str())
-        {
+        let name = match params.get("name").and_then(|v| v.as_str()) {
             Some(n) => n,
             None => {
                 return Ok(OutgoingMessage::Error(JsonRpcError::new(
@@ -242,7 +239,10 @@ impl McpServer {
             }],
             "isError": is_error
         });
-        Ok(OutgoingMessage::Response(JsonRpcResponse::new(id, result_json)))
+        Ok(OutgoingMessage::Response(JsonRpcResponse::new(
+            id,
+            result_json,
+        )))
     }
 
     pub fn handler(&self) -> &McpHandler {

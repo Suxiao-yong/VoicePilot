@@ -30,12 +30,20 @@ pub struct VerificationContext<'a> {
 /// Medium / Weak 在 Plan 1 不使用,保留枚举变体供未来扩展。
 #[derive(Debug, Clone)]
 pub enum VerificationOutcome {
-    Strong { evidence: Value },
+    Strong {
+        evidence: Value,
+    },
     #[allow(dead_code)]
-    Medium { evidence: Value },
+    Medium {
+        evidence: Value,
+    },
     #[allow(dead_code)]
-    Weak { reason: String },
-    Failed { reason: String },
+    Weak {
+        reason: String,
+    },
+    Failed {
+        reason: String,
+    },
 }
 
 impl VerificationOutcome {
@@ -221,8 +229,16 @@ pub fn verify_form_submit(
         serde_json::json!({"script": script}),
     )?;
 
-    let current_url = result.data.get("url").and_then(|v| v.as_str()).unwrap_or("");
-    let has_success = result.data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    let current_url = result
+        .data
+        .get("url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let has_success = result
+        .data
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if current_url != submitted_url {
         return Ok(VerificationOutcome::Strong {
@@ -284,9 +300,8 @@ pub fn verify_task_repeat(
         }
     };
 
-    let manifest: EffectManifest = serde_json::from_str(&manifest_str).map_err(|e| {
-        KernelError::Skill(format!("failed to parse effect_manifest: {}", e))
-    })?;
+    let manifest: EffectManifest = serde_json::from_str(&manifest_str)
+        .map_err(|e| KernelError::Skill(format!("failed to parse effect_manifest: {}", e)))?;
 
     match ctx.kernel.filesystem().verify_move(&manifest) {
         Ok(_) => Ok(VerificationOutcome::Strong {
@@ -313,13 +328,20 @@ pub fn verify_task_repeat(
 /// 三项全满足 → Strong;任一不满足 → Failed。
 /// 注意:list_active_compensations 只返回 status='active' 的记录,不能用于验证 reversed,
 /// 必须直接 SQL 查询 compensations 表(任何 status)。
+///
+/// **Stronghold 布局下 reverse_payload 列恒为空**(spec §2.2 明文不落库,payload
+/// 只存在于 snapshot_encrypted 密文里)。此时验证对象是解出来的明文,所以这里不能
+/// 拿 DB 明文列直接判空 —— 必须先经 vault 解密再校验。解密失败(vault 未注入 /
+/// 未锁定 / 密文损坏)→ Failed,与 execute_compensate 的解密失败语义一致。
 pub fn verify_task_compensate(
     ctx: &VerificationContext<'_>,
     target_step_id: &str,
 ) -> Result<VerificationOutcome> {
     let conn = ctx.kernel.conn();
-    let row_result: rusqlite::Result<(String, String)> = conn.query_row(
-        "SELECT status, reverse_payload FROM compensations
+    // snapshot_encrypted 一并取出:stronghold 布局下 reverse_payload 明文列为空,
+    // 需要它走 vault 解密还原待验证的 payload。
+    let row_result: rusqlite::Result<(String, String, Option<Vec<u8>>)> = conn.query_row(
+        "SELECT status, reverse_payload, snapshot_encrypted FROM compensations
          WHERE step_id = ?1
          ORDER BY ttl_expires DESC LIMIT 1",
         rusqlite::params![target_step_id],
@@ -328,18 +350,16 @@ pub fn verify_task_compensate(
             // reverse_payload 列在 migration 005 之前可能为 NULL,
             // 用 Option<String> 兜底再 unwrap_or_default。
             let reverse_payload: String = r.get::<_, Option<String>>(1)?.unwrap_or_default();
-            Ok((status, reverse_payload))
+            let snapshot_encrypted: Option<Vec<u8>> = r.get(2)?;
+            Ok((status, reverse_payload, snapshot_encrypted))
         },
     );
 
-    let (status, reverse_payload) = match row_result {
+    let (status, reverse_payload, snapshot_encrypted) = match row_result {
         Ok(row) => row,
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             return Ok(VerificationOutcome::Failed {
-                reason: format!(
-                    "no compensation record found for step {}",
-                    target_step_id
-                ),
+                reason: format!("no compensation record found for step {}", target_step_id),
             });
         }
         Err(e) => return Err(KernelError::Db(e)),
@@ -353,6 +373,49 @@ pub fn verify_task_compensate(
             ),
         });
     }
+
+    // 待验证的 payload:DB 明文列优先;为空且存在密文快照时经 vault 解密还原。
+    let reverse_payload = if !reverse_payload.trim().is_empty() {
+        reverse_payload
+    } else {
+        #[cfg(feature = "stronghold")]
+        {
+            match snapshot_encrypted.as_ref() {
+                Some(blob) => {
+                    let vault = ctx
+                        .kernel
+                        .stronghold_vault()
+                        .filter(|v| v.is_unlocked())
+                        .ok_or_else(|| {
+                            KernelError::Compensation(
+                                "stronghold vault not unlocked, cannot verify reverse_payload"
+                                    .into(),
+                            )
+                        })?;
+                    let payload: crate::crypto::stronghold::EncryptedPayload =
+                        bincode::deserialize(blob).map_err(|e| {
+                            KernelError::Compensation(format!(
+                                "stronghold bincode decode failed while verifying: {}",
+                                e
+                            ))
+                        })?;
+                    let plaintext = vault.decrypt(&payload).map_err(|e| {
+                        KernelError::Compensation(format!("stronghold decrypt failed: {}", e))
+                    })?;
+                    String::from_utf8(plaintext).map_err(|e| {
+                        KernelError::Compensation(format!("plaintext not UTF-8: {}", e))
+                    })?
+                }
+                // 无密文快照且明文列为空:payload 确实缺失。
+                None => String::new(),
+            }
+        }
+        #[cfg(not(feature = "stronghold"))]
+        {
+            let _ = &snapshot_encrypted;
+            String::new()
+        }
+    };
 
     if reverse_payload.trim().is_empty() {
         return Ok(VerificationOutcome::Failed {
@@ -424,12 +487,18 @@ mod note_capture_tests {
         let content = "hello notepad";
         std::fs::write(&path, content.as_bytes()).unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), content).unwrap();
 
         match outcome {
             VerificationOutcome::Strong { evidence } => {
-                assert!(evidence.get("sha256").is_some(), "evidence must contain sha256");
+                assert!(
+                    evidence.get("sha256").is_some(),
+                    "evidence must contain sha256"
+                );
                 assert!(evidence.get("size").is_some(), "evidence must contain size");
             }
             other => panic!("expected Strong, got {:?}", other),
@@ -443,13 +512,19 @@ mod note_capture_tests {
         let kernel = TrustKernel::open_in_memory().unwrap();
         let path = tmp_path(); // 不创建文件
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), "any").unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("not found") || reason.contains("missing"),
-                    "expected 'not found' or 'missing' in reason, got: {}", reason);
+                assert!(
+                    reason.contains("not found") || reason.contains("missing"),
+                    "expected 'not found' or 'missing' in reason, got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -461,13 +536,20 @@ mod note_capture_tests {
         let path = tmp_path();
         std::fs::write(&path, b"different content").unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
-        let outcome = verify_note_capture(&ctx, &path.to_string_lossy(), "expected content").unwrap();
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
+        let outcome =
+            verify_note_capture(&ctx, &path.to_string_lossy(), "expected content").unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("sha256") || reason.contains("mismatch"),
-                    "expected 'sha256' or 'mismatch' in reason, got: {}", reason);
+                assert!(
+                    reason.contains("sha256") || reason.contains("mismatch"),
+                    "expected 'sha256' or 'mismatch' in reason, got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -493,7 +575,10 @@ mod research_save_tests {
         let path = tmp_path();
         std::fs::write(&path, b"# Example Domain\n\nillustrative examples").unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
 
         match outcome {
@@ -513,13 +598,19 @@ mod research_save_tests {
         let kernel = TrustKernel::open_in_memory().unwrap();
         let path = tmp_path();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("not found") || reason.contains("missing"),
-                    "got: {}", reason);
+                assert!(
+                    reason.contains("not found") || reason.contains("missing"),
+                    "got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -531,13 +622,19 @@ mod research_save_tests {
         let path = tmp_path();
         std::fs::write(&path, b"").unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_research_save(&ctx, &path.to_string_lossy()).unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("empty") || reason.contains("size"),
-                    "got: {}", reason);
+                assert!(
+                    reason.contains("empty") || reason.contains("size"),
+                    "got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -609,8 +706,8 @@ for line in sys.stdin:
 "#;
 
     fn install_mock(kernel: &TrustKernel) {
-        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
-            .unwrap();
+        let args_json =
+            serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()]).unwrap();
         let mut rec = McpServerRepo::new()
             .get(&kernel.conn(), "playwright")
             .unwrap()
@@ -621,15 +718,22 @@ for line in sys.stdin:
         McpServerRepo::new().update(&kernel.conn(), &rec).unwrap();
     }
 
-    fn set_values_env(temp: &std::path::Path, values: &HashMap<String, String>) -> std::path::PathBuf {
+    fn set_values_env(
+        temp: &std::path::Path,
+        values: &HashMap<String, String>,
+    ) -> std::path::PathBuf {
         let path = temp.join(format!("values-{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, serde_json::to_string(values).unwrap()).unwrap();
-        unsafe { std::env::set_var("FORM_VALUES_PATH", &path); }
+        unsafe {
+            std::env::set_var("FORM_VALUES_PATH", &path);
+        }
         path
     }
 
     fn clear_values_env() {
-        unsafe { std::env::remove_var("FORM_VALUES_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_VALUES_PATH");
+        }
     }
 
     #[test]
@@ -648,12 +752,18 @@ for line in sys.stdin:
         fields.insert("#email".to_string(), "alice@example.com".to_string());
         set_values_env(temp.path(), &fields);
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_form_prepare(&ctx, &fields).unwrap();
 
         match outcome {
             VerificationOutcome::Strong { evidence } => {
-                assert_eq!(evidence.get("verified_count").and_then(|v| v.as_u64()), Some(2));
+                assert_eq!(
+                    evidence.get("verified_count").and_then(|v| v.as_u64()),
+                    Some(2)
+                );
             }
             other => panic!("expected Strong, got {:?}", other),
         }
@@ -678,13 +788,19 @@ for line in sys.stdin:
         actual.insert("#username".to_string(), "bob".to_string());
         set_values_env(temp.path(), &actual);
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_form_prepare(&ctx, &expected).unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("#username") || reason.contains("mismatch"),
-                    "got: {}", reason);
+                assert!(
+                    reason.contains("#username") || reason.contains("mismatch"),
+                    "got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -749,8 +865,8 @@ for line in sys.stdin:
 "#;
 
     fn install_mock(kernel: &TrustKernel) {
-        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
-            .unwrap();
+        let args_json =
+            serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()]).unwrap();
         let mut rec = McpServerRepo::new()
             .get(&kernel.conn(), "playwright")
             .unwrap()
@@ -770,21 +886,35 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/success"); }
-        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "false"); }
+        unsafe {
+            std::env::set_var("MOCK_CURRENT_URL", "https://example.com/success");
+        }
+        unsafe {
+            std::env::set_var("MOCK_HAS_SUCCESS", "false");
+        }
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
 
         match outcome {
             VerificationOutcome::Strong { evidence } => {
-                assert_eq!(evidence.get("reason").and_then(|v| v.as_str()), Some("url_changed"));
+                assert_eq!(
+                    evidence.get("reason").and_then(|v| v.as_str()),
+                    Some("url_changed")
+                );
             }
             other => panic!("expected Strong, got {:?}", other),
         }
 
-        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
-        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
+        unsafe {
+            std::env::remove_var("MOCK_CURRENT_URL");
+        }
+        unsafe {
+            std::env::remove_var("MOCK_HAS_SUCCESS");
+        }
     }
 
     #[test]
@@ -796,21 +926,35 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit"); }
-        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "true"); }
+        unsafe {
+            std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
+        }
+        unsafe {
+            std::env::set_var("MOCK_HAS_SUCCESS", "true");
+        }
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
 
         match outcome {
             VerificationOutcome::Strong { evidence } => {
-                assert_eq!(evidence.get("reason").and_then(|v| v.as_str()), Some("success_element"));
+                assert_eq!(
+                    evidence.get("reason").and_then(|v| v.as_str()),
+                    Some("success_element")
+                );
             }
             other => panic!("expected Strong, got {:?}", other),
         }
 
-        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
-        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
+        unsafe {
+            std::env::remove_var("MOCK_CURRENT_URL");
+        }
+        unsafe {
+            std::env::remove_var("MOCK_HAS_SUCCESS");
+        }
     }
 
     #[test]
@@ -822,10 +966,17 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
-        unsafe { std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit"); }
-        unsafe { std::env::set_var("MOCK_HAS_SUCCESS", "false"); }
+        unsafe {
+            std::env::set_var("MOCK_CURRENT_URL", "https://example.com/submit");
+        }
+        unsafe {
+            std::env::set_var("MOCK_HAS_SUCCESS", "false");
+        }
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "s1" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "s1",
+        };
         let outcome = verify_form_submit(&ctx, "https://example.com/submit").unwrap();
 
         match outcome {
@@ -835,8 +986,12 @@ for line in sys.stdin:
             other => panic!("expected Failed, got {:?}", other),
         }
 
-        unsafe { std::env::remove_var("MOCK_CURRENT_URL"); }
-        unsafe { std::env::remove_var("MOCK_HAS_SUCCESS"); }
+        unsafe {
+            std::env::remove_var("MOCK_CURRENT_URL");
+        }
+        unsafe {
+            std::env::remove_var("MOCK_HAS_SUCCESS");
+        }
     }
 }
 
@@ -860,7 +1015,11 @@ mod task_repeat_tests {
         dir
     }
 
-    fn build_manifest(src_dir: &std::path::Path, dest_dir: &std::path::Path, names: &[&str]) -> EffectManifest {
+    fn build_manifest(
+        src_dir: &std::path::Path,
+        dest_dir: &std::path::Path,
+        names: &[&str],
+    ) -> EffectManifest {
         let mut snapshots = Vec::new();
         let mut total = 0;
         for n in names {
@@ -877,7 +1036,9 @@ mod task_repeat_tests {
     }
 
     fn persist_previous_step(kernel: &TrustKernel, manifest: &EffectManifest) {
-        kernel.create_task("prev-task", "previous organize").unwrap();
+        kernel
+            .create_task("prev-task", "previous organize")
+            .unwrap();
         let mut s = StepRecord::new("prev-step", "prev-task", 1);
         s.effect_manifest = Some(serde_json::to_value(manifest).unwrap());
         kernel.create_step(&s).unwrap();
@@ -887,15 +1048,20 @@ mod task_repeat_tests {
     fn verify_task_repeat_strong_when_verify_move_passes() {
         let kernel = TrustKernel::open_in_memory().unwrap();
         let dir = tmp_dir();
-        let src = dir.join("src"); fs::create_dir_all(&src).unwrap();
-        let dest = dir.join("out"); fs::create_dir_all(&dest).unwrap();
+        let src = dir.join("src");
+        fs::create_dir_all(&src).unwrap();
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
         fs::write(src.join("a.pdf"), b"pdf1").unwrap();
         fs::write(dest.join("a.pdf"), b"pdf1").unwrap();
 
         let manifest = build_manifest(&src, &dest, &["a.pdf"]);
         persist_previous_step(&kernel, &manifest);
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_repeat(&ctx, "prev-task").unwrap();
 
         match outcome {
@@ -912,20 +1078,30 @@ mod task_repeat_tests {
     fn verify_task_repeat_fails_when_destination_missing() {
         let kernel = TrustKernel::open_in_memory().unwrap();
         let dir = tmp_dir();
-        let src = dir.join("src"); fs::create_dir_all(&src).unwrap();
-        let dest = dir.join("out"); fs::create_dir_all(&dest).unwrap();
+        let src = dir.join("src");
+        fs::create_dir_all(&src).unwrap();
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
         fs::write(src.join("a.pdf"), b"pdf1").unwrap();
         // 不在 dest 写文件 → verify_move 失败
         let manifest = build_manifest(&src, &dest, &["a.pdf"]);
         persist_previous_step(&kernel, &manifest);
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_repeat(&ctx, "prev-task").unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("verify_move") || reason.contains("missing") || reason.contains("not found"),
-                    "got: {}", reason);
+                assert!(
+                    reason.contains("verify_move")
+                        || reason.contains("missing")
+                        || reason.contains("not found"),
+                    "got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -936,13 +1112,19 @@ mod task_repeat_tests {
     #[test]
     fn verify_task_repeat_fails_when_no_previous_manifest() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_repeat(&ctx, "nonexistent-task").unwrap();
 
         match outcome {
             VerificationOutcome::Failed { reason } => {
-                assert!(reason.contains("no effect_manifest") || reason.contains("not found"),
-                    "got: {}", reason);
+                assert!(
+                    reason.contains("no effect_manifest") || reason.contains("not found"),
+                    "got: {}",
+                    reason
+                );
             }
             other => panic!("expected Failed, got {:?}", other),
         }
@@ -987,9 +1169,8 @@ mod task_compensate_tests {
     #[test]
     fn verify_task_compensate_strong_when_status_reversed_and_payload_nonempty() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        let moved: Vec<(PathBuf, PathBuf)> = vec![
-            (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
-        ];
+        let moved: Vec<(PathBuf, PathBuf)> =
+            vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
         let comp_id = setup_compensation(&kernel, "prev-step", &moved);
 
         // Mark the compensation as "reversed"(模拟 auto_reverse 已执行)。
@@ -997,7 +1178,10 @@ mod task_compensate_tests {
             .mark_compensation_status(&comp_id, "reversed")
             .unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
 
         match outcome {
@@ -1022,13 +1206,15 @@ mod task_compensate_tests {
     #[test]
     fn verify_task_compensate_fails_when_status_active() {
         let kernel = TrustKernel::open_in_memory().unwrap();
-        let moved: Vec<(PathBuf, PathBuf)> = vec![
-            (PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf")),
-        ];
+        let moved: Vec<(PathBuf, PathBuf)> =
+            vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
         // 创建后不调用 mark_compensation_status,status 仍为 "active"。
         let _comp_id = setup_compensation(&kernel, "prev-step", &moved);
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
 
         match outcome {
@@ -1047,7 +1233,10 @@ mod task_compensate_tests {
     fn verify_task_compensate_fails_when_no_record_exists() {
         let kernel = TrustKernel::open_in_memory().unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_compensate(&ctx, "nonexistent-step").unwrap();
 
         match outcome {
@@ -1074,7 +1263,10 @@ mod task_compensate_tests {
             .mark_compensation_status(&comp_id, "reversed")
             .unwrap();
 
-        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
         let outcome = verify_task_compensate(&ctx, "prev-step").unwrap();
 
         match outcome {
@@ -1086,6 +1278,76 @@ mod task_compensate_tests {
                 );
             }
             other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    /// W9 回归:stronghold 布局下 reverse_payload 明文列恒为空(spec §2.2),
+    /// 验证器必须经 vault 解密密文快照后再校验,不能拿空明文列直接判空。
+    /// 这条曾在 `--features stronghold` 下把 execute_compensate 整条链判失败。
+    #[cfg(feature = "stronghold")]
+    #[test]
+    fn verify_task_compensate_strong_when_payload_only_in_encrypted_snapshot() {
+        use crate::repo::config_repo::ConfigRepo;
+
+        let kernel = TrustKernel::open_in_memory().unwrap();
+
+        // 独立 vault_path,避免与其他并行用例抢默认 data_dir。
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_path_str = tmp
+            .path()
+            .join("stronghold.bin")
+            .to_string_lossy()
+            .to_string();
+        {
+            let conn = kernel.conn();
+            ConfigRepo::new()
+                .set(&conn, "stronghold.vault_path", &vault_path_str)
+                .unwrap();
+        }
+        // create() 返回的 vault 已是解锁态(key material 已派生)。
+        let vault = {
+            let conn = kernel.conn();
+            crate::crypto::stronghold::StrongholdVault::create("test-pass", &conn)
+                .expect("create vault")
+        };
+        assert!(
+            vault.is_unlocked(),
+            "precondition: created vault must be unlocked"
+        );
+        kernel.set_stronghold_vault(Some(std::sync::Arc::new(vault)));
+
+        let moved: Vec<(PathBuf, PathBuf)> =
+            vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
+        // 加密布局:明文列留空,payload 只在 snapshot_encrypted 里。
+        let comp_id = setup_compensation(&kernel, "prev-step", &moved);
+        {
+            let rec = kernel.get_compensation(&comp_id).unwrap().unwrap();
+            assert!(
+                rec.reverse_payload.is_empty(),
+                "precondition: stronghold 布局不应落明文"
+            );
+            assert!(
+                rec.snapshot_encrypted.is_some(),
+                "precondition: 应有密文快照"
+            );
+        }
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
+
+        let ctx = VerificationContext {
+            kernel: &kernel,
+            step_id: "new-step",
+        };
+        match verify_task_compensate(&ctx, "prev-step").unwrap() {
+            VerificationOutcome::Strong { evidence } => assert_eq!(
+                evidence.get("moves_count").and_then(|v| v.as_u64()),
+                Some(1),
+            ),
+            other => panic!(
+                "expected Strong via vault-decrypted payload, got {:?}",
+                other
+            ),
         }
     }
 }

@@ -17,15 +17,15 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::json;
-use trust_kernel::llm::client::{record_llm_decompose_called, LlmClient};
+use trust_kernel::kernel::TrustKernel;
+use trust_kernel::llm::client::{LlmClient, record_llm_decompose_called};
 use trust_kernel::llm::types::{DecomposeStats, LlmError};
 use trust_kernel::policy::types::ELevel;
-use trust_kernel::skills::dag_types::{
-    DagNode, DagPlan, MAX_TOTAL_STEPS_HARD_LIMIT,
+use trust_kernel::skills::dag_types::{DagNode, DagPlan, MAX_TOTAL_STEPS_HARD_LIMIT};
+use trust_kernel::skills::manifest::{
+    SkillManifest, files_organize_manifest, task_explain_manifest,
 };
-use trust_kernel::skills::manifest::{files_organize_manifest, task_explain_manifest, SkillManifest};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope};
-use trust_kernel::kernel::TrustKernel;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -90,7 +90,9 @@ async fn decompose_to_dag_succeeds_with_valid_dag() {
 
     let client = build_client(&server.uri());
     let skills = candidate_skills();
-    let result = client.decompose_to_dag("explain recent", &skills, &[]).await;
+    let result = client
+        .decompose_to_dag("explain recent", &skills, &[])
+        .await;
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
     let dag = result.unwrap();
     assert_eq!(dag.nodes.len(), 1);
@@ -111,7 +113,11 @@ async fn decompose_to_dag_returns_http_error_on_500() {
     let result = client.decompose_to_dag("explain", &skills, &[]).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, LlmError::Http(_)), "expected Http, got {:?}", err);
+    assert!(
+        matches!(err, LlmError::Http(_)),
+        "expected Http, got {:?}",
+        err
+    );
 }
 
 #[tokio::test]
@@ -131,7 +137,11 @@ async fn decompose_to_dag_rejects_illegal_skill_id() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     let msg = format!("{:?}", err);
-    assert!(matches!(err, LlmError::Parse(_)), "expected Parse, got {}", msg);
+    assert!(
+        matches!(err, LlmError::Parse(_)),
+        "expected Parse, got {}",
+        msg
+    );
     assert!(
         msg.contains("illegal skill_id") || msg.contains("not in candidate_skills"),
         "got: {}",
@@ -157,7 +167,11 @@ async fn decompose_to_dag_rejects_max_total_steps_over_20() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     let msg = format!("{:?}", err);
-    assert!(matches!(err, LlmError::Parse(_)), "expected Parse, got {}", msg);
+    assert!(
+        matches!(err, LlmError::Parse(_)),
+        "expected Parse, got {}",
+        msg
+    );
     assert!(
         msg.contains("max_total_steps") || msg.contains("hard limit"),
         "got: {}",

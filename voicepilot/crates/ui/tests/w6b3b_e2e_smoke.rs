@@ -12,11 +12,9 @@
 //! 不实际录音/合成(需麦克风 + 模型),仅验证数据流与序列化契约。
 
 use voicepilot_ui::commands::RouteTextResult;
-use voicepilot_ui::settings_commands::{flatten_to_kv, merge_from_kv, SettingsView};
+use voicepilot_ui::settings_commands::{SettingsView, flatten_to_kv, merge_from_kv};
 use voicepilot_ui::slot_parser::{SlotKind, SlotParser};
-use voicepilot_ui::voice_commands::{
-    build_transcription_final_payload, VoiceListenResult,
-};
+use voicepilot_ui::voice_commands::{VoiceListenResult, build_transcription_final_payload};
 
 /// §8.4 SlotParser 从混合文本提取 path / app / number 三类 Slot。
 /// 输入:"打开 notepad 整理 C:\\temp 5 个文件"
@@ -131,7 +129,10 @@ fn tts_settings_roundtrip() {
 #[test]
 fn default_tts_enabled_is_true() {
     let dto = SettingsView::default();
-    assert!(dto.tts_enabled, "tts_enabled should default to true (VP-FR-002)");
+    assert!(
+        dto.tts_enabled,
+        "tts_enabled should default to true (VP-FR-002)"
+    );
 }
 
 /// Fix 1: TtsResult 包含 wav_path 字段(前端 <audio> 播放所需)。

@@ -4,9 +4,9 @@
 //! All tests marked #[ignore]; run with `cargo test --features voice -- --ignored`.
 
 use std::path::PathBuf;
+use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 use trust_kernel::voice::model::ModelRegistry;
 use trust_kernel::voice::wav::read_wav;
-use trust_kernel::voice::asr::{SherpaAsrConfig, SherpaAsrEngine};
 
 fn fixture_wav_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -21,9 +21,9 @@ fn fixture_wav_path() -> PathBuf {
 #[ignore]
 fn whisper_engine_transcribes_yes_sample() {
     let registry = ModelRegistry::new();
-    let model_path = registry
-        .resolve("ggml-tiny.bin")
-        .expect("model file missing; run `voicepilot voice list-models` and download ggml-tiny.bin");
+    let model_path = registry.resolve("ggml-tiny.bin").expect(
+        "model file missing; run `voicepilot voice list-models` and download ggml-tiny.bin",
+    );
 
     let engine = SherpaAsrEngine::new(SherpaAsrConfig {
         model_dir: model_path,
@@ -79,7 +79,10 @@ fn whisper_engine_returns_no_speech_for_silent_audio() {
     let result = engine.transcribe(&samples);
     // Either returns empty text or NoSpeechDetected — both acceptable.
     match result {
-        Ok(text) => assert!(text.trim().is_empty(), "silent audio should yield empty text"),
+        Ok(text) => assert!(
+            text.trim().is_empty(),
+            "silent audio should yield empty text"
+        ),
         Err(e) => assert!(
             matches!(e, trust_kernel::voice::error::VoiceError::NoSpeechDetected),
             "silent audio should yield NoSpeechDetected, got: {:?}",

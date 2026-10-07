@@ -23,7 +23,9 @@ fn end_to_end_mcp_server_smoke() {
     // Create a task + step for the tools/call audit test.
     // FK constraint: audit_logs.step_id REFERENCES steps(step_id).
     kernel.create_task("e2e-task", "mcp e2e test").unwrap();
-    kernel.create_step(&StepRecord::new("e2e-step", "e2e-task", 1)).unwrap();
+    kernel
+        .create_step(&StepRecord::new("e2e-step", "e2e-task", 1))
+        .unwrap();
 
     // ===== Setup: temp filesystem with a PDF =====
     let dir = tmp_dir();
@@ -41,7 +43,9 @@ fn end_to_end_mcp_server_smoke() {
     let list = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
     let search = format!(
         r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"filesystem.search_files","arguments":{{"root":"{}","pattern":"*.pdf","task_id":"e2e-task","step_id":"e2e-step"}}}}}}"#,
-        dir.to_string_lossy().replace('\\', "/").replace('"', "\\\"")
+        dir.to_string_lossy()
+            .replace('\\', "/")
+            .replace('"', "\\\"")
     );
     let reject = r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"filesystem.move_files","arguments":{"task_id":"e2e-task","step_id":"e2e-step","sources":["C:/nonexistent"],"destination":"C:/out"}}}"#;
     let input = format!("{}\n{}\n{}\n{}\n", init, list, search, reject);
@@ -85,7 +89,11 @@ fn end_to_end_mcp_server_smoke() {
     // audit_append_external, so no audit event for the rejection.
     // Also: create_task emits task_created, create_step emits step_created.
     // So total audit events = 4 (task_created + step_created + mcp_tools_call + taint_propagated).
-    assert_eq!(audit_count, 4, "expected 4 audit events (task_created + step_created + mcp_tools_call + taint_propagated), got {}", audit_count);
+    assert_eq!(
+        audit_count, 4,
+        "expected 4 audit events (task_created + step_created + mcp_tools_call + taint_propagated), got {}",
+        audit_count
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -107,8 +115,13 @@ fn end_to_end_allowed_paths_enforced_after_replace() {
     // also return Err for a missing path, but for a DIFFERENT reason).
     // To make the test meaningful, verify the error is specifically
     // PathNotAllowed, not "search root missing".
-    let result = kernel.filesystem().search_files(Path::new("E:/definitely_nonexistent"), "*.pdf");
-    assert!(result.is_err(), "search_files outside allowed_paths must fail after replace");
+    let result = kernel
+        .filesystem()
+        .search_files(Path::new("E:/definitely_nonexistent"), "*.pdf");
+    assert!(
+        result.is_err(),
+        "search_files outside allowed_paths must fail after replace"
+    );
     // Verify the error is PathNotAllowed (whitelist enforcement), not
     // "search root missing" (which would happen even without a whitelist).
     let err_msg = format!("{}", result.unwrap_err());

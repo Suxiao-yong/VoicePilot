@@ -180,11 +180,12 @@ mod tests {
         assert_eq!(m.id, "file-organizer");
         assert_eq!(m.title, "file-organizer");
         assert!(body.contains("# Body text"));
-        assert!(m
-            .description_body
-            .as_deref()
-            .unwrap()
-            .contains("# Body text"));
+        assert!(
+            m.description_body
+                .as_deref()
+                .unwrap()
+                .contains("# Body text")
+        );
         // 默认安全兜底
         assert_eq!(m.risk_ceiling, ELevel::E1);
         assert_eq!(m.max_steps, 8);
@@ -238,17 +239,27 @@ mod tests {
 
     #[test]
     fn scan_user_skills_loads_directories_and_ignores_legacy_md() {
-        let dir =
-            std::env::temp_dir().join(format!("voicepilot-std-skill-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "voicepilot-std-skill-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         // 标准目录式
         let ok_dir = dir.join("valid-skill");
         std::fs::create_dir_all(&ok_dir).unwrap();
-        std::fs::write(ok_dir.join("SKILL.md"), standard_frontmatter("valid-skill", false)).unwrap();
+        std::fs::write(
+            ok_dir.join("SKILL.md"),
+            standard_frontmatter("valid-skill", false),
+        )
+        .unwrap();
         // 坏目录(非法 name)
         let bad_dir = dir.join("Bad-Name");
         std::fs::create_dir_all(&bad_dir).unwrap();
-        std::fs::write(bad_dir.join("SKILL.md"), "---\nname: Bad-Name\ndescription: d\n---\nbody\n").unwrap();
+        std::fs::write(
+            bad_dir.join("SKILL.md"),
+            "---\nname: Bad-Name\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
         // 旧单文件(必须被忽略)
         std::fs::write(dir.join("legacy.md"), standard_frontmatter("legacy", false)).unwrap();
         // 非 skill 文件

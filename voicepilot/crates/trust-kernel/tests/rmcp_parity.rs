@@ -101,15 +101,13 @@ for line in sys.stdin:
 "#;
 
 fn python_cmd() -> Option<&'static str> {
-    ["python", "python3"]
-        .into_iter()
-        .find(|c| {
-            std::process::Command::new(c)
-                .arg("--version")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        })
+    ["python", "python3"].into_iter().find(|c| {
+        std::process::Command::new(c)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
 }
 
 // ===== 既有实现(McpClient,同步)=====
@@ -152,16 +150,17 @@ async fn rmcp_round_trip() -> (Vec<String>, Vec<ContentBlock>, Option<bool>) {
         .await
         .expect("rmcp serve with Initialize lifecycle");
 
-    let list = client
-        .list_tools(None)
-        .await
-        .expect("rmcp list_tools");
+    let list = client.list_tools(None).await.expect("rmcp list_tools");
     let names: Vec<String> = list.tools.iter().map(|t| t.name.to_string()).collect();
 
     let call = client
         .call_tool(
-            CallToolRequestParams::new("echo")
-                .with_arguments(serde_json::json!({"msg": "hello"}).as_object().cloned().unwrap()),
+            CallToolRequestParams::new("echo").with_arguments(
+                serde_json::json!({"msg": "hello"})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
         )
         .await
         .expect("rmcp call_tool");
@@ -179,7 +178,9 @@ fn parity_protocol_version_is_2025_11_25_for_both() {
     // 既有实现:initialize 校验 protocolVersion 存在;它硬编码发送
     // 2025-11-25,与 mock 报告的 2025-11-25 一致。
     let mut legacy = spawn_legacy();
-    legacy.initialize().expect("legacy initialize negotiates 2025-11-25");
+    legacy
+        .initialize()
+        .expect("legacy initialize negotiates 2025-11-25");
     drop(legacy);
 }
 
@@ -288,13 +289,8 @@ async fn parity_cancellation_and_process_exit_behavior() {
     let cmd = python_cmd().expect("python on PATH");
     let args = vec!["-c".to_string(), MOCK_SCRIPT.to_string()];
     {
-        let _client = McpClient::spawn_into(
-            cmd,
-            &args,
-            &serde_json::json!({}),
-            child_slot.clone(),
-        )
-        .expect("spawn");
+        let _client = McpClient::spawn_into(cmd, &args, &serde_json::json!({}), child_slot.clone())
+            .expect("spawn");
         // client 在作用域结束(此处 _client 保持存活)时子进程仍在运行;
         // 这里模拟"调用后进程仍存在"由 Drop 清理,故断言 Drop 前 child 存活。
     }
@@ -305,10 +301,7 @@ async fn parity_cancellation_and_process_exit_behavior() {
         .as_mut()
         .map(|c| c.try_wait().ok().flatten().is_none())
         .unwrap_or(false);
-    assert!(
-        !child_alive,
-        "legacy Drop must reap the child process"
-    );
+    assert!(!child_alive, "legacy Drop must reap the child process");
 
     // rmcp:cancel 后连接关闭,子进程被终止(cancel 按值消费 client)。
     let client = ClientInfo::default()

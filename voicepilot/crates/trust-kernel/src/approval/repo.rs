@@ -3,7 +3,7 @@
 use crate::approval::types::{ApprovalDecision, ApprovalRecord, ApprovalScope};
 use crate::error::Result;
 use crate::policy::types::{DLevel, ELevel};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// Column list shared by `get` and `list_for_task` SELECT queries.
 /// Must stay in sync with `ApprovalRow` field order.
@@ -46,22 +46,21 @@ fn row_to_record(row: ApprovalRow) -> Result<ApprovalRecord> {
         approval_scope_str,
         policy_bundle_hash,
     ) = row;
-    let user_decision = ApprovalDecision::parse(&user_decision_str)
-        .ok_or_else(|| crate::error::KernelError::Approval(format!(
-            "invalid user_decision: {}", user_decision_str
-        )))?;
-    let e_level = ELevel::as_enum_from_str(&e_level_str)
-        .ok_or_else(|| crate::error::KernelError::Approval(format!(
-            "invalid E_level: {}", e_level_str
-        )))?;
-    let d_level = DLevel::as_enum_from_str(&d_level_str)
-        .ok_or_else(|| crate::error::KernelError::Approval(format!(
-            "invalid D_level: {}", d_level_str
-        )))?;
-    let approval_scope = ApprovalScope::parse(&approval_scope_str)
-        .ok_or_else(|| crate::error::KernelError::Approval(format!(
-            "invalid approval_scope: {}", approval_scope_str
-        )))?;
+    let user_decision = ApprovalDecision::parse(&user_decision_str).ok_or_else(|| {
+        crate::error::KernelError::Approval(format!("invalid user_decision: {}", user_decision_str))
+    })?;
+    let e_level = ELevel::as_enum_from_str(&e_level_str).ok_or_else(|| {
+        crate::error::KernelError::Approval(format!("invalid E_level: {}", e_level_str))
+    })?;
+    let d_level = DLevel::as_enum_from_str(&d_level_str).ok_or_else(|| {
+        crate::error::KernelError::Approval(format!("invalid D_level: {}", d_level_str))
+    })?;
+    let approval_scope = ApprovalScope::parse(&approval_scope_str).ok_or_else(|| {
+        crate::error::KernelError::Approval(format!(
+            "invalid approval_scope: {}",
+            approval_scope_str
+        ))
+    })?;
     Ok(ApprovalRecord {
         approval_id,
         task_id,

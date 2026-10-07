@@ -227,7 +227,10 @@ impl SlotTemplateEngine {
         } else if let Some(p) = s.strip_prefix("user.") {
             (VarScope::User, p.to_string())
         } else if s == "item" || s.starts_with("item.") {
-            (VarScope::Iter, s.strip_prefix("item.").unwrap_or("").to_string())
+            (
+                VarScope::Iter,
+                s.strip_prefix("item.").unwrap_or("").to_string(),
+            )
         } else if let Some(dot) = s.find('.') {
             let scope_str = &s[..dot];
             let path_str = &s[dot + 1..];
@@ -257,13 +260,9 @@ impl SlotTemplateEngine {
     ) -> Result<serde_json::Value, TemplateError> {
         match expr {
             TemplateExpr::Literal(s) => Ok(serde_json::Value::String(s.clone())),
-            TemplateExpr::Var(var) => Self::resolve_var(
-                var,
-                node_outputs,
-                user_slots,
-                iter_var,
-                prev_node_id,
-            ),
+            TemplateExpr::Var(var) => {
+                Self::resolve_var(var, node_outputs, user_slots, iter_var, prev_node_id)
+            }
             TemplateExpr::Concat(parts) => {
                 let mut s = String::new();
                 for p in parts {
@@ -276,7 +275,8 @@ impl SlotTemplateEngine {
                 Ok(serde_json::Value::String(s))
             }
             TemplateExpr::Filter { source, predicate } => {
-                let src_val = Self::resolve(source, node_outputs, user_slots, iter_var, prev_node_id)?;
+                let src_val =
+                    Self::resolve(source, node_outputs, user_slots, iter_var, prev_node_id)?;
                 Self::apply_filter(&src_val, predicate)
             }
         }
@@ -295,26 +295,31 @@ impl SlotTemplateEngine {
                     scope: "prev".into(),
                     path: var.path.clone(),
                 })?;
-                let node_out = node_outputs.get(nid).ok_or_else(|| TemplateError::VarNotFound {
-                    scope: format!("prev({})", nid),
-                    path: var.path.clone(),
-                })?;
+                let node_out = node_outputs
+                    .get(nid)
+                    .ok_or_else(|| TemplateError::VarNotFound {
+                        scope: format!("prev({})", nid),
+                        path: var.path.clone(),
+                    })?;
                 Self::extract_path(node_out, &var.path)
             }
             VarScope::Step(step_id) => {
-                let node_out = node_outputs.get(step_id).ok_or_else(|| TemplateError::VarNotFound {
-                    scope: format!("step({})", step_id),
-                    path: var.path.clone(),
-                })?;
+                let node_out =
+                    node_outputs
+                        .get(step_id)
+                        .ok_or_else(|| TemplateError::VarNotFound {
+                            scope: format!("step({})", step_id),
+                            path: var.path.clone(),
+                        })?;
                 Self::extract_path(node_out, &var.path)
             }
             VarScope::User => {
                 // ExtractedSlot.kind 是 String(如 "path" / "app" / "text"),
                 // 直接比较小写形式;同时也允许 raw 文本子串匹配作为 fallback。
                 let path_lower = var.path.to_lowercase();
-                let slot = user_slots.iter().find(|s| {
-                    s.kind.to_lowercase() == path_lower || s.raw.contains(&var.path)
-                });
+                let slot = user_slots
+                    .iter()
+                    .find(|s| s.kind.to_lowercase() == path_lower || s.raw.contains(&var.path));
                 let slot = slot.ok_or_else(|| TemplateError::VarNotFound {
                     scope: "user".into(),
                     path: var.path.clone(),
@@ -336,24 +341,27 @@ impl SlotTemplateEngine {
     }
 
     /// 从 JSON value 中按 dotted path 提取(如 "output.path" → obj["output"]["path"])。
-    fn extract_path(val: &serde_json::Value, path: &str) -> Result<serde_json::Value, TemplateError> {
+    fn extract_path(
+        val: &serde_json::Value,
+        path: &str,
+    ) -> Result<serde_json::Value, TemplateError> {
         if path.is_empty() {
             return Ok(val.clone());
         }
         let mut current = val;
         for key in path.split('.') {
             current = match current {
-                serde_json::Value::Object(map) => map.get(key).ok_or_else(|| {
-                    TemplateError::VarNotFound {
+                serde_json::Value::Object(map) => {
+                    map.get(key).ok_or_else(|| TemplateError::VarNotFound {
                         scope: "json_path".into(),
                         path: format!("{}.{}", path, key),
-                    }
-                })?,
+                    })?
+                }
                 _ => {
                     return Err(TemplateError::TypeMismatch {
                         expected: "object",
                         got: current.to_string(),
-                    })
+                    });
                 }
             };
         }
@@ -372,7 +380,7 @@ impl SlotTemplateEngine {
                 return Err(TemplateError::TypeMismatch {
                     expected: "array",
                     got: src.to_string(),
-                })
+                });
             }
         };
         let p = predicate.trim();
@@ -389,9 +397,11 @@ impl SlotTemplateEngine {
                 predicate: predicate.into(),
             });
         };
-        let threshold: u64 = n_str.parse().map_err(|_| TemplateError::UnsupportedPredicate {
-            predicate: predicate.into(),
-        })?;
+        let threshold: u64 = n_str
+            .parse()
+            .map_err(|_| TemplateError::UnsupportedPredicate {
+                predicate: predicate.into(),
+            })?;
         let filtered: Vec<serde_json::Value> = arr
             .iter()
             .filter(|item| {
@@ -450,7 +460,10 @@ impl SlotTemplateEngine {
                 }
                 VarScope::User => {
                     let path_lower = var.path.to_lowercase();
-                    if user_slot_kinds.iter().any(|k| k.to_lowercase() == path_lower) {
+                    if user_slot_kinds
+                        .iter()
+                        .any(|k| k.to_lowercase() == path_lower)
+                    {
                         Ok(())
                     } else {
                         Err(TemplateError::UnknownSlotKind {
@@ -696,8 +709,7 @@ mod tests {
 
     #[test]
     fn parse_filter() {
-        let expr =
-            SlotTemplateEngine::parse("${prev.output.files}[?size > 1048576]").unwrap();
+        let expr = SlotTemplateEngine::parse("${prev.output.files}[?size > 1048576]").unwrap();
         match expr {
             TemplateExpr::Filter { source, predicate } => {
                 assert_eq!(
@@ -749,14 +761,7 @@ mod tests {
     #[test]
     fn resolve_literal() {
         let expr = TemplateExpr::Literal("hello".into());
-        let v = SlotTemplateEngine::resolve(
-            &expr,
-            &HashMap::new(),
-            &[],
-            None,
-            None,
-        )
-        .unwrap();
+        let v = SlotTemplateEngine::resolve(&expr, &HashMap::new(), &[], None, None).unwrap();
         assert_eq!(v, serde_json::Value::String("hello".into()));
     }
 
@@ -765,7 +770,10 @@ mod tests {
         let expr = SlotTemplateEngine::parse("${prev.output.path}").unwrap();
         let outs = make_node_outputs();
         let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, Some("n1")).unwrap();
-        assert_eq!(v, serde_json::Value::String("C:/Users/test/Documents/file.txt".into()));
+        assert_eq!(
+            v,
+            serde_json::Value::String("C:/Users/test/Documents/file.txt".into())
+        );
     }
 
     #[test]
@@ -773,7 +781,10 @@ mod tests {
         let expr = SlotTemplateEngine::parse("${n1.output.path}").unwrap();
         let outs = make_node_outputs();
         let v = SlotTemplateEngine::resolve(&expr, &outs, &[], None, None).unwrap();
-        assert_eq!(v, serde_json::Value::String("C:/Users/test/Documents/file.txt".into()));
+        assert_eq!(
+            v,
+            serde_json::Value::String("C:/Users/test/Documents/file.txt".into())
+        );
     }
 
     #[test]
@@ -871,7 +882,10 @@ mod tests {
     use crate::skills::dag_types::{DagEdge, DagNode, DagPlan, IterableSource, LoopSpec};
 
     fn tpl(kind: SlotKind, expr: TemplateExpr) -> SlotTemplate {
-        SlotTemplate { kind, template: expr }
+        SlotTemplate {
+            kind,
+            template: expr,
+        }
     }
 
     fn node(id: &str, expr: TemplateExpr) -> DagNode {

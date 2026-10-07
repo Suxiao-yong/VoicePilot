@@ -36,7 +36,8 @@ fn dispatch_form_submit_routes_to_executor_in_plan3() {
     // Plan 3: form.submit 不再返回 "not implemented",而是路由到 execute_form_submit
     let kernel = kernel();
     let approver = AutoApprover;
-    let input = serde_json::json!({"url": "https://example.com", "submit_selector": "button[type=submit]"});
+    let input =
+        serde_json::json!({"url": "https://example.com", "submit_selector": "button[type=submit]"});
     let result = dispatch_skill_executor(
         "form.submit",
         &kernel,

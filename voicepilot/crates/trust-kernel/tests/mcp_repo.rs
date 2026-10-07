@@ -153,10 +153,11 @@ fn load_allowed_paths_returns_none_when_column_empty() {
 fn load_allowed_paths_returns_none_when_server_missing() {
     let k = TrustKernel::open_in_memory().unwrap();
     let repo = McpServerRepo::new();
-    assert!(repo
-        .load_allowed_paths(&k.conn(), "nonexistent")
-        .unwrap()
-        .is_none());
+    assert!(
+        repo.load_allowed_paths(&k.conn(), "nonexistent")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -186,10 +187,11 @@ fn repo_seed_builtin_creates_row_if_missing() {
     let k = TrustKernel::open_in_memory().unwrap();
     let repo = McpServerRepo::new();
     // Confirm row does not exist yet.
-    assert!(repo
-        .get(&k.conn(), "voicepilot-filesystem")
-        .unwrap()
-        .is_none());
+    assert!(
+        repo.get(&k.conn(), "voicepilot-filesystem")
+            .unwrap()
+            .is_none()
+    );
     // Seed.
     repo.seed_builtin_filesystem(&k.conn()).unwrap();
     let rec = repo

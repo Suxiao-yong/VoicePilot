@@ -11,7 +11,7 @@
 
 use crate::error::{KernelError, Result};
 use crate::policy::risk_matrix::classify;
-use crate::policy::types::{DLevel, Effect, ELevel};
+use crate::policy::types::{DLevel, ELevel, Effect};
 use std::collections::HashMap;
 
 /// Per-tool constraint specification. W2 covers filesystem-style tools.

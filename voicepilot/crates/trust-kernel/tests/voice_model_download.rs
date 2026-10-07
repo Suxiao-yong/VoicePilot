@@ -9,10 +9,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use trust_kernel::voice::error::VoiceResult;
-use trust_kernel::voice::model_download::{
-    download_model_from, model_state, DownloadSource, ModelInfo, ModelState,
-};
 use trust_kernel::voice::model::{ModelRegistry, SENSE_VOICE_DIR_NAME};
+use trust_kernel::voice::model_download::{
+    DownloadSource, ModelInfo, ModelState, download_model_from, model_state,
+};
 
 /// A complete synthetic tar.bz2 containing `<name>/model.onnx` + `<name>/tokens.txt`.
 fn build_synthetic_tar_bz2(model_name: &str) -> Vec<u8> {
@@ -133,7 +133,10 @@ fn file_source_download_resumes_part_and_installs_atomically() {
     assert!(final_dir.join("model.onnx").is_file());
     assert!(final_dir.join("tokens.txt").is_file());
     // .part cleaned up after successful install.
-    assert!(!part_path.exists(), "part file must be removed after install");
+    assert!(
+        !part_path.exists(),
+        "part file must be removed after install"
+    );
 
     // Idempotent: calling again returns the same dir without re-downloading.
     let again = download_model_from(&info, models_dir.clone(), |_| {})
@@ -188,7 +191,11 @@ fn registry_resolves_legacy_localappdata_models_dir() {
     fs::write(model_dir.join("model.onnx"), b"onnx").expect("onnx");
     fs::write(model_dir.join("tokens.txt"), b"tokens").expect("tokens");
 
-    let reg = ModelRegistry::with_legacy_probe(legacy_root.clone());
+    // Canonical home must be empty: with_legacy_probe() leaves home_dir as the
+    // real ~, so on a dev box that already has the model the canonical branch
+    // in resolve() wins and this test fails. Use with_dirs() with an empty home.
+    let home_dir = tmp.path().join("canonical-home");
+    let reg = ModelRegistry::with_dirs(home_dir, Some(legacy_root.clone()));
     assert!(
         reg.is_model_present(SENSE_VOICE_DIR_NAME),
         "legacy model dir must be discovered compatibly"
@@ -220,7 +227,14 @@ async fn url_source_resume_206_appends_and_installs() {
         .respond_with(
             ResponseTemplate::new(206)
                 .set_body_raw(remaining, "application/octet-stream")
-                .insert_header("Content-Range", format!("bytes {half}-{}/{}", archive_bytes.len() - 1, archive_bytes.len())),
+                .insert_header(
+                    "Content-Range",
+                    format!(
+                        "bytes {half}-{}/{}",
+                        archive_bytes.len() - 1,
+                        archive_bytes.len()
+                    ),
+                ),
         )
         .mount(&server)
         .await;
@@ -233,13 +247,9 @@ async fn url_source_resume_206_appends_and_installs() {
     let part_path = models_dir.join(format!("{name}.tar.bz2.part"));
     fs::write(&part_path, &archive_bytes[..half]).expect("write partial part");
 
-    let info = info_with(
-        DownloadSource::Url {
-            url: server.uri(),
-        },
-        &name,
-    );
-    let result = download_model_from(&info, models_dir.clone(), |_| {}).expect("206 resume install");
+    let info = info_with(DownloadSource::Url { url: server.uri() }, &name);
+    let result =
+        download_model_from(&info, models_dir.clone(), |_| {}).expect("206 resume install");
     assert_eq!(result, final_dir);
     assert!(final_dir.join("model.onnx").is_file());
     assert!(final_dir.join("tokens.txt").is_file());
@@ -269,13 +279,9 @@ async fn url_source_ignores_range_200_restarts_from_scratch() {
     // 预置一个"错位"的 .part(与真实归档不同),200 分支必须截断重下。
     fs::write(&part_path, b"STALE-WRONG-PARTIAL-DATA").expect("write stale part");
 
-    let info = info_with(
-        DownloadSource::Url {
-            url: server.uri(),
-        },
-        &name,
-    );
-    let result = download_model_from(&info, models_dir.clone(), |_| {}).expect("200 restart install");
+    let info = info_with(DownloadSource::Url { url: server.uri() }, &name);
+    let result =
+        download_model_from(&info, models_dir.clone(), |_| {}).expect("200 restart install");
     assert_eq!(result, final_dir);
     assert!(final_dir.join("model.onnx").is_file());
 }
@@ -298,14 +304,8 @@ async fn url_source_range_not_satisfiable_416_truncates_and_errors() {
     let part_path = models_dir.join(format!("{name}.tar.bz2.part"));
     fs::write(&part_path, vec![0u8; 100]).expect("write part of 100 bytes");
 
-    let info = info_with(
-        DownloadSource::Url {
-            url: server.uri(),
-        },
-        &name,
-    );
-    let err = download_model_from(&info, models_dir.clone(), |_| {})
-        .expect_err("416 must fail");
+    let info = info_with(DownloadSource::Url { url: server.uri() }, &name);
+    let err = download_model_from(&info, models_dir.clone(), |_| {}).expect_err("416 must fail");
     assert!(
         err.to_string().contains("416") || err.to_string().contains("范围"),
         "error must mention the range issue, got: {err}"

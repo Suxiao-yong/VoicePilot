@@ -326,7 +326,7 @@ impl LlmClient {
              你没有执行操作的能力，不得声称正在执行或已经执行了任何操作\
              （如“正在打开”“已打开”“正在整理”“已完成”）。用户要求打开/关闭应用时，\
              不要复述他的原话当建议，直接给他可执行的说法：说“打开/关闭+应用名”\
-             （如“打开记事本”“打开Edge”“关闭计算器”），系统会弹出确认卡执行。"
+             （如“打开记事本”“打开Edge”“关闭计算器”），系统会弹出确认卡执行。",
         );
         if ids.is_empty() {
             system.push_str("\n当前无可用功能，不要编造功能名称。");
@@ -346,7 +346,11 @@ impl LlmClient {
 
     /// Phase B：通用 system+user 单轮补全（记忆蒸馏等内部任务用）。
     /// temperature 0.1（提取类任务要稳定输出）；不套聊天系统提示词。
-    pub async fn complete_system_user(&self, user_text: &str, max_tokens: u32) -> LlmResult<String> {
+    pub async fn complete_system_user(
+        &self,
+        user_text: &str,
+        max_tokens: u32,
+    ) -> LlmResult<String> {
         if !self.is_enabled() {
             return Err(LlmError::NotConfigured);
         }
@@ -393,7 +397,11 @@ impl LlmClient {
         }
     }
 
-    pub async fn chat_answer(&self, text: &str, candidate_skills: &[SkillManifest]) -> LlmResult<String> {
+    pub async fn chat_answer(
+        &self,
+        text: &str,
+        candidate_skills: &[SkillManifest],
+    ) -> LlmResult<String> {
         if !self.is_enabled() {
             return Err(LlmError::NotConfigured);
         }
@@ -466,7 +474,9 @@ impl LlmClient {
         candidate_skills: &[SkillManifest],
         user_slots: &[ExtractedSlot],
     ) -> LlmResult<crate::skills::dag_types::DagPlan> {
-        let (plan, _stats) = self.decompose_to_dag_traced(user_text, candidate_skills, user_slots).await?;
+        let (plan, _stats) = self
+            .decompose_to_dag_traced(user_text, candidate_skills, user_slots)
+            .await?;
         Ok(plan)
     }
 
@@ -481,7 +491,10 @@ impl LlmClient {
         user_text: &str,
         candidate_skills: &[SkillManifest],
         user_slots: &[ExtractedSlot],
-    ) -> LlmResult<(crate::skills::dag_types::DagPlan, crate::llm::types::DecomposeStats)> {
+    ) -> LlmResult<(
+        crate::skills::dag_types::DagPlan,
+        crate::llm::types::DecomposeStats,
+    )> {
         use crate::skills::dag_types::MAX_TOTAL_STEPS_HARD_LIMIT;
         use crate::skills::template::SlotTemplateEngine;
         use std::time::Instant;
@@ -561,17 +574,14 @@ impl LlmClient {
         }
 
         // 校验 3:SlotTemplateEngine::validate_dag
-        SlotTemplateEngine::validate_dag(&plan).map_err(|e| {
-            LlmError::Parse(format!("template validation failed: {}", e))
-        })?;
+        SlotTemplateEngine::validate_dag(&plan)
+            .map_err(|e| LlmError::Parse(format!("template validation failed: {}", e)))?;
 
         // 校验 4:DagPlan 内置校验
-        plan.validate_edges().map_err(|e| {
-            LlmError::Parse(format!("edge validation failed: {}", e))
-        })?;
-        plan.validate_loop_specs().map_err(|e| {
-            LlmError::Parse(format!("loop spec validation failed: {}", e))
-        })?;
+        plan.validate_edges()
+            .map_err(|e| LlmError::Parse(format!("edge validation failed: {}", e)))?;
+        plan.validate_loop_specs()
+            .map_err(|e| LlmError::Parse(format!("loop spec validation failed: {}", e)))?;
 
         let stats = crate::llm::types::DecomposeStats {
             llm_model: self.model.clone(),
@@ -711,9 +721,8 @@ impl LlmClient {
                 )
             })?;
 
-        let plan: DagPlan = serde_json::from_str(arguments_str).map_err(|e| {
-            LlmError::Parse(format!("failed to parse arguments as DagPlan: {}", e))
-        })?;
+        let plan: DagPlan = serde_json::from_str(arguments_str)
+            .map_err(|e| LlmError::Parse(format!("failed to parse arguments as DagPlan: {}", e)))?;
 
         Ok(plan)
     }
@@ -801,7 +810,7 @@ impl LlmClient {
              - path_not_allowed:文件路径不在 allowed_paths 白名单\n\
              - approval_denied:用户拒绝审批\n\
              - network_error:网络请求失败 / 超时\n\
-             - unknown:无法归因"
+             - unknown:无法归因",
         )
     }
 
@@ -823,13 +832,16 @@ impl LlmClient {
             "evidence_strength": step.evidence_strength,
             "error_message": serde_json::Value::Null,
         });
-        let logs_json: Vec<serde_json::Value> = audit_logs.iter().map(|e| {
-            serde_json::json!({
-                "event_type": e.event_type,
-                "details": e.details,
-                "timestamp": e.timestamp.to_rfc3339(),
+        let logs_json: Vec<serde_json::Value> = audit_logs
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "event_type": e.event_type,
+                    "details": e.details,
+                    "timestamp": e.timestamp.to_rfc3339(),
+                })
             })
-        }).collect();
+            .collect();
         format!(
             "失败的步骤:\n{}\n\n审计日志:\n{}",
             serde_json::to_string_pretty(&step_json).unwrap_or_default(),
@@ -979,7 +991,7 @@ pub fn tag_dag_plan_literals(
     task_id: &str,
     plan: &crate::skills::dag_types::DagPlan,
 ) -> crate::error::Result<()> {
-    use crate::policy::taint_repo::{compute_value_hash, make_taint_record, TaintRepo};
+    use crate::policy::taint_repo::{TaintRepo, compute_value_hash, make_taint_record};
     use crate::skills::template::TemplateExpr;
 
     /// 递归遍历 TemplateExpr,对每个 Literal(s) 调用 f(&s)。
@@ -1209,10 +1221,7 @@ mod tests {
 
             let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
             let skills = vec![files_organize_manifest()];
-            let resp = client
-                .classify_and_extract("test", &skills)
-                .await
-                .unwrap();
+            let resp = client.classify_and_extract("test", &skills).await.unwrap();
             assert_eq!(resp.matched_skill_id, None, "raw id was {raw_id:?}");
         }
     }
@@ -1306,10 +1315,7 @@ mod tests {
 
         let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
         let step = crate::repo::step_repo::StepRecord::new("s1", "t1", 1);
-        let analysis = client
-            .explain_failure(&step, &[])
-            .await
-            .unwrap();
+        let analysis = client.explain_failure(&step, &[]).await.unwrap();
         assert_eq!(analysis.root_cause_zh, "x");
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
@@ -1340,7 +1346,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn classify_and_extract_returns_parse_error_when_tool_calls_missing() {        use wiremock::matchers::method;
+    async fn classify_and_extract_returns_parse_error_when_tool_calls_missing() {
+        use wiremock::matchers::method;
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let server = MockServer::start().await;
@@ -1446,7 +1453,10 @@ mod tests {
             .await;
 
         let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
-        let answer = client.chat_answer("你有什么功能", &[files_organize_manifest()]).await.expect("chat ok");
+        let answer = client
+            .chat_answer("你有什么功能", &[files_organize_manifest()])
+            .await
+            .expect("chat ok");
         assert!(answer.contains("VoicePilot"), "got {answer}");
     }
 
@@ -1465,7 +1475,10 @@ mod tests {
             .await;
 
         let client = LlmClient::new(&server.uri(), "sk-test", "deepseek-chat");
-        let err = client.chat_answer("hi", &[files_organize_manifest()]).await.expect_err("empty chat");
+        let err = client
+            .chat_answer("hi", &[files_organize_manifest()])
+            .await
+            .expect_err("empty chat");
         assert!(matches!(err, LlmError::Parse(_)));
     }
 }

@@ -82,9 +82,13 @@ fn write_bound_skill(
     tool_name: &str,
 ) {
     let skill_path = skills_dir.join(format!("{skill_id}/SKILL.md"));
-    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent")).expect("create skill dir");
-    fs::write(skill_path, mcp_tool_skill_md(skill_id, server_id, tool_name))
-        .expect("write MCP-backed user Skill");
+    std::fs::create_dir_all(skill_path.parent().expect("skill dir parent"))
+        .expect("create skill dir");
+    fs::write(
+        skill_path,
+        mcp_tool_skill_md(skill_id, server_id, tool_name),
+    )
+    .expect("write MCP-backed user Skill");
     kernel.load_user_skills().expect("load user Skills");
 }
 
@@ -323,7 +327,9 @@ fn register_rejects_non_array_allowed_paths_and_allowed_origins() {
         .register_mcp_server(bad_paths)
         .expect_err("non-array allowed_paths must be rejected");
     assert!(
-        err.to_string().to_ascii_lowercase().contains("allowed_paths"),
+        err.to_string()
+            .to_ascii_lowercase()
+            .contains("allowed_paths"),
         "error should mention the allowed_paths field: {err}"
     );
 
@@ -333,8 +339,7 @@ fn register_rejects_non_array_allowed_paths_and_allowed_origins() {
         .register_mcp_server(bad_origins)
         .expect_err("non-array allowed_origins must be rejected");
     assert!(
-        err
-            .to_string()
+        err.to_string()
             .to_ascii_lowercase()
             .contains("allowed_origins"),
         "error should mention the allowed_origins field: {err}"
@@ -355,7 +360,9 @@ fn register_duplicate_server_id_is_rejected() {
         .register_mcp_server(valid_record("srv-dup"))
         .expect_err("duplicate server_id must be rejected (explicit safety, no upsert)");
     assert!(
-        err.to_string().to_ascii_lowercase().contains("already exists"),
+        err.to_string()
+            .to_ascii_lowercase()
+            .contains("already exists"),
         "duplicate error should say the id already exists: {err}"
     );
 
@@ -363,7 +370,10 @@ fn register_duplicate_server_id_is_rejected() {
         .into_iter()
         .filter(|row| row.server_id == "srv-dup")
         .count();
-    assert_eq!(matches, 1, "exactly one row must remain for the duplicate id");
+    assert_eq!(
+        matches, 1,
+        "exactly one row must remain for the duplicate id"
+    );
 }
 
 // ===== register: valid input persists + reloads catalog =====
@@ -379,7 +389,10 @@ fn register_valid_persists_row_and_publishes_bound_skill_candidate() {
     // Bound Skill exists before the server: display-only until registered.
     write_bound_skill(&kernel, &skills_dir, &skill_id, &server_id, tool_name);
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_none(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_none(),
         "bound Skill must not be a candidate before its server is registered"
     );
 
@@ -396,7 +409,10 @@ fn register_valid_persists_row_and_publishes_bound_skill_candidate() {
     assert_eq!(row.transport, "stdio");
     assert_eq!(row.protocol_version.as_deref(), Some("2025-11-25"));
     assert_eq!(row.command.as_deref(), Some("npx"));
-    assert_eq!(row.args.as_deref(), Some(r#"["-y","@fixture/mcp-readonly"]"#));
+    assert_eq!(
+        row.args.as_deref(),
+        Some(r#"["-y","@fixture/mcp-readonly"]"#)
+    );
     assert_eq!(
         row.env.as_deref(),
         Some(r#"{"RO_TOKEN":"env-secret-xyz"}"#),
@@ -436,7 +452,10 @@ fn toggle_off_removes_dependent_candidate_then_on_restores() {
         .register_mcp_server(valid_record(&server_id))
         .expect("register plugin");
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_some(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_some(),
         "candidate must exist before toggle-off"
     );
 
@@ -447,9 +466,15 @@ fn toggle_off_removes_dependent_candidate_then_on_restores() {
         .into_iter()
         .find(|row| row.server_id == server_id)
         .expect("server row must still exist after toggle-off");
-    assert!(!row.enabled, "toggle-off must persist enabled=false in the DB");
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_none(),
+        !row.enabled,
+        "toggle-off must persist enabled=false in the DB"
+    );
+    assert!(
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_none(),
         "toggle-off must remove the dependent candidate from the runtime snapshot"
     );
 
@@ -462,7 +487,10 @@ fn toggle_off_removes_dependent_candidate_then_on_restores() {
         .expect("server row must still exist after toggle-on");
     assert!(row.enabled, "toggle-on must persist enabled=true in the DB");
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_some(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_some(),
         "toggle-on must restore the dependent candidate"
     );
 }
@@ -482,7 +510,10 @@ fn remove_referenced_server_fails_and_lists_referencing_skill_ids() {
         .register_mcp_server(valid_record(&server_id))
         .expect("register plugin");
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_some(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_some(),
         "candidate must exist before the protected removal attempt"
     );
 
@@ -550,7 +581,10 @@ fn remove_unreferenced_server_deletes_row_and_updates_catalog() {
     }
     kernel.reload_extensions().expect("reload after removal");
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_none(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_none(),
         "catalog must not treat a removed server as executable"
     );
 }
@@ -583,11 +617,16 @@ fn end_to_end_register_reload_dispatch_routes_through_mcp_chain() {
             .update(&conn, &rec)
             .expect("clear command for deterministic dispatch error");
     }
-    kernel.reload_extensions().expect("reload after test mutation");
+    kernel
+        .reload_extensions()
+        .expect("reload after test mutation");
 
     write_bound_skill(&kernel, &skills_dir, &skill_id, &server_id, tool_name);
     assert!(
-        kernel.extension_snapshot().resolve_candidate(&skill_id).is_some(),
+        kernel
+            .extension_snapshot()
+            .resolve_candidate(&skill_id)
+            .is_some(),
         "bound Skill must be a dispatch candidate"
     );
 

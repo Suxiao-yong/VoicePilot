@@ -117,15 +117,15 @@ use std::sync::{Arc, Mutex};
 use trust_kernel::approval::approver::AutoApprover;
 use trust_kernel::crypto::stronghold::StrongholdVault;
 use trust_kernel::kernel::TrustKernel;
+use trust_kernel::mcp::repo::McpServerRepo;
 use trust_kernel::policy::taint_repo::TaintRepo;
 use trust_kernel::policy::types::ELevel;
-use trust_kernel::skills::dag_executor::{set_thread_local_uia_adapter, DagExecutor};
+use trust_kernel::skills::dag_executor::{DagExecutor, set_thread_local_uia_adapter};
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagNodeStatus, DagPlan, DagStatus};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope};
-use trust_kernel::mcp::repo::McpServerRepo;
-use trust_kernel::uiautomation::adapter::McpUiaAdapter;
 use trust_kernel::uiautomation::UiaAdapter;
+use trust_kernel::uiautomation::adapter::McpUiaAdapter;
 
 /// 测试后端行复制（w7 smoke 同款）：seed 行的裸命令解析不到 exe，
 /// 复制一行指向仓库 tools 下的真实 exe。conn 守卫不出本函数（executor
@@ -413,10 +413,7 @@ fn real_note_capture_dag_succeeds() {
         );
 
         // 8. 验证:节点 n1 Succeeded
-        let n1_status = result
-            .node_results
-            .get("n1")
-            .expect("n1 result must exist");
+        let n1_status = result.node_results.get("n1").expect("n1 result must exist");
         assert!(
             n1_status.is_succeeded(),
             "n1 should be Succeeded, got {:?}",

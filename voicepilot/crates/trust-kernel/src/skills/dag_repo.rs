@@ -4,7 +4,7 @@
 //! 遵循 W4 McpServerRepo 模式:`new()` 不带参数,方法接收 `&Connection`。
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
@@ -53,8 +53,9 @@ impl DagRepo {
         status: &DagStatus,
         root_task_id: Option<&str>,
     ) -> Result<()> {
-        let plan_json = serde_json::to_string(plan)
-            .map_err(|e| crate::error::KernelError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
+        let plan_json = serde_json::to_string(plan).map_err(|e| {
+            crate::error::KernelError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+        })?;
         let now = Utc::now().to_rfc3339();
         conn.execute(
             r#"INSERT INTO dag_plans (plan_id, user_goal, plan_json, status, created_at, completed_at, root_task_id)
@@ -144,14 +145,10 @@ impl DagRepo {
     }
 
     /// 创建 DAG 节点记录(初始状态 = pending,started_at = now)。
-    pub fn create_node(
-        &self,
-        conn: &Connection,
-        plan_id: &str,
-        node: &DagNode,
-    ) -> Result<()> {
-        let input_template_json = serde_json::to_string(&node.input_template)
-            .map_err(|e| crate::error::KernelError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
+    pub fn create_node(&self, conn: &Connection, plan_id: &str, node: &DagNode) -> Result<()> {
+        let input_template_json = serde_json::to_string(&node.input_template).map_err(|e| {
+            crate::error::KernelError::Db(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+        })?;
         let now = Utc::now().to_rfc3339();
         conn.execute(
             r#"INSERT INTO dag_nodes
@@ -184,10 +181,9 @@ impl DagRepo {
         step_id: Option<&str>,
     ) -> Result<()> {
         let (output_json, error_msg) = match status {
-            DagNodeStatus::Succeeded(out) => (
-                Some(serde_json::to_string(out).unwrap_or_default()),
-                None,
-            ),
+            DagNodeStatus::Succeeded(out) => {
+                (Some(serde_json::to_string(out).unwrap_or_default()), None)
+            }
             DagNodeStatus::Failed { cause } => (None, Some(cause.clone())),
             _ => (None, None),
         };
@@ -261,8 +257,14 @@ impl DagRepo {
     /// 级联删除 DAG plan + 其所有节点。
     /// (FK ON DELETE CASCADE 会自动删 dag_nodes,但显式删便于审计)
     pub fn delete_plan_cascade(&self, conn: &Connection, plan_id: &str) -> Result<()> {
-        conn.execute(r#"DELETE FROM dag_nodes WHERE plan_id = ?1"#, params![plan_id])?;
-        conn.execute(r#"DELETE FROM dag_plans WHERE plan_id = ?1"#, params![plan_id])?;
+        conn.execute(
+            r#"DELETE FROM dag_nodes WHERE plan_id = ?1"#,
+            params![plan_id],
+        )?;
+        conn.execute(
+            r#"DELETE FROM dag_plans WHERE plan_id = ?1"#,
+            params![plan_id],
+        )?;
         Ok(())
     }
 }

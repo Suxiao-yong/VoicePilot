@@ -36,13 +36,17 @@ fn auto_reverse_moves_files_back_to_original_locations() {
             {"from": original.to_string_lossy().replace('\\', "/"),
              "to": moved_to.to_string_lossy().replace('\\', "/")}
         ]
-    }).to_string();
+    })
+    .to_string();
 
     let rec = sample_record(&payload);
     let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
     auto_reverse_move(&kernel, &rec).unwrap();
 
-    assert!(original.exists(), "original location must have the file back");
+    assert!(
+        original.exists(),
+        "original location must have the file back"
+    );
     assert!(!moved_to.exists(), "moved location must be empty");
     assert_eq!(fs::read(&original).unwrap(), b"hello");
     fs::remove_dir_all(&dir).ok();
@@ -59,12 +63,16 @@ fn auto_reverse_fails_when_move_target_missing() {
             {"from": original.to_string_lossy().replace('\\', "/"),
              "to": missing.to_string_lossy().replace('\\', "/")}
         ]
-    }).to_string();
+    })
+    .to_string();
 
     let rec = sample_record(&payload);
     let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
     let result = auto_reverse_move(&kernel, &rec);
-    assert!(result.is_err(), "reverse must fail when current location is missing");
+    assert!(
+        result.is_err(),
+        "reverse must fail when current location is missing"
+    );
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -93,14 +101,18 @@ fn auto_reverse_rolls_back_partial_on_failure() {
             {"from": bad_original.to_string_lossy().replace('\\', "/"),
              "to": bad_current.to_string_lossy().replace('\\', "/")}
         ]
-    }).to_string();
+    })
+    .to_string();
 
     let rec = sample_record(&payload);
     let kernel = trust_kernel::kernel::TrustKernel::open_in_memory().unwrap();
     let result = auto_reverse_move(&kernel, &rec);
     assert!(result.is_err(), "must fail on bad move");
     // Rollback: ok_current should be back where it was.
-    assert!(ok_current.exists(), "partial rollback must restore already-reversed file");
+    assert!(
+        ok_current.exists(),
+        "partial rollback must restore already-reversed file"
+    );
     assert!(!ok_original.exists());
     fs::remove_dir_all(&dir).ok();
 }

@@ -8,15 +8,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_kernel::approval::approver::{AutoApprover, AutoDenier, Approver};
+use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier};
 use trust_kernel::kernel::TrustKernel;
 use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_executor::DagExecutor;
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{DagEdge, DagNode, DagPlan, DagStatus};
-use trust_kernel::skills::template::{
-    SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope,
-};
+use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr, VarRef, VarScope};
 
 fn literal_node(id: &str, skill_id: &str, literal: &str) -> DagNode {
     DagNode {
@@ -36,7 +34,10 @@ fn var_node(id: &str, skill_id: &str, scope: VarScope, path: &str) -> DagNode {
         skill_id: skill_id.into(),
         input_template: SlotTemplate {
             kind: SlotKind::Text,
-            template: TemplateExpr::Var(VarRef { scope, path: path.into() }),
+            template: TemplateExpr::Var(VarRef {
+                scope,
+                path: path.into(),
+            }),
         },
         risk_ceiling: ELevel::E1,
     }
@@ -102,7 +103,9 @@ fn run_simple_node_fails_on_template_resolution_error() {
     let result = executor.run(&plan, &[]).unwrap();
     // 模板解析失败 → 节点 Failed → DAG Failed(无成功节点)
     match result.status {
-        DagStatus::Failed { ref failed_node, .. } => {
+        DagStatus::Failed {
+            ref failed_node, ..
+        } => {
             assert_eq!(failed_node, "n1");
         }
         other => panic!("expected Failed, got {:?}", other),
@@ -123,7 +126,10 @@ fn run_simple_node_fails_on_unknown_skill_id() {
     let plan = plan_with(vec![node], vec![]);
     let result = executor.run(&plan, &[]).unwrap();
     match result.status {
-        DagStatus::Failed { ref failed_node, ref cause } => {
+        DagStatus::Failed {
+            ref failed_node,
+            ref cause,
+        } => {
             assert_eq!(failed_node, "n1");
             assert!(cause.contains("unknown skill_id"), "got: {}", cause);
         }

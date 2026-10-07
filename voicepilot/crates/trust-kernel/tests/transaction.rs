@@ -2,15 +2,13 @@ use trust_kernel::policy::transaction::{EffectManifest, PrepareToken, Transactio
 
 fn sample_manifest() -> EffectManifest {
     EffectManifest {
-        sources: vec![
-            trust_kernel::policy::transaction::FileSnapshot {
-                canonical_path: "C:/Users/me/Downloads/paper1.pdf".to_string(),
-                file_id: "fi_001".to_string(),
-                size: 12345,
-                last_write_time: "2026-07-18T10:00:00Z".to_string(),
-                sha256: "a1b2c3".to_string(),
-            },
-        ],
+        sources: vec![trust_kernel::policy::transaction::FileSnapshot {
+            canonical_path: "C:/Users/me/Downloads/paper1.pdf".to_string(),
+            file_id: "fi_001".to_string(),
+            size: 12345,
+            last_write_time: "2026-07-18T10:00:00Z".to_string(),
+            sha256: "a1b2c3".to_string(),
+        }],
         destination: "C:/Users/me/Documents/Papers".to_string(),
         conflicts: vec![],
         total_bytes: 12345,
@@ -52,7 +50,10 @@ fn commit_fails_when_preconditions_differ() {
     let result = mgr.commit(&token, &modified);
     assert!(result.is_err(), "commit must fail on precondition mismatch");
     let err = result.unwrap_err();
-    assert!(matches!(err, trust_kernel::error::KernelError::PreconditionMismatch { .. }));
+    assert!(matches!(
+        err,
+        trust_kernel::error::KernelError::PreconditionMismatch { .. }
+    ));
 }
 
 #[test]

@@ -9,8 +9,8 @@ fn main() {
         .init();
 
     let db_path = std::env::var("VOICEPILOT_DB").unwrap_or_else(|_| "voicepilot.db".to_string());
-    let kernel = trust_kernel::kernel::TrustKernel::open_file(&db_path)
-        .expect("failed to open kernel");
+    let kernel =
+        trust_kernel::kernel::TrustKernel::open_file(&db_path).expect("failed to open kernel");
 
     app::run(kernel).expect("failed to run Tauri app");
 }

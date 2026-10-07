@@ -11,14 +11,14 @@
 //!
 //! 不实际录音(需麦克风 + 模型),实际录音测试标 #[ignore] 在 voice_integration.rs 中。
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 
 use trust_kernel::voice::error::{VoiceError, VoiceResult};
 use voicepilot_ui::commands::RouteTextResult;
 use voicepilot_ui::voice_commands::{
-    build_transcription_final_payload, voice_listen, VoiceListen, VoiceListenOutcome,
-    VoiceListenResult,
+    VoiceListen, VoiceListenOutcome, VoiceListenResult, build_transcription_final_payload,
+    voice_listen,
 };
 
 struct StubVoiceListen {
@@ -35,9 +35,11 @@ impl StubVoiceListen {
 
 impl VoiceListen for StubVoiceListen {
     fn listen(&self, _cancel: &AtomicBool) -> VoiceResult<VoiceListenOutcome> {
-        self.outcome.lock().unwrap().take().unwrap_or_else(|| {
-            Err(VoiceError::InferenceFailed("stub exhausted".to_string()))
-        })
+        self.outcome
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| Err(VoiceError::InferenceFailed("stub exhausted".to_string())))
     }
 }
 

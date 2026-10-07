@@ -25,16 +25,14 @@ use trust_kernel::kernel::TrustKernel;
 use trust_kernel::repo::config_repo::ConfigRepo;
 use trust_kernel::repo::step_repo::StepRecord;
 use trust_kernel::skills::common::create_post_commit_compensation;
-use trust_kernel::skills::task_compensate::{execute_compensate, TaskCompensateInput};
+use trust_kernel::skills::task_compensate::{TaskCompensateInput, execute_compensate};
 
 /// 测试辅助:创建 kernel + task + step + 解锁的 StrongholdVault。
 /// vault_path 设到独立 tempdir,避免并发测试冲突。
 fn setup_kernel_with_unlocked_vault(password: &str) -> Arc<TrustKernel> {
     let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
     kernel.create_task("t1", "test goal").unwrap();
-    kernel
-        .create_step(&StepRecord::new("s1", "t1", 1))
-        .unwrap();
+    kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
 
     // 设置独立 vault_path 到 tempdir(避免与 default data_dir 冲突)
     let tmp = tempfile::TempDir::new().unwrap();
@@ -61,9 +59,7 @@ fn setup_kernel_with_unlocked_vault(password: &str) -> Arc<TrustKernel> {
 fn setup_kernel_with_degraded_vault() -> Arc<TrustKernel> {
     let kernel = Arc::new(TrustKernel::open_in_memory().unwrap());
     kernel.create_task("t1", "test goal").unwrap();
-    kernel
-        .create_step(&StepRecord::new("s1", "t1", 1))
-        .unwrap();
+    kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
     let vault = {
         let conn = kernel.conn();
         StrongholdVault::degraded(&conn)
@@ -207,7 +203,10 @@ fn stronghold_degraded_mode_skips_encryption() {
         "reverse_payload must contain plaintext in degraded mode"
     );
     let parsed: serde_json::Value = serde_json::from_str(&comp.reverse_payload).unwrap();
-    assert!(parsed.get("moves").is_some(), "plaintext must be valid JSON");
+    assert!(
+        parsed.get("moves").is_some(),
+        "plaintext must be valid JSON"
+    );
 }
 
 // ===== 测试 3:feature 运行时禁用明文 PoC =====

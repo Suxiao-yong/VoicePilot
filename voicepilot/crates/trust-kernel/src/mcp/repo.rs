@@ -12,7 +12,7 @@
 
 use crate::allowed_paths::AllowedPaths;
 use crate::error::{KernelError, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 /// Transport allowlist for registered MCP plugins (Wave 2 Task 2.2).

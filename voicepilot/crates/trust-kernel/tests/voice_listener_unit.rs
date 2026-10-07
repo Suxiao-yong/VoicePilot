@@ -3,8 +3,8 @@
 //! VoiceListener 单元测试 —— 使用 MockVoiceRecorder,不实际录音。
 //! 验证 VAD-based 自动停止逻辑(issue #45)。
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use trust_kernel::voice::error::VoiceResult;

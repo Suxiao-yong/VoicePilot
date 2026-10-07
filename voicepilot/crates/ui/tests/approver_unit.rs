@@ -46,7 +46,9 @@ fn approval_registry_consumes_request_after_take() {
     let manifest = dummy_manifest();
     let (approval_id, _rx) = registry.create_request(&manifest);
 
-    let _ = registry.take_sender(&approval_id).expect("first take succeeds");
+    let _ = registry
+        .take_sender(&approval_id)
+        .expect("first take succeeds");
 
     assert!(registry.take_sender(&approval_id).is_none());
 }
@@ -65,10 +67,10 @@ fn approval_registry_handles_sender_dropped() {
 
 // ===== W9 Plan 4 Task 5: ApprovalRegistry DAG channel(Modify payload)=====
 
-use voicepilot_ui::approver::DagApprovalPayload;
+use trust_kernel::policy::types::ELevel;
 use trust_kernel::skills::dag_types::{DagNode, DagPlan};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
-use trust_kernel::policy::types::ELevel;
+use voicepilot_ui::approver::DagApprovalPayload;
 
 fn make_test_plan(plan_id: &str) -> DagPlan {
     DagPlan {
@@ -128,7 +130,9 @@ fn approval_registry_wait_for_dag_decision_delivers_modify_payload() {
 
     let modified_plan = make_test_plan("test-modify-plan");
     let expected_plan_id = modified_plan.plan_id.clone();
-    let sender = registry.take_dag_sender(&approval_id).expect("sender exists");
+    let sender = registry
+        .take_dag_sender(&approval_id)
+        .expect("sender exists");
     let payload_to_send = DagApprovalPayload {
         decision: ApprovalDecision::Modify,
         modified_plan: Some(modified_plan),
@@ -193,8 +197,7 @@ fn waits_are_safe_inside_tokio_runtime() {
         );
         // dag 通道：无人投递 → 超时 Deny。
         let (_id, rx) = registry.create_dag_request();
-        let payload =
-            registry.wait_for_dag_decision(rx, Duration::from_millis(100));
+        let payload = registry.wait_for_dag_decision(rx, Duration::from_millis(100));
         assert_eq!(payload.decision, ApprovalDecision::Deny);
         assert!(payload.modified_plan.is_none());
     });

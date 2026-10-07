@@ -1,7 +1,7 @@
 //! turns 情景记忆：每轮封轮一条摘要（结果可回忆，原始音频永不落盘）。
 
 use crate::error::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// outcome 取值：`routed:<skill_id>` | `dag` | `unmatched` | `empty` | `nospeech` | `error` | `chat`。
 /// `chat` 仅为结果标签，回答正文永不持久化。

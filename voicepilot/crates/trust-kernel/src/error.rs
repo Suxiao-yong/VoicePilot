@@ -5,7 +5,10 @@ pub enum KernelError {
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("invalid state transition: from={from:?} to={to:?}")]
-    InvalidTransition { from: crate::state::TaskState, to: crate::state::TaskState },
+    InvalidTransition {
+        from: crate::state::TaskState,
+        to: crate::state::TaskState,
+    },
     #[error("task not found: {0}")]
     TaskNotFound(String),
     #[error("serialization error: {0}")]
@@ -62,10 +65,7 @@ pub enum KernelError {
     /// `taints` 是该 value 关联的污点标签列表,`sink` 是被拦截的 EgressDest。
     /// 调用方负责审计 `taint_blocked` 事件(details 不含原始 value)。
     #[error("taint propagation blocked: taints={taints:?} sink={sink}")]
-    TaintPropagationBlocked {
-        taints: Vec<String>,
-        sink: String,
-    },
+    TaintPropagationBlocked { taints: Vec<String>, sink: String },
     /// W9 Plan 4:DAG Modify 超过单次上限(第二次 Modify 被拒绝,防无限递归)。
     #[error("dag modify limit exceeded: plan_id={plan_id}")]
     DagModifyLimitExceeded { plan_id: String },

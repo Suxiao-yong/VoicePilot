@@ -4,7 +4,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum VoiceError {
-    #[error("voice model missing: {0} (run `voicepilot voice list-models` for download instructions)")]
+    #[error(
+        "voice model missing: {0} (run `voicepilot voice list-models` for download instructions)"
+    )]
     ModelMissing(String),
 
     #[error("microphone access denied")]

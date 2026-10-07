@@ -18,7 +18,7 @@ use crate::policy::cedar_engine::CedarEngine;
 use crate::policy::constraint_engine::{ConstraintEngine, ConstraintSpec};
 use crate::policy::egress::check_egress;
 use crate::policy::taint_repo::TaintRepo;
-use crate::policy::types::{Action, Decision, EgressDest, Resource, Effect};
+use crate::policy::types::{Action, Decision, Effect, EgressDest, Resource};
 use rusqlite::Connection;
 use std::sync::Arc;
 
@@ -62,7 +62,10 @@ impl ActionGateway {
         egress_dest: Option<EgressDest>,
         args: Option<serde_json::Value>,
     ) -> Result<Decision> {
-        let action = Action { name: tool.to_string(), e_level };
+        let action = Action {
+            name: tool.to_string(),
+            e_level,
+        };
         let mut reasons: Vec<String> = Vec::new();
 
         // Step 1: hard-deny rules (D3, shell_exec, taint elevation).
@@ -88,10 +91,7 @@ impl ActionGateway {
         // Step 2: Cedar authorization.
         let cedar_allows = self.cedar.is_allowed(&action, resource)?;
         if !cedar_allows {
-            return Ok(Decision::deny(
-                self.bundle_hash.clone(),
-                "Cedar denied",
-            ));
+            return Ok(Decision::deny(self.bundle_hash.clone(), "Cedar denied"));
         }
 
         // Step 3: normalize args + apply constraints.
@@ -104,11 +104,16 @@ impl ActionGateway {
         };
 
         // Step 4: E×D risk classification.
-        let mut effect = self.constraints.upgrade_effect(cedar_allows, e_level, resource.data_class);
+        let mut effect =
+            self.constraints
+                .upgrade_effect(cedar_allows, e_level, resource.data_class);
         if matches!(effect, Effect::Deny) {
             reasons.push(format!("E{:?}×D{:?} = deny", e_level, resource.data_class));
         } else if matches!(effect, Effect::Confirm) {
-            reasons.push(format!("E{:?}×D{:?} = confirm", e_level, resource.data_class));
+            reasons.push(format!(
+                "E{:?}×D{:?} = confirm",
+                e_level, resource.data_class
+            ));
         }
 
         // Step 5: egress check.
@@ -124,9 +129,15 @@ impl ActionGateway {
                 egress_effect
             };
             if matches!(egress_effect, Effect::Deny) {
-                reasons.push(format!("egress to {:?} denied for D{:?}", dest, resource.data_class));
+                reasons.push(format!(
+                    "egress to {:?} denied for D{:?}",
+                    dest, resource.data_class
+                ));
             } else if matches!(egress_effect, Effect::Confirm) {
-                reasons.push(format!("egress to {:?} requires confirm for D{:?}", dest, resource.data_class));
+                reasons.push(format!(
+                    "egress to {:?} requires confirm for D{:?}",
+                    dest, resource.data_class
+                ));
             }
         }
 

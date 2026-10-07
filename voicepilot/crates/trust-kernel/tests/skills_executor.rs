@@ -17,12 +17,16 @@ fn tmp_dir() -> PathBuf {
 #[test]
 fn files_organize_skill_executes_full_pipeline_on_allow() {
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task("t1", "把下载目录里的 PDF 移到论文文件夹").unwrap();
+    kernel
+        .create_task("t1", "把下载目录里的 PDF 移到论文文件夹")
+        .unwrap();
     kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
 
     let dir = tmp_dir();
-    let src_dir = dir.join("src"); fs::create_dir_all(&src_dir).unwrap();
-    let dest_dir = dir.join("out"); fs::create_dir_all(&dest_dir).unwrap();
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let dest_dir = dir.join("out");
+    fs::create_dir_all(&dest_dir).unwrap();
     fs::write(src_dir.join("a.pdf"), b"pdf1").unwrap();
     fs::write(src_dir.join("b.pdf"), b"pdf2").unwrap();
     fs::write(src_dir.join("c.txt"), b"txt").unwrap();
@@ -41,20 +45,32 @@ fn files_organize_skill_executes_full_pipeline_on_allow() {
 
     // ToolResult V2 fields.
     assert_eq!(result.tool_result.status, ToolStatus::Succeeded);
-    assert_eq!(result.tool_result.evidence_strength, EvidenceStrength::Strong);
-    assert_eq!(result.tool_result.compensation_level, CompensationLevel::Strong);
+    assert_eq!(
+        result.tool_result.evidence_strength,
+        EvidenceStrength::Strong
+    );
+    assert_eq!(
+        result.tool_result.compensation_level,
+        CompensationLevel::Strong
+    );
     assert!(result.tool_result.compensation_ref.is_some());
 
     // Filesystem state.
     assert!(!src_dir.join("a.pdf").exists());
     assert!(!src_dir.join("b.pdf").exists());
-    assert!(src_dir.join("c.txt").exists(), "non-matching file must stay");
+    assert!(
+        src_dir.join("c.txt").exists(),
+        "non-matching file must stay"
+    );
     assert!(dest_dir.join("a.pdf").exists());
     assert!(dest_dir.join("b.pdf").exists());
 
     // Kernel persistence.
     let comp_id = result.tool_result.compensation_ref.as_ref().unwrap();
-    let comp = kernel.get_compensation(comp_id).unwrap().expect("compensation must exist");
+    let comp = kernel
+        .get_compensation(comp_id)
+        .unwrap()
+        .expect("compensation must exist");
     assert_eq!(comp.level, CompensationLevel::Strong);
     assert_eq!(comp.status, "active");
 
@@ -68,7 +84,10 @@ fn files_organize_skill_executes_full_pipeline_on_allow() {
 
     let approvals = kernel.list_approvals_for_task("t1").unwrap();
     assert_eq!(approvals.len(), 1);
-    assert_eq!(approvals[0].user_decision, trust_kernel::approval::types::ApprovalDecision::Allow);
+    assert_eq!(
+        approvals[0].user_decision,
+        trust_kernel::approval::types::ApprovalDecision::Allow
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -80,8 +99,10 @@ fn files_organize_skill_aborts_on_deny_without_commit() {
     kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
 
     let dir = tmp_dir();
-    let src_dir = dir.join("src"); fs::create_dir_all(&src_dir).unwrap();
-    let dest_dir = dir.join("out"); fs::create_dir_all(&dest_dir).unwrap();
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let dest_dir = dir.join("out");
+    fs::create_dir_all(&dest_dir).unwrap();
     fs::write(src_dir.join("a.pdf"), b"pdf1").unwrap();
 
     let input = FilesOrganizeInput {
@@ -104,7 +125,10 @@ fn files_organize_skill_aborts_on_deny_without_commit() {
 
     let approvals = kernel.list_approvals_for_task("t1").unwrap();
     assert_eq!(approvals.len(), 1);
-    assert_eq!(approvals[0].user_decision, trust_kernel::approval::types::ApprovalDecision::Deny);
+    assert_eq!(
+        approvals[0].user_decision,
+        trust_kernel::approval::types::ApprovalDecision::Deny
+    );
 
     // No compensation should have been created.
     let active_comps = kernel.list_active_compensations().unwrap();
@@ -120,8 +144,10 @@ fn files_organize_skill_fails_when_no_files_match_filter() {
     kernel.create_step(&StepRecord::new("s1", "t1", 1)).unwrap();
 
     let dir = tmp_dir();
-    let src_dir = dir.join("src"); fs::create_dir_all(&src_dir).unwrap();
-    let dest_dir = dir.join("out"); fs::create_dir_all(&dest_dir).unwrap();
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let dest_dir = dir.join("out");
+    fs::create_dir_all(&dest_dir).unwrap();
     fs::write(src_dir.join("a.txt"), b"txt").unwrap();
 
     let input = FilesOrganizeInput {

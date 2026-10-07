@@ -17,7 +17,7 @@
 //! 通用公式:P95 索引 = ceil(sample_count * 0.95) - 1(0-based)。
 
 use crate::error::{KernelError, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// 单条延迟样本(映射 voice_latency_samples 表行)。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,15 +166,26 @@ impl<'a> LatencyRecorder<'a> {
         let latency_ms = timing
             .first_partial_at
             .duration_since(timing.voice_started_at)
-            .map_err(|e| KernelError::VoiceLatency(format!("first_partial_at before voice_started_at: {}", e)))?
+            .map_err(|e| {
+                KernelError::VoiceLatency(format!(
+                    "first_partial_at before voice_started_at: {}",
+                    e
+                ))
+            })?
             .as_millis() as i64;
         let started_at_ms = timing
             .voice_started_at
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| KernelError::VoiceLatency(format!("voice_started_at before UNIX_EPOCH: {}", e)))?
+            .map_err(|e| {
+                KernelError::VoiceLatency(format!("voice_started_at before UNIX_EPOCH: {}", e))
+            })?
             .as_millis() as i64;
-        self.kernel
-            .record_voice_latency_sample(started_at_ms, latency_ms, &self.model, self.privacy_mode)
+        self.kernel.record_voice_latency_sample(
+            started_at_ms,
+            latency_ms,
+            &self.model,
+            self.privacy_mode,
+        )
     }
 }
 
@@ -327,7 +338,9 @@ mod tests {
         assert_eq!(deleted, 1, "should delete 1 sample (60 days old)");
 
         let remaining: i64 = conn
-            .query_row("SELECT COUNT(*) FROM voice_latency_samples", [], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM voice_latency_samples", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(remaining, 2);
 
@@ -436,11 +449,9 @@ mod tests {
 
         let conn = kernel.conn();
         let privacy_mode: i64 = conn
-            .query_row(
-                "SELECT privacy_mode FROM voice_latency_samples",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT privacy_mode FROM voice_latency_samples", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(privacy_mode, 1, "privacy_mode=1 for local only");
     }

@@ -45,11 +45,19 @@ jobs:
         run: cargo tauri build --target nsis
 
       - name: Verify installer artifact
+        # 工作目录是 voicepilot/crates/ui,但 crates/ui 是 workspace 成员,cargo 的
+        # target dir 是 workspace 根的 voicepilot/target(cargo metadata 证实),
+        # bundle 落在 voicepilot/target/release/bundle/nsis/,而不是这里的 target/。
+        # ../../ 回到 voicepilot 再看 target。
         run: |
-          Get-ChildItem "target/release/bundle/nsis/*.exe" | ForEach-Object { Write-Host "Artifact: $($_.FullName) ($($_.Length) bytes)" }
+          Get-ChildItem "../../target/release/bundle/nsis/*.exe" | ForEach-Object { Write-Host "Artifact: $($_.FullName) ($($_.Length) bytes)" }
 
       - name: Upload to GitHub Release
+        # uses: 步骤不受 defaults.run.working-directory 影响,路径相对 $GITHUB_WORKSPACE
+        # (仓库根),所以这里直接写 voicepilot/target。fail_on_unmatched 防止 glob 扑空时
+        # 静默传出一个空 release —— 修这个路径 bug 之前正是那样。
         uses: softprops/action-gh-release@v2
         with:
-          files: voicepilot/crates/ui/target/release/bundle/nsis/*.exe
+          files: voicepilot/target/release/bundle/nsis/*.exe
+          fail_on_unmatched_files: true
           draft: true

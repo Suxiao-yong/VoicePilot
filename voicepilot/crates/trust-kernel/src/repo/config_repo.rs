@@ -3,7 +3,7 @@
 //! 简单 key-value 表,value 为字符串(调用方负责 JSON 序列化)。
 //! key 命名空间约定见 migrations/002_app_config.sql 注释。
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::Result;
 

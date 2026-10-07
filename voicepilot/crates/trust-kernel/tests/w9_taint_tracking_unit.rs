@@ -6,7 +6,7 @@
 use rusqlite::Connection;
 
 use trust_kernel::policy::taint_repo::{
-    compute_value_hash, make_taint_record, merge_taints, now_iso8601, TaintRepo,
+    TaintRepo, compute_value_hash, make_taint_record, merge_taints, now_iso8601,
 };
 
 /// W9 修复(P1-19):compute_value_hash 接收 &serde_json::Value,
@@ -140,7 +140,12 @@ fn test_upsert_merges_taints_dedup() {
     // 第一次:标 web_page
     repo.upsert(
         &conn,
-        &make_taint_record(hash.clone(), "web_page".into(), vec!["web_page".into()], None),
+        &make_taint_record(
+            hash.clone(),
+            "web_page".into(),
+            vec!["web_page".into()],
+            None,
+        ),
     )
     .unwrap();
     // 第二次:同 value,标 executor_output:skill-1
@@ -158,10 +163,18 @@ fn test_upsert_merges_taints_dedup() {
     let found = repo.find_by_value(&conn, value).unwrap().unwrap();
     assert_eq!(found.taints.len(), 2, "合并后应有 2 个 taint");
     assert!(found.taints.contains(&"web_page".to_string()));
-    assert!(found.taints.contains(&"executor_output:skill-1".to_string()));
+    assert!(
+        found
+            .taints
+            .contains(&"executor_output:skill-1".to_string())
+    );
     // 不应产生重复行
     let all = repo.list_by_provenance(&conn, "web_page").unwrap();
-    assert_eq!(all.len(), 1, "同 value_hash 只应有 1 行(provenance 保留原值)");
+    assert_eq!(
+        all.len(),
+        1,
+        "同 value_hash 只应有 1 行(provenance 保留原值)"
+    );
 }
 
 /// 测试 6:compute_value_hash 对相同输入稳定,对不同输入不同。

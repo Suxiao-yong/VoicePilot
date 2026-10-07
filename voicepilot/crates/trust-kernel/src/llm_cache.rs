@@ -4,7 +4,7 @@
 //! 归一化只做空白折叠 + 小写（中文不受影响）；槽位原样存取，不参与 key。
 
 use crate::error::Result;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 /// 缓存 TTL：24h。候选清单/模型变化由 key 隔离（snapshot_id 不进 key，
@@ -118,9 +118,11 @@ mod tests {
         store(&conn, &key, "quick.app_control", "[]", 0.9, 1000).unwrap();
         let hit = lookup(&conn, &key, 2000).unwrap().expect("hit");
         assert_eq!(hit.skill_id, "quick.app_control");
-        assert!(lookup(&conn, &key, 1000 + 86_400_000 + 1)
-            .unwrap()
-            .is_none());
+        assert!(
+            lookup(&conn, &key, 1000 + 86_400_000 + 1)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

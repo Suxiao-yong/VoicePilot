@@ -8,8 +8,8 @@ use crate::error::{KernelError, Result};
 use crate::kernel::TrustKernel;
 use crate::skills::manifest::{EgressKind, SkillInputType, SkillManifest};
 use crate::skills::simple::{
-    ps_eval, require_bin, run_cmd, run_simple, schtasks_name, schtasks_once, simple_manifest,
-    slot_text, slot_text_opt, truncate_chars, weekday_zh, SimpleInput,
+    SimpleInput, ps_eval, require_bin, run_cmd, run_simple, schtasks_name, schtasks_once,
+    simple_manifest, slot_text, slot_text_opt, truncate_chars, weekday_zh,
 };
 use std::collections::HashMap;
 

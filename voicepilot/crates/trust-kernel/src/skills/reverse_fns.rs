@@ -27,7 +27,10 @@ use std::path::Path;
 /// payload 缺少 save_path / JSON 解析失败 → Err。
 pub fn reverse_note_capture(_kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
     let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
-        KernelError::Compensation(format!("reverse_note_capture: invalid reverse_payload: {}", e))
+        KernelError::Compensation(format!(
+            "reverse_note_capture: invalid reverse_payload: {}",
+            e
+        ))
     })?;
     let save_path = payload
         .get("save_path")
@@ -62,7 +65,10 @@ pub fn reverse_note_capture(_kernel: &TrustKernel, rec: &CompensationRecord) -> 
 /// 文件不存在 → Ok(())(idempotent)。
 pub fn reverse_research_save(_kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
     let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
-        KernelError::Compensation(format!("reverse_research_save: invalid reverse_payload: {}", e))
+        KernelError::Compensation(format!(
+            "reverse_research_save: invalid reverse_payload: {}",
+            e
+        ))
     })?;
     let save_path = payload
         .get("save_path")
@@ -103,7 +109,10 @@ pub fn reverse_form_prepare(kernel: &TrustKernel, rec: &CompensationRecord) -> R
     use std::collections::BTreeMap;
 
     let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
-        KernelError::Compensation(format!("reverse_form_prepare: invalid reverse_payload: {}", e))
+        KernelError::Compensation(format!(
+            "reverse_form_prepare: invalid reverse_payload: {}",
+            e
+        ))
     })?;
 
     let fields_obj = payload
@@ -148,10 +157,7 @@ pub fn reverse_form_prepare(kernel: &TrustKernel, rec: &CompensationRecord) -> R
 ///
 /// 与 reverse_note_capture 同形（删文件、幂等），独立实现以便单独注册与测试。
 /// 文件不存在 → Ok(())(idempotent)。
-pub fn reverse_media_clip_chorus(
-    _kernel: &TrustKernel,
-    rec: &CompensationRecord,
-) -> Result<()> {
+pub fn reverse_media_clip_chorus(_kernel: &TrustKernel, rec: &CompensationRecord) -> Result<()> {
     let payload: serde_json::Value = serde_json::from_str(&rec.reverse_payload).map_err(|e| {
         KernelError::Compensation(format!(
             "reverse_media_clip_chorus: invalid reverse_payload: {}",
@@ -232,7 +238,10 @@ mod note_capture_reverse_tests {
         let rec = make_rec(&payload);
         let result = reverse_note_capture(&kernel, &rec);
 
-        assert!(result.is_ok(), "reverse must succeed when file already deleted");
+        assert!(
+            result.is_ok(),
+            "reverse must succeed when file already deleted"
+        );
     }
 
     #[test]
@@ -302,7 +311,10 @@ mod research_save_reverse_tests {
         let rec = make_rec(&payload);
         reverse_research_save(&kernel, &rec).unwrap();
 
-        assert!(!path.exists(), "markdown file must be deleted after reverse");
+        assert!(
+            !path.exists(),
+            "markdown file must be deleted after reverse"
+        );
     }
 
     #[test]
@@ -313,7 +325,10 @@ mod research_save_reverse_tests {
         let payload = serde_json::json!({"save_path": path.to_string_lossy()}).to_string();
         let rec = make_rec(&payload);
         let result = reverse_research_save(&kernel, &rec);
-        assert!(result.is_ok(), "reverse must succeed when file already deleted");
+        assert!(
+            result.is_ok(),
+            "reverse must succeed when file already deleted"
+        );
     }
 
     #[test]
@@ -322,7 +337,12 @@ mod research_save_reverse_tests {
         let rec = make_rec(r#"{"other": "value"}"#);
         let result = reverse_research_save(&kernel, &rec);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing 'save_path'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("missing 'save_path'")
+        );
     }
 }
 
@@ -405,8 +425,8 @@ for line in sys.stdin:
 "#;
 
     fn install_mock(kernel: &TrustKernel) {
-        let args_json = serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()])
-            .unwrap();
+        let args_json =
+            serde_json::to_string(&vec!["-c".to_string(), MOCK_SCRIPT.to_string()]).unwrap();
         let mut rec = McpServerRepo::new()
             .get(&kernel.conn(), "playwright")
             .unwrap()
@@ -426,7 +446,9 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let calls_path = temp.path().join("calls.log");
-        unsafe { std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path); }
+        unsafe {
+            std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+        }
 
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
@@ -438,7 +460,9 @@ for line in sys.stdin:
         let rec = make_rec(&payload);
 
         let result = reverse_form_prepare(&kernel, &rec);
-        unsafe { std::env::remove_var("FORM_REVERSE_CALLS_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+        }
 
         assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
 
@@ -451,8 +475,16 @@ for line in sys.stdin:
             eval_count
         );
         // 每个 eval script 应包含 selector + 空字符串赋值。
-        assert!(calls.contains("#username"), "calls must contain #username: {}", calls);
-        assert!(calls.contains("#email"), "calls must contain #email: {}", calls);
+        assert!(
+            calls.contains("#username"),
+            "calls must contain #username: {}",
+            calls
+        );
+        assert!(
+            calls.contains("#email"),
+            "calls must contain #email: {}",
+            calls
+        );
     }
 
     #[test]
@@ -474,7 +506,9 @@ for line in sys.stdin:
         let _guard = CWD_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let calls_path = temp.path().join("calls.log");
-        unsafe { std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path); }
+        unsafe {
+            std::env::set_var("FORM_REVERSE_CALLS_PATH", &calls_path);
+        }
 
         let kernel = TrustKernel::open_in_memory().unwrap();
         install_mock(&kernel);
@@ -484,9 +518,15 @@ for line in sys.stdin:
         let rec = make_rec(&payload);
 
         let result = reverse_form_prepare(&kernel, &rec);
-        unsafe { std::env::remove_var("FORM_REVERSE_CALLS_PATH"); }
+        unsafe {
+            std::env::remove_var("FORM_REVERSE_CALLS_PATH");
+        }
 
-        assert!(result.is_ok(), "expected Ok for empty fields, got {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "expected Ok for empty fields, got {:?}",
+            result.err()
+        );
         let calls = std::fs::read_to_string(&calls_path).unwrap_or_default();
         assert!(
             calls.trim().is_empty(),

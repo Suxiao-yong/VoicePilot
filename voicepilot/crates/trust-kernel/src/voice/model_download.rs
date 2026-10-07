@@ -145,7 +145,9 @@ where
     F: Fn(DownloadProgress),
 {
     // 单一下载锁(同一进程内只允许一个下载;锁是诊断性的,不用作跨进程锁)。
-    let _lock = MODEL_DOWNLOAD_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = MODEL_DOWNLOAD_LOCK
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
 
     fs::create_dir_all(&models_dir).map_err(|e| {
         VoiceError::DownloadFailed(format!(
@@ -286,7 +288,11 @@ fn truncate_part(part_path: &Path) -> VoiceResult<()> {
 ///   - `File` 源:从已有偏移继续复制本地文件。
 /// - 网络 / 读取失败:返回 Err 但**保留 `.part`**(下次可续传)。
 /// - 用户取消(`on_progress` 由调用方控制):保持可续传状态。
-fn download_to_part<F>(source: &DownloadSource, part_path: &Path, on_progress: &F) -> VoiceResult<()>
+fn download_to_part<F>(
+    source: &DownloadSource,
+    part_path: &Path,
+    on_progress: &F,
+) -> VoiceResult<()>
 where
     F: Fn(DownloadProgress),
 {
@@ -297,11 +303,7 @@ where
 }
 
 /// 从本地文件源复制到 `.part`(支持偏移续传)。
-fn download_part_from_file<F>(
-    src_path: &Path,
-    part_path: &Path,
-    on_progress: &F,
-) -> VoiceResult<()>
+fn download_part_from_file<F>(src_path: &Path, part_path: &Path, on_progress: &F) -> VoiceResult<()>
 where
     F: Fn(DownloadProgress),
 {
@@ -330,9 +332,8 @@ where
         return Ok(());
     }
 
-    let mut src_file = fs::File::open(src_path).map_err(|e| {
-        VoiceError::DownloadFailed(format!("打开模型源文件失败:{}", e))
-    })?;
+    let mut src_file = fs::File::open(src_path)
+        .map_err(|e| VoiceError::DownloadFailed(format!("打开模型源文件失败:{}", e)))?;
     use std::io::Seek;
     src_file
         .seek(std::io::SeekFrom::Start(existing))
@@ -349,15 +350,15 @@ where
     let mut last_progress = Instant::now();
     let progress_throttle = Duration::from_millis(100);
     loop {
-        let n = src_file.read(&mut buf).map_err(|e| {
-            VoiceError::DownloadFailed(format!("读取模型源文件失败:{}", e))
-        })?;
+        let n = src_file
+            .read(&mut buf)
+            .map_err(|e| VoiceError::DownloadFailed(format!("读取模型源文件失败:{}", e)))?;
         if n == 0 {
             break;
         }
-        part_file.write_all(&buf[..n]).map_err(|e| {
-            VoiceError::DownloadFailed(format!("写入 .part 失败:{}", e))
-        })?;
+        part_file
+            .write_all(&buf[..n])
+            .map_err(|e| VoiceError::DownloadFailed(format!("写入 .part 失败:{}", e)))?;
         downloaded += n as u64;
         if last_progress.elapsed() >= progress_throttle {
             let percent = Some(downloaded as f32 / src_len as f32 * 100.0);
@@ -393,7 +394,10 @@ where
     // 发起请求:已有部分时带 Range,否则从头。
     // 注意:ureq 2.x 把 4xx 视为 Err,因此 416(范围失效)在请求层处理。
     let resp = if existing > 0 {
-        agent.get(url).set("Range", &format!("bytes={existing}-")).call()
+        agent
+            .get(url)
+            .set("Range", &format!("bytes={existing}-"))
+            .call()
     } else {
         agent.get(url).call()
     };
@@ -489,7 +493,11 @@ where
             };
             on_progress(DownloadProgress {
                 downloaded_bytes: downloaded,
-                total_bytes: if total_bytes > 0 { Some(total_bytes) } else { None },
+                total_bytes: if total_bytes > 0 {
+                    Some(total_bytes)
+                } else {
+                    None
+                },
                 percent,
             });
             last_progress = Instant::now();
@@ -504,7 +512,11 @@ where
     };
     on_progress(DownloadProgress {
         downloaded_bytes: downloaded,
-        total_bytes: if total_bytes > 0 { Some(total_bytes) } else { None },
+        total_bytes: if total_bytes > 0 {
+            Some(total_bytes)
+        } else {
+            None
+        },
         percent,
     });
 
@@ -548,7 +560,10 @@ fn check_disk_space_for(path: &Path, needed_bytes: u64) {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let mut free_avail = UnsignedLargeInteger { low_part: 0, high_part: 0 };
+    let mut free_avail = UnsignedLargeInteger {
+        low_part: 0,
+        high_part: 0,
+    };
     let rc = unsafe {
         GetDiskFreeSpaceExW(
             wide.as_ptr(),
@@ -560,8 +575,7 @@ fn check_disk_space_for(path: &Path, needed_bytes: u64) {
     if rc == 0 {
         return; // 查询失败:尽力而为,跳过预检
     }
-    let free_bytes =
-        ((free_avail.high_part as u64) << 32) | free_avail.low_part as u64;
+    let free_bytes = ((free_avail.high_part as u64) << 32) | free_avail.low_part as u64;
     if free_bytes < needed_bytes {
         tracing::warn!(
             free_bytes,

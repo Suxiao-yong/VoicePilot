@@ -20,7 +20,7 @@
 //! 未开）——LIKE/Jaccard 零依赖且对 CJK 子串天然正确。
 
 use crate::error::{KernelError, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// 检索注入上限（条）。
 pub const RECALL_TOP: usize = 3;
@@ -81,7 +81,8 @@ fn row_to_fact(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryFact> {
     })
 }
 
-const FACT_COLUMNS: &str = "id, content, category, source_turn, created_at_ms, last_hit_at_ms, hit_count, superseded_by";
+const FACT_COLUMNS: &str =
+    "id, content, category, source_turn, created_at_ms, last_hit_at_ms, hit_count, superseded_by";
 
 /// 列出事实（memory.view）。默认只给未软删的；include_superseded 供排查。
 pub fn list_facts(conn: &Connection, include_superseded: bool) -> Result<Vec<MemoryFact>> {
@@ -292,11 +293,7 @@ pub fn render_memory_block(facts: &[MemoryFact]) -> String {
 // ===== Kernel 编排层 =====
 
 /// 检索注入块（planner plan_with_llm 调用）。返回 (块文本, 命中 fact ids)。
-pub fn recall_block_for(
-    conn: &Connection,
-    query: &str,
-    now_ms: i64,
-) -> Result<(String, Vec<i64>)> {
+pub fn recall_block_for(conn: &Connection, query: &str, now_ms: i64) -> Result<(String, Vec<i64>)> {
     let facts = recall_facts(conn, query, RECALL_TOP, now_ms)?;
     let ids = facts.iter().map(|f| f.id).collect();
     Ok((render_memory_block(&facts), ids))
@@ -334,7 +331,11 @@ pub fn maybe_distill(kernel: &crate::kernel::TrustKernel) -> Result<usize> {
             )?;
             let rows = stmt
                 .query_map(params![marker_ms], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(KernelError::Db)?;
@@ -347,8 +348,7 @@ pub fn maybe_distill(kernel: &crate::kernel::TrustKernel) -> Result<usize> {
             let conn = kernel.conn();
             list_facts(&conn, false)?
         };
-        let existing_lines: Vec<String> =
-            existing.iter().map(|f| f.content.clone()).collect();
+        let existing_lines: Vec<String> = existing.iter().map(|f| f.content.clone()).collect();
         let turn_lines: Vec<String> = turns
             .iter()
             .map(|(tid, _, t)| {
@@ -411,8 +411,11 @@ fn advance_distill_marker(
 ) {
     if let Some((_, last_ms, _)) = turns.last() {
         let conn = kernel.conn();
-        let _ = crate::repo::config_repo::ConfigRepo::new()
-            .set(&conn, LAST_DISTILLED_KEY, &last_ms.to_string());
+        let _ = crate::repo::config_repo::ConfigRepo::new().set(
+            &conn,
+            LAST_DISTILLED_KEY,
+            &last_ms.to_string(),
+        );
     }
 }
 
@@ -443,10 +446,7 @@ pub fn memory_view_manifest() -> crate::skills::manifest::SkillManifest {
         description: "列出跨会话长期记忆事实（memory.view，用户可看可否决）".to_string(),
         description_body: None,
         execution: None,
-        intent_examples: vec![
-            "你记住了什么".to_string(),
-            "看看你的长期记忆".to_string(),
-        ],
+        intent_examples: vec!["你记住了什么".to_string(), "看看你的长期记忆".to_string()],
         keywords: vec!["记忆".to_string(), "记住了什么".to_string()],
         inputs: std::collections::HashMap::new(),
         risk_ceiling: crate::policy::types::ELevel::E0,
@@ -562,7 +562,11 @@ mod tests {
         );
         // 中度重叠 + 纠正类 → supersede 旧条。
         assert_eq!(
-            merge_decision("用户不再偏好深色主题，改用浅色主题", "correction", &existing),
+            merge_decision(
+                "用户不再偏好深色主题，改用浅色主题",
+                "correction",
+                &existing
+            ),
             MergeAction::Supersede(7)
         );
         // 中度重叠但非纠正 → 保留旧条，并存插入（矛盾按新旧呈现）。
@@ -628,8 +632,22 @@ mod tests {
     fn db_roundtrip_and_recall_ranking() {
         let conn = migrated();
         let now = 1_000_000_000_000i64;
-        let old = insert_fact(&conn, "用户偏好 pnpm 管理依赖", "preference", "t1", now - 60 * 86_400_000).unwrap();
-        let new = insert_fact(&conn, "用户偏好 pnpm 管理依赖（新会话重申）", "preference", "t9", now).unwrap();
+        let old = insert_fact(
+            &conn,
+            "用户偏好 pnpm 管理依赖",
+            "preference",
+            "t1",
+            now - 60 * 86_400_000,
+        )
+        .unwrap();
+        let new = insert_fact(
+            &conn,
+            "用户偏好 pnpm 管理依赖（新会话重申）",
+            "preference",
+            "t9",
+            now,
+        )
+        .unwrap();
         // 无关事实不召回。
         insert_fact(&conn, "喜欢猫", "fact", "t2", now).unwrap();
         let hits = recall_facts(&conn, "pnpm 依赖", 3, now).unwrap();
@@ -656,7 +674,10 @@ mod tests {
         insert_fact(&conn, "用户偏好 pnpm", "preference", "t1", 1_000).unwrap();
         // 无查询或无关查询时，不该把无关事实注入 prompt：均视为无召回。
         let hits = recall_facts(&conn, "", 3, 2_000).unwrap();
-        assert!(hits.is_empty(), "empty query must recall nothing, got {hits:?}");
+        assert!(
+            hits.is_empty(),
+            "empty query must recall nothing, got {hits:?}"
+        );
         let unrelated = recall_facts(&conn, "完全无关的话题", 3, 2_000).unwrap();
         assert!(
             unrelated.is_empty(),
