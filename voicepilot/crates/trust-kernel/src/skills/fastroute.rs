@@ -214,6 +214,14 @@ pub(crate) fn parse_fetch_file(text: &str) -> Option<Vec<ExtractedSlot>> {
     if !["下载", "下个", "下一个"].iter().any(|w| t.contains(w)) {
         return None;
     }
+    // "下载目录" 是 files.organize 的 keyword(Downloads 目录名),不是下载意图。
+    // 少了这条,"把下载目录里的 PDF 整理到论文文件夹" 会被本规则截胡 →
+    // web.fetch_file 抢走 files.organize(它不在 fastroute 表里,只能靠 keyword
+    // router,而 fastroute 先跑)。回归测试见 voice_unit.rs
+    // router_bridge_routes_files_organize_intent。
+    if t.contains("下载目录") {
+        return None;
+    }
     if t.contains("存到") || t.contains("存为") {
         return None;
     }
@@ -1131,6 +1139,18 @@ mod fastroute_tests {
         assert!(parse_fetch_file("下载 https://x.com/a.exe").is_none());
         // 指代词 fail-closed。
         assert!(parse_fetch_file("下载这个软件").is_none());
+    }
+
+    #[test]
+    fn fetch_file_does_not_hijack_files_organize() {
+        // "下载目录" 是 files.organize 的 keyword(Downloads 目录名),不是下载动作。
+        // 少了这条守卫,"把下载目录里的 PDF 整理到论文文件夹" 里的 "下载" + "pdf"
+        // 会让本规则命中,截走 files.organize 的句子(files.organize 不在 fastroute
+        // 表里,只能靠后面的 keyword router,而 fastroute 先跑)。
+        assert!(parse_fetch_file("把下载目录里的 PDF 整理到论文文件夹").is_none());
+        assert!(parse_fetch_file("整理下载目录").is_none());
+        // 真正的下载意图不受影响。
+        assert!(parse_fetch_file("下载PDF报告").is_some());
     }
 
     #[test]

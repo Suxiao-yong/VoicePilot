@@ -188,7 +188,11 @@ fn registry_resolves_legacy_localappdata_models_dir() {
     fs::write(model_dir.join("model.onnx"), b"onnx").expect("onnx");
     fs::write(model_dir.join("tokens.txt"), b"tokens").expect("tokens");
 
-    let reg = ModelRegistry::with_legacy_probe(legacy_root.clone());
+    // Canonical home must be empty: with_legacy_probe() leaves home_dir as the
+    // real ~, so on a dev box that already has the model the canonical branch
+    // in resolve() wins and this test fails. Use with_dirs() with an empty home.
+    let home_dir = tmp.path().join("canonical-home");
+    let reg = ModelRegistry::with_dirs(home_dir, Some(legacy_root.clone()));
     assert!(
         reg.is_model_present(SENSE_VOICE_DIR_NAME),
         "legacy model dir must be discovered compatibly"

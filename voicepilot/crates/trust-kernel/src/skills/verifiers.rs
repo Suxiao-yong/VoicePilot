@@ -313,13 +313,20 @@ pub fn verify_task_repeat(
 /// 三项全满足 → Strong;任一不满足 → Failed。
 /// 注意:list_active_compensations 只返回 status='active' 的记录,不能用于验证 reversed,
 /// 必须直接 SQL 查询 compensations 表(任何 status)。
+///
+/// **Stronghold 布局下 reverse_payload 列恒为空**(spec §2.2 明文不落库,payload
+/// 只存在于 snapshot_encrypted 密文里)。此时验证对象是解出来的明文,所以这里不能
+/// 拿 DB 明文列直接判空 —— 必须先经 vault 解密再校验。解密失败(vault 未注入 /
+/// 未锁定 / 密文损坏)→ Failed,与 execute_compensate 的解密失败语义一致。
 pub fn verify_task_compensate(
     ctx: &VerificationContext<'_>,
     target_step_id: &str,
 ) -> Result<VerificationOutcome> {
     let conn = ctx.kernel.conn();
-    let row_result: rusqlite::Result<(String, String)> = conn.query_row(
-        "SELECT status, reverse_payload FROM compensations
+    // snapshot_encrypted 一并取出:stronghold 布局下 reverse_payload 明文列为空,
+    // 需要它走 vault 解密还原待验证的 payload。
+    let row_result: rusqlite::Result<(String, String, Option<Vec<u8>>)> = conn.query_row(
+        "SELECT status, reverse_payload, snapshot_encrypted FROM compensations
          WHERE step_id = ?1
          ORDER BY ttl_expires DESC LIMIT 1",
         rusqlite::params![target_step_id],
@@ -328,11 +335,12 @@ pub fn verify_task_compensate(
             // reverse_payload 列在 migration 005 之前可能为 NULL,
             // 用 Option<String> 兜底再 unwrap_or_default。
             let reverse_payload: String = r.get::<_, Option<String>>(1)?.unwrap_or_default();
-            Ok((status, reverse_payload))
+            let snapshot_encrypted: Option<Vec<u8>> = r.get(2)?;
+            Ok((status, reverse_payload, snapshot_encrypted))
         },
     );
 
-    let (status, reverse_payload) = match row_result {
+    let (status, reverse_payload, snapshot_encrypted) = match row_result {
         Ok(row) => row,
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             return Ok(VerificationOutcome::Failed {
@@ -353,6 +361,49 @@ pub fn verify_task_compensate(
             ),
         });
     }
+
+    // 待验证的 payload:DB 明文列优先;为空且存在密文快照时经 vault 解密还原。
+    let reverse_payload = if !reverse_payload.trim().is_empty() {
+        reverse_payload
+    } else {
+        #[cfg(feature = "stronghold")]
+        {
+            match snapshot_encrypted.as_ref() {
+                Some(blob) => {
+                    let vault = ctx
+                        .kernel
+                        .stronghold_vault()
+                        .filter(|v| v.is_unlocked())
+                        .ok_or_else(|| {
+                            KernelError::Compensation(
+                                "stronghold vault not unlocked, cannot verify reverse_payload"
+                                    .into(),
+                            )
+                        })?;
+                    let payload: crate::crypto::stronghold::EncryptedPayload =
+                        bincode::deserialize(blob).map_err(|e| {
+                            KernelError::Compensation(format!(
+                                "stronghold bincode decode failed while verifying: {}",
+                                e
+                            ))
+                        })?;
+                    let plaintext = vault.decrypt(&payload).map_err(|e| {
+                        KernelError::Compensation(format!("stronghold decrypt failed: {}", e))
+                    })?;
+                    String::from_utf8(plaintext).map_err(|e| {
+                        KernelError::Compensation(format!("plaintext not UTF-8: {}", e))
+                    })?
+                }
+                // 无密文快照且明文列为空:payload 确实缺失。
+                None => String::new(),
+            }
+        }
+        #[cfg(not(feature = "stronghold"))]
+        {
+            let _ = &snapshot_encrypted;
+            String::new()
+        }
+    };
 
     if reverse_payload.trim().is_empty() {
         return Ok(VerificationOutcome::Failed {
@@ -1086,6 +1137,63 @@ mod task_compensate_tests {
                 );
             }
             other => panic!("expected Failed, got {:?}", other),
+        }
+    }
+
+    /// W9 回归:stronghold 布局下 reverse_payload 明文列恒为空(spec §2.2),
+    /// 验证器必须经 vault 解密密文快照后再校验,不能拿空明文列直接判空。
+    /// 这条曾在 `--features stronghold` 下把 execute_compensate 整条链判失败。
+    #[cfg(feature = "stronghold")]
+    #[test]
+    fn verify_task_compensate_strong_when_payload_only_in_encrypted_snapshot() {
+        use crate::repo::config_repo::ConfigRepo;
+
+        let kernel = TrustKernel::open_in_memory().unwrap();
+
+        // 独立 vault_path,避免与其他并行用例抢默认 data_dir。
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_path_str = tmp.path().join("stronghold.bin").to_string_lossy().to_string();
+        {
+            let conn = kernel.conn();
+            ConfigRepo::new()
+                .set(&conn, "stronghold.vault_path", &vault_path_str)
+                .unwrap();
+        }
+        // create() 返回的 vault 已是解锁态(key material 已派生)。
+        let vault = {
+            let conn = kernel.conn();
+            crate::crypto::stronghold::StrongholdVault::create("test-pass", &conn)
+                .expect("create vault")
+        };
+        assert!(
+            vault.is_unlocked(),
+            "precondition: created vault must be unlocked"
+        );
+        kernel.set_stronghold_vault(Some(std::sync::Arc::new(vault)));
+
+        let moved: Vec<(PathBuf, PathBuf)> =
+            vec![(PathBuf::from("src/a.pdf"), PathBuf::from("out/a.pdf"))];
+        // 加密布局:明文列留空,payload 只在 snapshot_encrypted 里。
+        let comp_id = setup_compensation(&kernel, "prev-step", &moved);
+        {
+            let rec = kernel.get_compensation(&comp_id).unwrap().unwrap();
+            assert!(
+                rec.reverse_payload.is_empty(),
+                "precondition: stronghold 布局不应落明文"
+            );
+            assert!(rec.snapshot_encrypted.is_some(), "precondition: 应有密文快照");
+        }
+        kernel
+            .mark_compensation_status(&comp_id, "reversed")
+            .unwrap();
+
+        let ctx = VerificationContext { kernel: &kernel, step_id: "new-step" };
+        match verify_task_compensate(&ctx, "prev-step").unwrap() {
+            VerificationOutcome::Strong { evidence } => assert_eq!(
+                evidence.get("moves_count").and_then(|v| v.as_u64()),
+                Some(1),
+            ),
+            other => panic!("expected Strong via vault-decrypted payload, got {:?}", other),
         }
     }
 }
