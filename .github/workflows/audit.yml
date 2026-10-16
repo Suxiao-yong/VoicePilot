@@ -12,6 +12,10 @@ on:
     - cron: '0 0 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # 注意:rustsec/audit-check 是 node action,defaults.run.working-directory 只对
   # run: 步骤生效,对 uses: 步骤一律无效(GitHub Actions 官方文档明确只作用于 run 步骤)。

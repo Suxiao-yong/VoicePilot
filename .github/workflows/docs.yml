@@ -67,6 +67,7 @@ jobs:
       - name: Stage rustdoc + typedoc for Pages
         run: |
           New-Item -ItemType Directory -Force docs/_site | Out-Null
+          New-Item -ItemType Directory -Force docs/_site/ui | Out-Null
           Copy-Item -Recurse -Force target/doc/* docs/_site/
           Copy-Item -Recurse -Force docs/api/ui/* docs/_site/ui/
           echo "docs built"
