@@ -25,14 +25,7 @@ runs:
         cargo --version
 
     - name: Restore cargo cache
-      uses: actions/cache@v5
+      uses: Swatinem/rust-cache@v2
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          voicepilot/target
-        # yamllint disable-line rule:line-length
-        key: ${{ runner.os }}-cargo-${{ inputs.cache-key }}-${{ hashFiles('voicepilot/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ inputs.cache-key }}-
-          ${{ runner.os }}-cargo-
+        workspaces: voicepilot -> voicepilot/target
+        prefix-key: ${{ inputs.cache-key }}
