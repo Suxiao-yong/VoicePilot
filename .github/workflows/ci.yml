@@ -102,6 +102,11 @@ jobs:
         with:
           cache-key: test-full
 
+      # shortcut: clean forces sherpa native rebuild;
+      # drop after rust-cache lands. Fixes LNK1181.
+      - name: Rebuild sherpa native libs
+        run: cargo clean -p sherpa-rs-sys
+
       - name: cargo test (trust-kernel voice+llm+uia+stronghold)
         run: cargo test -p trust-kernel --features voice,llm,uia,stronghold
 
