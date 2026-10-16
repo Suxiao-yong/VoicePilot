@@ -15,18 +15,20 @@ on:
 permissions:
   contents: read
   issues: write
+  checks: write
 
 jobs:
   # 注意:rustsec/audit-check 是 node action,defaults.run.working-directory 只对
   # run: 步骤生效,对 uses: 步骤一律无效(GitHub Actions 官方文档明确只作用于 run 步骤)。
-  # 该 action 内部执行 `cargo audit --json --file ${{ inputs.working-directory }}/Cargo.lock`,
+  # 该 action 内部执行 cargo audit --json,
+  # 文件为 inputs.working-directory 下的 Cargo.lock,
   # 默认值 ".";不显式传 voicepilot 就会在仓库根目录找 Cargo.lock,根目录没有 ->
   # stdout 为空 -> JSON.parse("") 抛错 -> core.setFailed -> job 红。
   cargo-audit:
     name: cargo audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: rustsec/audit-check@v2
         with:
@@ -40,8 +42,8 @@ jobs:
       run:
         working-directory: voicepilot/crates/ui/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - run: npm ci

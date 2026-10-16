@@ -19,18 +19,19 @@ runs:
     - name: Install Rust toolchain
       shell: pwsh
       run: |
-        rustup toolchain install ${{ inputs.toolchain }} ${{ inputs.components != '' && format('--component {0}', inputs.components) || '' }}
+        rustup toolchain install ${{ inputs.toolchain }} ${{ inputs.components != '' && format('--component {0}', inputs.components) || '' }}  # yamllint disable-line rule:line-length
         rustup default ${{ inputs.toolchain }}
         rustc --version
         cargo --version
 
     - name: Restore cargo cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           voicepilot/target
+        # yamllint disable-line rule:line-length
         key: ${{ runner.os }}-cargo-${{ inputs.cache-key }}-${{ hashFiles('voicepilot/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ inputs.cache-key }}-
