@@ -22,7 +22,9 @@ const STEP_ID: &str = "step-mcp-policy";
 
 fn seed_kernel() -> TrustKernel {
     let kernel = TrustKernel::open_in_memory().unwrap();
-    kernel.create_task(TASK_ID, "mcp policy gateway test").unwrap();
+    kernel
+        .create_task(TASK_ID, "mcp policy gateway test")
+        .unwrap();
     kernel
         .create_step(&StepRecord::new(STEP_ID, TASK_ID, 1))
         .unwrap();
@@ -261,5 +263,8 @@ fn audit_chain_stays_valid_after_policy_verdicts() {
 
     let verification = kernel.verify_audit_chain().unwrap();
     assert!(verification.valid, "audit hash chain must stay intact");
-    assert!(verification.checked >= 3, "task_created + step + 2 verdicts");
+    assert!(
+        verification.checked >= 3,
+        "task_created + step + 2 verdicts"
+    );
 }

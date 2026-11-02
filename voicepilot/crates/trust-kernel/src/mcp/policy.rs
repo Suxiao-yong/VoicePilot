@@ -14,7 +14,7 @@
 
 use crate::error::{KernelError, Result};
 use crate::mcp::repo::McpServerRecord;
-use crate::policy::types::{DLevel, Decision, ELevel, EgressDest, Effect, Resource};
+use crate::policy::types::{DLevel, Decision, ELevel, Effect, EgressDest, Resource};
 
 /// 统一 Cedar action 名。所有外部 MCP 工具都走这一条策略，工具身份放进
 /// `resource.path = mcp://{server_id}/{tool_name}`，避免每个工具都要新增 policy。
