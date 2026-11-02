@@ -24,6 +24,13 @@ from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Score, Target, accuracy, scorer
 from inspect_ai.solver import Generate, TaskState, generate
 
+# Windows 控制台默认 cp1252/GBK，打印含中文的任务文本会抛 UnicodeEncodeError
+# （CI 的 windows-latest 就是这种环境）。评测脚本的输出统一走 UTF-8，
+# 写不出时用 replace 兜底，避免整个 self-test 因打印而崩。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # VoicePilot 二进制路径(target/debug/voicepilot.exe)
 EVALS_DIR = Path(__file__).parent
 PROJECT_ROOT = EVALS_DIR.parent
