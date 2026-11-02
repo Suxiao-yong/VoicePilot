@@ -38,11 +38,20 @@ jobs:
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
+      # 复合 action 只装 Node + 恢复 npm 缓存，不装依赖（build-ui job 也是
+      # 自己再跑一遍 npm ci）。少了这步 tauri build 的 beforeBuildCommand
+      # `npm run build`（tsc && vite build）会报 'tsc' is not recognized。
+      - name: npm ci
+        working-directory: voicepilot/crates/ui/web
+        run: npm ci
+
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0.0" --locked
 
       - name: Build NSIS installer
-        run: cargo tauri build --target nsis
+        # `--target` 收的是 Rust target triple，nsis 是 bundle 目标，写成
+        # `--target nsis` 会被 tauri-cli 判为 "Invalid target triple"。
+        run: cargo tauri build --bundles nsis
 
       - name: Verify installer artifact
         # 工作目录是 voicepilot/crates/ui,但 crates/ui 是 workspace 成员,cargo 的

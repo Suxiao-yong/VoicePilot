@@ -17,6 +17,13 @@ dev = [
     "ruff>=0.5,<1.0",
 ]
 
+# setuptools 扁平布局下会把每个顶层目录当成候选包（functional/redteam/toctou/…
+# 都是数据目录，不是包），导致 `pip install -e .` 直接报
+# "Multiple top-level packages discovered in a flat-layout"。只有 scorers 是
+# 真正的 Python 包（有 __init__.py），显式声明即可，顺带关掉命名空间猜测。
+[tool.setuptools]
+packages = ["scorers"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
