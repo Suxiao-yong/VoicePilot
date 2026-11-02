@@ -1,5 +1,8 @@
 use anyhow::{Result, anyhow};
 use std::io::{self, Write};
+
+// Task 3: HTTP/SSE 网关微服务（`voicepilot serve`）。
+mod serve;
 use trust_kernel::approval::approver::{Approver, DagApprovalOutcome};
 use trust_kernel::approval::types::ApprovalDecision;
 use trust_kernel::kernel::TrustKernel;
@@ -102,6 +105,16 @@ fn main() -> Result<()> {
         return handle_eval_command(&args[2..]);
     }
 
+    // Task 3: voicepilot serve [--host] [--port] [--db] —— HTTP/SSE 网关微服务。
+    // 同样在打开 kernel / 打印 welcome 之前处理：serve 自建 kernel 并只输出
+    // `voicepilot serve listening on http://{addr}`（benchmark 解析这一行拿端口）。
+    if args.len() >= 2 && args[1] == "serve" {
+        let serve_args = serve::parse_args(&args[2..])?;
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow!("failed to start tokio runtime: {}", e))?;
+        return runtime.block_on(serve::run(serve_args));
+    }
+
     let db_path = std::env::var("VOICEPILOT_DB").unwrap_or_else(|_| "voicepilot.db".to_string());
     let kernel =
         TrustKernel::open_file(&db_path).map_err(|e| anyhow!("failed to open kernel: {}", e))?;
@@ -116,6 +129,9 @@ fn main() -> Result<()> {
     println!("  move <src1> [src2...] <dest>  move files via prepare→commit (W3a)");
     println!("  organize <root> <filter> <dest>  run files.organize Skill (W3b)");
     println!("  mcp-serve       start MCP server on stdio (W4)");
+    println!(
+        "  serve [--host 127.0.0.1] [--port 8080] [--db voicepilot.db]  start HTTP/SSE gateway (Task 3)"
+    );
     #[cfg(feature = "voice")]
     println!("  voice list-models         List available SenseVoice models + download URLs");
     #[cfg(feature = "voice")]

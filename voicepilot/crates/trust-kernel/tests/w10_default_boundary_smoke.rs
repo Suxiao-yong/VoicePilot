@@ -535,10 +535,10 @@ fn audit_registry_all_lower_snake_case() {
         "V1 gate: AUDIT_EVENT_TYPE_REGISTRY contains event_type(s) not matching lower_snake_case: {:?}",
         non_compliant
     );
-    // 分母断言:registry 必须有 31 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4 + Wave 3 secret_migration + Phase B memory_injected)
+    // 分母断言:registry 必须有 32 种 event_type(W10 Plan 5 §用户决策 #1 + W11 Plan 4 + Wave 3 secret_migration + Phase B memory_injected + Task 1 mcp_policy_decision)
     assert_eq!(
         AUDIT_EVENT_TYPE_REGISTRY.len(),
-        31,
-        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 31 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + memory_injected)"
+        32,
+        "V1 gate: AUDIT_EVENT_TYPE_REGISTRY must contain exactly 32 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + memory_injected + mcp_policy_decision)"
     );
 }

@@ -55,5 +55,12 @@ pub mod scheduler_commands;
 
 pub mod slot_parser;
 
+/// Task 2: 一键撤销（可补偿动作列表 / undo）。
+#[cfg(feature = "tauri")]
+pub mod undo_commands;
+
+/// Task 2: 延迟 / 缓存可观测面板（逻辑函数在无 tauri feature 下也可单测）。
+pub mod observability_commands;
+
 pub use error::UiError;
 pub use state::AppState;

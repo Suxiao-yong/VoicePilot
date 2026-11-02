@@ -22,6 +22,13 @@ tokio = { workspace = true }
 chrono = { workspace = true }
 # W11 Plan 1: eval 子命令需要 serde_json 解析 --input JSON + 构造输出 JSON
 serde_json = { workspace = true }
+serde = { workspace = true }
+# Task 3: HTTP/SSE 网关微服务模式（voicepilot serve）
+axum = { workspace = true }
+tower-http = { workspace = true }
+# Task 3 SSE：broadcast → Stream（BroadcastStream，Lagged 语义天然匹配契约
+# 「滞后不得终止服务」）。已在 Cargo.lock 中（既有传递依赖），不引入新编译单元。
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 [features]
 default = ["llm"]
@@ -30,6 +37,9 @@ llm = ["trust-kernel/llm"]
 voice = ["trust-kernel/voice", "llm"]
 
 [dev-dependencies]
+# Task 3: Axum 路由契约测试（oneshot 驱动 Router，无需真实端口）
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 # W11 Plan 1: eval_subcommand_smoke 测试也需要 serde_json 解析 voicepilot eval 输出
 # (已在 [dependencies] 中声明,dev-deps 复用)
 

@@ -26,6 +26,32 @@ pub enum PlannerSource {
     Voice,
 }
 
+/// 本次规划实际走的路由通道(契约 §2.2，可观测面板的 route_kind 维度)。
+///
+/// - `FastRoute`:站点站内搜 / 原子快路由（本地正则直出，零 LLM）
+/// - `Keyword`:SkillRouter 关键词 / intent-example 命中
+/// - `Llm`:调用了 LLM（classify / decompose / 聊天兜底）
+/// - `Cache`:route cache 命中（未调 LLM）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteKind {
+    FastRoute,
+    Keyword,
+    Llm,
+    Cache,
+}
+
+impl RouteKind {
+    /// 稳定标签（落库 / 跨进程 JSON 用）：fastroute | keyword | llm | cache。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteKind::FastRoute => "fastroute",
+            RouteKind::Keyword => "keyword",
+            RouteKind::Llm => "llm",
+            RouteKind::Cache => "cache",
+        }
+    }
+}
+
 /// 快照 TTL：超过此时长未规划即视为过期，调用方必须重采。
 pub const SNAPSHOT_TTL_MS: u64 = 10_000;
 /// 注入 LLM 的上下文块上限（字符数；中文按字计，天然保守）。
@@ -176,6 +202,10 @@ pub struct PlannerTrace {
     /// Phase B：本次规划注入了哪些长期记忆 fact id（空 = 无注入）。
     /// 由 router_bridge 落 `memory_injected` 审计（记忆影响决策必须可解释）。
     pub memory_facts: Vec<i64>,
+    /// 契约 §2.2：本次规划实际走的路由通道（采样用，router_bridge 落 route 样本）。
+    pub route: RouteKind,
+    /// 契约 §2.2：本次规划是否命中 route cache（仅 `RouteKind::Cache` 时为 true）。
+    pub cache_hit: bool,
 }
 
 /// 统一规划管道:关键词路由 → LLM classify → LLM DAG 拆解。
@@ -246,7 +276,7 @@ impl PlannerPipeline {
                             high_risk: false,
                         }],
                     },
-                    self.trace(),
+                    self.trace_with(RouteKind::FastRoute),
                 ));
             }
         }
@@ -262,7 +292,7 @@ impl PlannerPipeline {
                     extension_id: skill_id,
                     slots,
                 },
-                self.trace(),
+                self.trace_with(RouteKind::FastRoute),
             ));
         }
         match router.route(trimmed) {
@@ -338,6 +368,9 @@ impl PlannerPipeline {
             crate::memory::recall_block_for(&conn, trimmed, now_ms).unwrap_or_default()
         };
         trace.memory_facts = memory_ids;
+        // 走到这里说明确实要调 LLM（或命中 route cache）：路由通道标签置 Llm，
+        // cache 命中分支再改写为 Cache。
+        trace.route = RouteKind::Llm;
 
         // 快照上下文 + 记忆块只进 LLM（关键词路由仍用原文，避免污染匹配）。
         let mut llm_text = match snapshot {
@@ -365,6 +398,9 @@ impl PlannerPipeline {
         if let Some(hit) = cached_hit {
             if self.snapshot.resolve_candidate(&hit.skill_id).is_some() {
                 let slots = serde_json::from_str(&hit.slots_json).unwrap_or_default();
+                // 契约 §2.2：cache 命中（未调 LLM）→ route=Cache 且 cache_hit=true。
+                trace.route = RouteKind::Cache;
+                trace.cache_hit = true;
                 return Ok((
                     PlanResult::Skill {
                         extension_id: hit.skill_id,
@@ -476,7 +512,17 @@ impl PlannerPipeline {
             token_count: None,
             used_llm: false,
             memory_facts: Vec::new(),
+            // 默认 Keyword；各早退点按实际通道改写（fastroute / cache / llm）。
+            route: RouteKind::Keyword,
+            cache_hit: false,
         }
+    }
+
+    /// 构造带指定路由通道标签的 trace（`Keyword` 直接用 `trace()`）。
+    fn trace_with(&self, route: RouteKind) -> PlannerTrace {
+        let mut trace = self.trace();
+        trace.route = route;
+        trace
     }
 }
 

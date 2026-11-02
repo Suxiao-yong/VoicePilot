@@ -155,6 +155,33 @@ fn audit_memory_injected(kernel: &TrustKernel, fact_ids: &[i64]) {
     }
 }
 
+/// 契约 §2.2 / 勘误 #11：写一条路由延迟样本。
+///
+/// 直接 INSERT `voice_latency_samples`（route_kind / cache_hit 来自 trace）：
+/// **不建占位 task、不写审计** —— 每次规划都采样，走 `record_voice_latency_sample`
+/// 会污染 tasks 表与哈希链。采样失败只 warn，不影响路由结果。
+fn record_route_sample(
+    kernel: &TrustKernel,
+    started_at_ms: i64,
+    latency_ms: i64,
+    trace: &crate::planner::PlannerTrace,
+) {
+    let conn = kernel.conn();
+    if let Err(e) = crate::voice_latency::record_route_sample(
+        &conn,
+        started_at_ms,
+        latency_ms,
+        trace.route.as_str(),
+        trace.cache_hit,
+    ) {
+        tracing::warn!(
+            error = %e,
+            route_kind = trace.route.as_str(),
+            "route latency sample insert failed; continuing"
+        );
+    }
+}
+
 /// PlannerPipeline facade 的共享实现(route_text / route_text_with_dag 共用)。
 ///
 /// 纯规划由 pipeline 完成;facade 层负责 `RouteOutcome` 映射与 DAG 副作用
@@ -167,6 +194,10 @@ async fn route_via_pipeline(
     snapshot: Option<crate::planner::RealtimeSnapshot>,
 ) -> Result<RouteOutcome> {
     let pipeline = PlannerPipeline::new(kernel.clone(), kernel.extension_snapshot());
+    // 契约 §2.2：整段 plan 的 wall-clock（包含 LLM 等待）落一条 route 样本。
+    // started_at_ms 取 plan 开始时刻（时间窗口过滤口径），耗时用 Instant 单调时钟。
+    let started_at_ms = chrono::Utc::now().timestamp_millis();
+    let started = std::time::Instant::now();
     let (plan, trace) = pipeline
         .plan(PlannerInput {
             text: text.clone(),
@@ -174,6 +205,8 @@ async fn route_via_pipeline(
             snapshot,
         })
         .await?;
+    let latency_ms = started.elapsed().as_millis() as i64;
+    record_route_sample(&kernel, started_at_ms, latency_ms, &trace);
 
     // Phase B (R1 finding 1): 记忆注入影响 LLM 决策，必须可解释 —— 本次规划
     // 若注入了长期记忆事实，落 `memory_injected` 审计（占位 task 满足 FK，
@@ -310,5 +343,42 @@ mod tests {
             "expected Routed to form.prepare, got {:?}",
             result
         );
+    }
+
+    /// Task 2（契约 §2.2 / 勘误 #11）：每次路由落一条 route 样本，
+    /// 不建占位 task、不写审计。
+    #[test]
+    fn route_text_writes_route_latency_sample_without_task_or_audit() {
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        let approver = AutoApprover;
+        let _ = route_text(&kernel, &approver, "帮我填这个表单").unwrap();
+
+        let conn = kernel.conn();
+        let (route_kind, cache_hit, latency_ms): (String, i64, i64) = conn
+            .query_row(
+                "SELECT route_kind, cache_hit, latency_ms FROM voice_latency_samples",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(route_kind, "keyword", "keyword route must be tagged");
+        assert_eq!(cache_hit, 0);
+        assert!(latency_ms >= 0, "latency_ms must be non-negative");
+
+        let sample_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM voice_latency_samples", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(sample_count, 1, "exactly one sample per route call");
+
+        let tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        let audits: i64 = conn
+            .query_row("SELECT COUNT(*) FROM audit_logs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 0, "route sampling must not create tasks");
+        assert_eq!(audits, 0, "route sampling must not append audit events");
     }
 }

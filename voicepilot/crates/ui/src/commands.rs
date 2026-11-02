@@ -323,6 +323,10 @@ pub fn register_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
         crate::settings_commands::test_llm_command,
         crate::audit_commands::list_audit_recent_command,
         crate::model_download_commands::download_model_command,
+        // Task 2: 一键撤销 + 可观测面板（两处 generate_handler! 必须同时注册）
+        crate::undo_commands::list_compensable_actions_command,
+        crate::undo_commands::undo_compensation_command,
+        crate::observability_commands::get_observability_command,
         // W8 Plan 5: DAG 相关命令
         crate::dag_commands::approve_dag_skeleton_command,
         crate::dag_commands::list_dag_history_command,
@@ -384,6 +388,10 @@ pub fn register_handlers_with_voice(
         crate::dag_commands::list_dag_history_command,
         crate::dag_commands::get_dag_plan_command,
         crate::dag_commands::get_task_explanation_command,
+        // Task 2: 一键撤销 + 可观测面板（两处 generate_handler! 必须同时注册）
+        crate::undo_commands::list_compensable_actions_command,
+        crate::undo_commands::undo_compensation_command,
+        crate::observability_commands::get_observability_command,
         // Phase C: 后台定时作业命令
         crate::scheduler_commands::list_agent_jobs_command,
         crate::scheduler_commands::list_job_runs_command,

@@ -37,6 +37,10 @@ const MIGRATION_011: &str = include_str!("migrations/011_memory_facts.sql");
 // Phase C: agent_jobs + agent_job_runs 表（进程内后台作业）。
 // CREATE ... IF NOT EXISTS 幂等，单次 execute_batch 足够。
 const MIGRATION_012: &str = include_str!("migrations/012_agent_jobs.sql");
+// Task 2（契约 §2.1）：voice_latency_samples 增加 route_kind + cache_hit 列
+// 与 (route_kind, started_at_ms) 索引。两条 ALTER 无法 IF NOT EXISTS，
+// 用 003/005 同款「逐条执行 + 吞掉 duplicate column name」保证幂等。
+const MIGRATION_013: &str = include_str!("migrations/013_route_latency_kind.sql");
 
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -130,6 +134,27 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(MIGRATION_011)?;
     // Phase C: 012 创建 agent_jobs + agent_job_runs 表。幂等，单次 execute_batch 足够。
     conn.execute_batch(MIGRATION_012)?;
+    // Task 2: 013 给 voice_latency_samples 加 route_kind + cache_hit 列并建
+    // (route_kind, started_at_ms) 索引。ALTER TABLE 不支持 IF NOT EXISTS，
+    // 故与 003/005 同构：按 ';' 切分、剥掉 `--` 注释行、逐条执行，
+    // 并把「重复列名」错误吞掉，保证每次启动重复执行都幂等。
+    for stmt in MIGRATION_013.split(';') {
+        let stripped: String = stmt
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let trimmed = stripped.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Err(e) = conn.execute(trimmed, []) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                return Err(e.into());
+            }
+        }
+    }
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -240,6 +265,66 @@ mod tests {
             "table must have privacy_mode column: {}",
             sql
         );
+    }
+
+    /// Task 2: migration 013 必须给 voice_latency_samples 加 route_kind + cache_hit
+    /// 列与 idx_voice_latency_route 索引，且重复执行（重启再跑 migrations）幂等。
+    #[test]
+    fn migration_013_adds_route_columns_and_is_idempotent() {
+        let conn = open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        // 幂等：已迁移过的库再跑一遍不能报 duplicate column name。
+        run_migrations(&conn).unwrap();
+
+        let sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='voice_latency_samples'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("route_kind"),
+            "table must have route_kind column: {}",
+            sql
+        );
+        assert!(
+            sql.contains("cache_hit"),
+            "table must have cache_hit column: {}",
+            sql
+        );
+
+        let index_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_voice_latency_route'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            index_exists,
+            "idx_voice_latency_route index must exist after migration 013"
+        );
+
+        // 历史行（不写新列）由 DEFAULT 补齐。
+        conn.execute(
+            "INSERT INTO voice_latency_samples (started_at_ms, latency_ms, model, privacy_mode)
+             VALUES (1, 2, 'sense_voice', 0)",
+            [],
+        )
+        .unwrap();
+        let (route_kind, cache_hit): (String, i64) = conn
+            .query_row(
+                "SELECT route_kind, cache_hit FROM voice_latency_samples",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            route_kind, "voice",
+            "legacy rows default to route_kind='voice'"
+        );
+        assert_eq!(cache_hit, 0, "legacy rows default to cache_hit=0");
     }
 
     /// Task 4: migration 009 必须创建 turns 表。

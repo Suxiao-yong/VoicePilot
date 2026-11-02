@@ -4,6 +4,7 @@
 //! 1. `audit_registry_all_lower_snake_case` — registry 命名规范(编译时常量)
 //! 2. `audit_emit_warns_on_unknown_event_type` — emit "unknown_event" 触发 warn
 //! 3. `audit_coverage_default_full` — default feature 28/28 = 100% 覆盖
+//!    (全量 registry 32 种,default 不可达 4 种)
 //!
 //! **不写文件级 cfg gate** —— 让 default 组合(--no-default-features)也能编译运行此文件。
 //! tracing_test dev-dep 在 default 下可用(不依赖任何 feature)。
@@ -89,7 +90,7 @@ fn audit_emit_warns_on_unknown_event_type() {
 /// "registry 完整性 + coverage 机制",E2E 触发已有测试。
 #[test]
 fn audit_coverage_default_full() {
-    // default feature 可达的 28 种 event_type(31 - 3 不可达)
+    // default feature 可达的 28 种 event_type(32 - 4 不可达)
     const DEFAULT_REACHABLE: &[&str] = &[
         // W1-W3 基础(kernel.rs)
         "task_created",
@@ -163,14 +164,18 @@ fn audit_coverage_default_full() {
         ratio
     );
 
-    // 额外验证:全量 registry(31 种)checker 报告 28/31
+    // 额外验证:全量 registry(32 种)checker 报告 28/32
     let full_checker = AuditCoverageChecker::new(&kernel);
     let full_uncovered = full_checker.uncovered().unwrap();
     assert_eq!(
         full_uncovered.len(),
-        3,
-        "full registry (31) must have 3 uncovered (voice_started / stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed), got: {:?}",
+        4,
+        "full registry (32) must have 4 uncovered (voice_started / stronghold_snapshot_encrypted / stronghold_snapshot_decrypt_failed / mcp_policy_decision), got: {:?}",
         full_uncovered
+    );
+    assert!(
+        full_uncovered.contains(&"mcp_policy_decision".to_string()),
+        "mcp_policy_decision must be uncovered in default feature (仅 MCP 调度路径 emit)"
     );
     assert!(
         full_uncovered.contains(&"voice_started".to_string()),

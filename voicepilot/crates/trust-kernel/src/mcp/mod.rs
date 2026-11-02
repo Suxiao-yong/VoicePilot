@@ -6,6 +6,8 @@
 
 pub mod client;
 pub mod handler;
+// Task 1: MCP 工具调用接入统一策略网关（Cedar + E×D + taint）。
+pub mod policy;
 pub mod repo;
 pub mod schema;
 pub mod server;

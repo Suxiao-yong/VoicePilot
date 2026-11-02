@@ -25,19 +25,24 @@ use std::sync::Arc;
 
 use trust_kernel::approval::approver::{Approver, AutoApprover, AutoDenier};
 use trust_kernel::kernel::TrustKernel;
+#[cfg(feature = "voice")]
 use trust_kernel::llm::client::LlmClient;
 use trust_kernel::policy::types::ELevel;
+#[cfg(feature = "voice")]
 use trust_kernel::repo::step_repo::{StepRecord, StepStatus};
 use trust_kernel::skills::dag_executor::DagExecutor;
 use trust_kernel::skills::dag_repo::DagRepo;
 use trust_kernel::skills::dag_types::{
     DagEdge, DagNode, DagNodeStatus, DagPlan, DagStatus, IterableSource, LoopSpec,
 };
+#[cfg(feature = "voice")]
 use trust_kernel::skills::explanation_repo::TaskExplanationRepo;
 #[cfg(feature = "voice")]
 use trust_kernel::skills::task_explain::{TaskExplainInput, execute_task_explain_with_llm};
 use trust_kernel::skills::template::{SlotKind, SlotTemplate, TemplateExpr};
+#[cfg(feature = "voice")]
 use wiremock::matchers::{method, path};
+#[cfg(feature = "voice")]
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ===== 共享 helpers =====
@@ -61,6 +66,7 @@ fn literal_number_template(value: &str) -> SlotTemplate {
 /// 构造 task.explain 节点。template 用 JSON 字符串字面量,
 /// dispatcher 会通过 `serde_json::from_str` 把 String 解析回 Object,
 /// 让 `extract_u32("limit")` 能命中。
+#[cfg(feature = "voice")]
 fn explain_node(id: &str, limit: u32) -> DagNode {
     DagNode {
         node_id: id.into(),
@@ -71,6 +77,7 @@ fn explain_node(id: &str, limit: u32) -> DagNode {
 }
 
 /// 构造 wiremock mock 返回的 OpenAI-compatible decompose_to_dag 响应 body。
+#[cfg(feature = "voice")]
 fn llm_decompose_response_body(plan_json: &str) -> serde_json::Value {
     serde_json::json!({
         "choices": [{
@@ -91,6 +98,7 @@ fn llm_decompose_response_body(plan_json: &str) -> serde_json::Value {
 }
 
 /// 构造 wiremock mock 返回的 OpenAI-compatible explain_failure 响应 body。
+#[cfg(feature = "voice")]
 fn llm_explain_response_body(
     root_cause_zh: &str,
     category: &str,
@@ -120,6 +128,7 @@ fn llm_explain_response_body(
 }
 
 /// Mount a wiremock returning `body` for POST /chat/completions.
+#[cfg(feature = "voice")]
 async fn mount_chat_completions(server: &MockServer, body: serde_json::Value) {
     Mock::given(method("POST"))
         .and(path("/chat/completions"))

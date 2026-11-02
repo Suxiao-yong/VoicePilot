@@ -1158,7 +1158,7 @@ mod fastroute_tests {
         // 无链接：资源名 → yt-dlp 原生搜索表达式，自行找源再下载。
         let m = slots_to_map(&parse_download("下载晴天").unwrap());
         assert_eq!(m["url"], "ytsearch1:晴天");
-        assert!(m.get("audio_only").is_none());
+        assert!(!m.contains_key("audio_only"));
         // “一首”暗示歌曲 → audio_only。
         let m = slots_to_map(&parse_download("下载一首晴天").unwrap());
         assert_eq!(m["url"], "ytsearch1:晴天");

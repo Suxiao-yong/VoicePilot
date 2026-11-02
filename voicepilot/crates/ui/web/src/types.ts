@@ -476,3 +476,71 @@ export interface TaskExplainFull {
       failed_tool_calls: FailedToolCall[];
       llm_analysis: TaskExplanation | null;
 }
+
+// ===== Task 2：一键撤销（Undo）+ 延迟/缓存可观测面板 DTO（后端 undo_commands / observability_commands 镜像） =====
+
+/** 可补偿（可撤销）动作，映射后端 `CompensationRecord`（仅 status='active'）。 */
+export interface CompensableAction {
+      comp_id: string;
+      /** 被补偿的原始 step_id，撤销时作为 target_step_id。 */
+      step_id: string;
+      level: string;
+      status: string;
+      ttl_expires: string;
+      description: string;
+}
+
+/** 撤销入参：task_id / step_id 为本次撤销操作新建的 id，target_step_id 指向原步骤。 */
+export interface UndoInput {
+      task_id: string;
+      step_id: string;
+      target_step_id: string;
+}
+
+/** 撤销结果；成功时 compensation_status 为 "reversed"。 */
+export interface UndoResult {
+      committed: boolean;
+      compensation_status: string;
+      summary: string;
+      error: string | null;
+}
+
+/** 单路由通道的延迟分位。 */
+export interface RouteLatencyBucket {
+      route_kind: string;
+      sample_count: number;
+      p50_ms: number;
+      p95_ms: number;
+      p99_ms: number;
+      max_ms: number;
+}
+
+/** route cache 命中率（hits / (hits + misses)）。 */
+export interface CacheStats {
+      hits: number;
+      misses: number;
+      hit_rate: number;
+}
+
+/** DAG 拆解 token 消耗（来自 llm_decompose_called 审计）。 */
+export interface DagTokenStats {
+      plans: number;
+      total_tokens: number;
+      avg_tokens: number;
+}
+
+/** 审计哈希链完整性。 */
+export interface AuditChainStatus {
+      valid: boolean;
+      checked: number;
+      broken_at: string | null;
+}
+
+/** 可观测面板快照（窗口默认 24 小时）。 */
+export interface ObservabilitySnapshot {
+      window_hours: number;
+      routes: RouteLatencyBucket[];
+      cache: CacheStats;
+      dag_tokens: DagTokenStats;
+      audit_chain: AuditChainStatus;
+}

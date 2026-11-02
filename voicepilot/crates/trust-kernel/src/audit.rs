@@ -26,6 +26,14 @@ pub struct AuditEvent {
     pub hash: String,
 }
 
+/// Task 3: SHA-256 哈希链完整性校验结果。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChainVerification {
+    pub valid: bool,
+    pub checked: usize,
+    pub broken_at: Option<String>,
+}
+
 /// SQLite-backed audit logger. Shares its connection with the kernel via
 /// `Arc<Mutex<Connection>>` so audit writes are visible to subsequent reads
 /// in the same transaction sequence.
@@ -160,6 +168,62 @@ impl SqliteAuditLogger {
         Ok(out)
     }
 
+    /// Task 3: 逐行重算 SHA-256 哈希链，返回完整性结果。
+    ///
+    /// 每个 task 独立成链（`prev_hash` 指向同 task 的上一条）。按
+    /// `timestamp ASC, log_id ASC` 遍历（与 `append` 的 `last_hash_for_task`
+    /// 同序），对每行：① 重算 hash 比对 ② 校验 prev_hash 等于链上前一条的 hash。
+    /// 任一失败 → `valid=false` + `broken_at=Some(log_id)`，不继续。
+    pub fn verify_chain(&self) -> Result<ChainVerification> {
+        let conn = self.conn.lock().expect("conn poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT log_id, task_id, step_id, event_type, details, timestamp, prev_hash, hash
+             FROM audit_logs ORDER BY timestamp ASC, log_id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let details_str: String = row.get(4)?;
+            let ts_str: String = row.get(5)?;
+            Ok(AuditEvent {
+                log_id: row.get(0)?,
+                task_id: row.get(1)?,
+                step_id: row.get(2)?,
+                event_type: row.get(3)?,
+                details: serde_json::from_str(&details_str).unwrap_or(serde_json::Value::Null),
+                timestamp: chrono::DateTime::parse_from_rfc3339(&ts_str)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                prev_hash: row.get(6)?,
+                hash: row.get(7)?,
+            })
+        })?;
+
+        let mut last_hash_by_task: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut checked = 0usize;
+        for row in rows {
+            let event = row?;
+            let recomputed = Self::compute_hash(&event);
+            let link_ok = match last_hash_by_task.get(&event.task_id) {
+                Some(previous) => event.prev_hash.as_deref() == Some(previous.as_str()),
+                None => event.prev_hash.is_none(),
+            };
+            if recomputed != event.hash || !link_ok {
+                return Ok(ChainVerification {
+                    valid: false,
+                    checked,
+                    broken_at: Some(event.log_id),
+                });
+            }
+            last_hash_by_task.insert(event.task_id.clone(), event.hash.clone());
+            checked += 1;
+        }
+        Ok(ChainVerification {
+            valid: true,
+            checked,
+            broken_at: None,
+        })
+    }
+
     pub fn list_for_task(&self, task_id: &str) -> Result<Vec<AuditEvent>> {
         let conn = self.conn.lock().expect("conn poisoned");
         let mut stmt = conn.prepare(
@@ -250,6 +314,10 @@ pub const AUDIT_EVENT_TYPE_REGISTRY: &[&str] = &[
     "secret_migration",
     // Phase B: 本次规划向 LLM 注入了长期记忆事实（details 只含 fact ids）。
     "memory_injected",
+    // Task 1（feat/mcp-gateway-web-service）: 外部 MCP 工具调用的策略裁决
+    // （details 含 server_id / tool_name / effect / E×D / matched_policies，
+    // 绝不含参数原文）。
+    "mcp_policy_decision",
 ];
 
 /// W10 Plan 5: 校验 event_type 是否在 AUDIT_EVENT_TYPE_REGISTRY 中(spec §7.2)。
@@ -265,11 +333,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_contains_31_event_types() {
+    fn registry_contains_32_event_types() {
         assert_eq!(
             AUDIT_EVENT_TYPE_REGISTRY.len(),
-            31,
-            "registry must contain exactly 31 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + Phase B memory_injected)"
+            32,
+            "registry must contain exactly 32 event types (spec §7.1 + llm_explain_called + malicious_server_detected + secret_migration + Phase B memory_injected + Task 1 mcp_policy_decision)"
         );
     }
 

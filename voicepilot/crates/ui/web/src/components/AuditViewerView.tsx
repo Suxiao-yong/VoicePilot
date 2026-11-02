@@ -1,6 +1,21 @@
 import { useEffect, useState } from "react";
-import { listAuditRecent, listAuditForTask } from "../api";
-import type { AuditEvent } from "../types";
+import {
+  listAuditRecent,
+  listAuditForTask,
+  listCompensableActions,
+  getObservability,
+} from "../api";
+import type {
+  AuditEvent,
+  CompensableAction,
+  ObservabilitySnapshot,
+} from "../types";
+import { UndoButton } from "./UndoButton";
+
+/** 延迟分位展示：无样本显示 "—"，否则 "N ms"。 */
+function fmtMs(value: number | undefined): string {
+  return value === undefined ? "—" : `${value} ms`;
+}
 
 export function AuditViewerView(): JSX.Element {
   const [recent, setRecent] = useState<AuditEvent[]>([]);
@@ -8,6 +23,9 @@ export function AuditViewerView(): JSX.Element {
   const [taskEvents, setTaskEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Task 2：延迟 / 缓存可观测快照 + 可补偿动作列表。
+  const [snapshot, setSnapshot] = useState<ObservabilitySnapshot | null>(null);
+  const [compensable, setCompensable] = useState<CompensableAction[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -22,6 +40,24 @@ export function AuditViewerView(): JSX.Element {
       });
   }, []);
 
+  // 可观测面板与撤销列表：独立加载，失败不阻塞审计时间线。
+  useEffect(() => {
+    let cancelled = false;
+    getObservability()
+      .then((s) => {
+        if (!cancelled) setSnapshot(s);
+      })
+      .catch(() => undefined);
+    listCompensableActions()
+      .then((actions) => {
+        if (!cancelled) setCompensable(actions);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleSelectTask = (taskId: string): void => {
     setSelectedTask(taskId);
     setError(null);
@@ -34,6 +70,16 @@ export function AuditViewerView(): JSX.Element {
 
   const uniqueTaskIds = Array.from(new Set(recent.map((e) => e.task_id)));
 
+  const bucket = (kind: string): ObservabilitySnapshot["routes"][number] | undefined =>
+    snapshot?.routes.find((r) => r.route_kind === kind);
+  const fast = bucket("fastroute");
+  const keyword = bucket("keyword");
+  const llm = bucket("llm");
+  const hitRate =
+    snapshot === null
+      ? "—"
+      : `${(snapshot.cache.hit_rate * 100).toFixed(1)}%`;
+
   return (
     <section aria-labelledby="audit-heading">
       <header className="view-head">
@@ -45,6 +91,73 @@ export function AuditViewerView(): JSX.Element {
           防篡改哈希链审计记录。选择任务查看完整事件时间线。
         </p>
       </header>
+
+      {/* Task 2：可观测指标卡（路由延迟分位 / 缓存命中率 / 审计链完整性） */}
+      <div className="org-summary" aria-label="可观测指标">
+        <div className="org-stat">
+          <div className="k">快路由 P50 / P95</div>
+          <div className="v">
+            {fmtMs(fast?.p50_ms)} / {fmtMs(fast?.p95_ms)}
+          </div>
+        </div>
+        <div className="org-stat">
+          <div className="k">关键词 P50 / P95</div>
+          <div className="v">
+            {fmtMs(keyword?.p50_ms)} / {fmtMs(keyword?.p95_ms)}
+          </div>
+        </div>
+        <div className="org-stat">
+          <div className="k">LLM P50 / P95</div>
+          <div className="v">
+            {fmtMs(llm?.p50_ms)} / {fmtMs(llm?.p95_ms)}
+          </div>
+        </div>
+        <div className="org-stat">
+          <div className="k">缓存命中率 / 审计链</div>
+          <div className="v">{hitRate}</div>
+          <div className="mono-sm">
+            审计链：
+            {snapshot === null
+              ? "—"
+              : snapshot.audit_chain.valid
+                ? `完整（${snapshot.audit_chain.checked} 条）`
+                : "已损坏"}
+          </div>
+        </div>
+      </div>
+
+      {/* Task 2：可补偿动作列表（一键撤销入口） */}
+      <div className="card card-gap">
+        <div className="card-head">
+          <div>
+            <h2 className="card-title">
+              <span className="tick" aria-hidden="true" />
+              可补偿动作
+            </h2>
+            <p className="card-desc">
+              仍在 TTL 内的副作用可一键回滚；回滚后补偿记录标记为 reversed
+            </p>
+          </div>
+        </div>
+        {compensable.length === 0 && (
+          <p className="empty">暂无可撤销动作</p>
+        )}
+        <ul className="tl-list" aria-label="可补偿动作列表">
+          {compensable.map((action) => (
+            <li key={action.comp_id} className="tl-item">
+              <div className="tl-head">
+                <span className="tl-event">{action.description}</span>
+                <span className="pill">{action.level}</span>
+              </div>
+              <div className="tl-meta">
+                <span>step: {action.step_id}</span>
+                <span>ttl: {action.ttl_expires}</span>
+                <UndoButton action={action} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {loading && (
         <div role="status" aria-live="polite">

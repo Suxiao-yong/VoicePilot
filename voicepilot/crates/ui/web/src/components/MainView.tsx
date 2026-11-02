@@ -17,6 +17,7 @@ import {
   isVoiceEnabled,
   checkModel,
   onPetEditText,
+  listCompensableActions,
 } from "../api";
 
 // ponytail: preview-safe wrappers — direct Tauri events/file APIs crash in http://localhost:4173 without __TAURI_INTERNALS__
@@ -52,9 +53,11 @@ import type {
   VoiceListenResult,
   TranscriptionFinalPayload,
   Slot,
+  CompensableAction,
 } from "../types";
 import { Chip } from "./Chip";
 import { SlotEditDialog } from "./SlotEditDialog";
+import { UndoButton } from "./UndoButton";
 import { Icon } from "../icons";
 
 export function MainView() {
@@ -142,6 +145,16 @@ export function MainView() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Task 2：可补偿动作列表 —— Skill 执行成功后刷新，供结果卡片渲染 UndoButton。
+  const [compensableActions, setCompensableActions] = useState<
+    CompensableAction[]
+  >([]);
+  const refreshCompensableActions = (): void => {
+    listCompensableActions()
+      .then(setCompensableActions)
+      .catch(() => undefined);
+  };
 
   // ===== Push-to-talk + TTS =====
   const [pttActive, setPttActive] = useState(false);
@@ -581,6 +594,8 @@ export function MainView() {
             skillId={routeResult.skill_id}
             slots={routeResult.slots}
             sourceText={text}
+            compensableActions={compensableActions}
+            onExecuted={refreshCompensableActions}
             onDismiss={() => setRouteResult(null)}
           />
         ) : (
@@ -732,14 +747,22 @@ export function SkillExecuteCard({
   slots,
   sourceText,
   onDismiss,
+  compensableActions,
+  onExecuted,
 }: {
   skillId: string;
   slots: Slot[];
   sourceText: string;
   onDismiss: () => void;
+  /** Task 2：父组件刷新的可补偿动作列表（未传则不渲染 UndoButton）。 */
+  compensableActions?: CompensableAction[];
+  /** Task 2：执行结束回调（父组件据此刷新可补偿列表）。 */
+  onExecuted?: (stepId: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ExecuteSkillResult | null>(null);
+  // Task 2：本次执行的 step_id —— 用于匹配可补偿动作（一键撤销入口）。
+  const [execStepId, setExecStepId] = useState<string | null>(null);
   // app_control 走专用组装器（别名归一+动作推断，取不到 app 返回 null）；
   // 其余 Skill 走通用组装器（kind 即 input 名），恒为对象，执行键常开。
   const slotsJson = skillId.includes("app_control")
@@ -749,9 +772,12 @@ export function SkillExecuteCard({
   async function onExecute(): Promise<void> {
     if (!slotsJson) return;
     setBusy(true);
+    const input = newExecuteInput(skillId, slotsJson);
     try {
-      const r = await executeSkill(newExecuteInput(skillId, slotsJson));
+      const r = await executeSkill(input);
       setResult(r);
+      setExecStepId(input.step_id);
+      onExecuted?.(input.step_id);
     } catch (e) {
       setResult({
         committed: false,
@@ -762,6 +788,11 @@ export function SkillExecuteCard({
       setBusy(false);
     }
   }
+
+  // Task 2：本次执行的 step 命中可补偿记录 → 结果卡片内提供一键撤销。
+  const undoAction = execStepId
+    ? compensableActions?.find((a) => a.step_id === execStepId)
+    : undefined;
 
   const denied =
     result && !result.committed && /denied/i.test(result.error ?? "");
@@ -821,6 +852,7 @@ export function SkillExecuteCard({
           <div className="result-sub">
             <span className="pill pill-on">执行成功</span>
             <span className="mono-sm">{result.summary}</span>
+            {undoAction && <UndoButton action={undoAction} />}
           </div>
         )}
         {result && !result.committed && denied && (

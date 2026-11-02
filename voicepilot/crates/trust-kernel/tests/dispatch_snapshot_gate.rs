@@ -211,8 +211,7 @@ fn dispatch_rejects_display_only_extension_before_executor_runs() {
     fs::create_dir_all(&skills_dir).expect("create temporary user Skills directory");
     let kernel = TrustKernel::open_in_memory_with_user_skills_dir(skills_dir.clone())
         .expect("open in-memory kernel with temporary user Skills directory");
-    std::fs::create_dir_all(skills_dir.join(format!("{skill_id}")).as_path())
-        .expect("create skill dir");
+    std::fs::create_dir_all(skills_dir.join(&skill_id).as_path()).expect("create skill dir");
     fs::write(
         skills_dir.join(format!("{skill_id}/SKILL.md")),
         display_only_skill_md(&skill_id),

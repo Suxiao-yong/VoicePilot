@@ -39,6 +39,25 @@ pub struct LatencyStats {
     pub max_ms: i64,
 }
 
+/// 按路由通道(route_kind)分组的延迟统计结果(契约 §2.1，可观测面板数据源)。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteLatencyStats {
+    pub route_kind: String,
+    pub sample_count: u64,
+    pub p50_ms: i64,
+    pub p95_ms: i64,
+    pub p99_ms: i64,
+    pub max_ms: i64,
+}
+
+/// P 分位索引(0-based)= ceil(n * P / 100) - 1，clamp 到 [0, n-1]。
+/// `compute_stats` 与 `compute_route_stats` 共用同一公式，避免口径漂移。
+fn percentile_value(sorted: &[i64], p: u64) -> i64 {
+    let n = sorted.len();
+    let idx = ((n as u64 * p).div_ceil(100)) as usize;
+    sorted[idx.saturating_sub(1).min(n - 1)]
+}
+
 /// 从 voice_latency_samples 表计算延迟统计。
 ///
 /// `since`:可选的 epoch ms 下界,仅统计 started_at_ms >= since 的样本。
@@ -78,19 +97,94 @@ pub fn compute_stats(conn: &Connection, since: Option<i64>) -> Result<LatencySta
         });
     }
 
-    let percentile = |p: u64| -> i64 {
-        // P 索引(0-based)= ceil(n * P / 100) - 1,clamp 到 [0, n-1]
-        let idx = ((n as u64 * p).div_ceil(100)) as usize;
-        latencies[idx.saturating_sub(1).min(n - 1)]
-    };
-
     Ok(LatencyStats {
         sample_count: n as u64,
-        p50_ms: percentile(50),
-        p95_ms: percentile(95),
-        p99_ms: percentile(99),
+        p50_ms: percentile_value(&latencies, 50),
+        p95_ms: percentile_value(&latencies, 95),
+        p99_ms: percentile_value(&latencies, 99),
         max_ms: *latencies.last().unwrap(),
     })
+}
+
+/// 按 route_kind 分组计算延迟统计(契约 §2.1)。
+///
+/// `since`:可选 epoch ms 下界，仅统计 started_at_ms >= since 的样本；None = 全部。
+/// 分组口径与 `compute_stats` 完全一致(P 索引 = ceil(n*P/100)-1)。
+/// 空表返回空 Vec(不补零行，调用方按缺失即无样本处理)。
+pub fn compute_route_stats(
+    conn: &Connection,
+    since: Option<i64>,
+) -> Result<Vec<RouteLatencyStats>> {
+    let sql = if since.is_some() {
+        "SELECT route_kind, latency_ms FROM voice_latency_samples \
+         WHERE started_at_ms >= ?1 ORDER BY route_kind ASC, latency_ms ASC"
+    } else {
+        "SELECT route_kind, latency_ms FROM voice_latency_samples \
+         ORDER BY route_kind ASC, latency_ms ASC"
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = if let Some(since_ms) = since {
+        stmt.query_map(params![since_ms], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?
+    } else {
+        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+
+    // 行已按 (route_kind, latency_ms) 升序，顺序扫一遍即可分组且组内有序。
+    let mut out: Vec<RouteLatencyStats> = Vec::new();
+    let mut current: Option<(String, Vec<i64>)> = None;
+    let flush = |group: Option<(String, Vec<i64>)>, out: &mut Vec<RouteLatencyStats>| {
+        if let Some((route_kind, latencies)) = group {
+            if !latencies.is_empty() {
+                out.push(RouteLatencyStats {
+                    sample_count: latencies.len() as u64,
+                    p50_ms: percentile_value(&latencies, 50),
+                    p95_ms: percentile_value(&latencies, 95),
+                    p99_ms: percentile_value(&latencies, 99),
+                    max_ms: *latencies.last().unwrap(),
+                    route_kind,
+                });
+            }
+        }
+    };
+    for (route_kind, latency_ms) in rows {
+        match &mut current {
+            Some((kind, latencies)) if *kind == route_kind => latencies.push(latency_ms),
+            _ => {
+                flush(current.take(), &mut out);
+                current = Some((route_kind, vec![latency_ms]));
+            }
+        }
+    }
+    flush(current.take(), &mut out);
+    Ok(out)
+}
+
+/// 直接写入一条路由延迟样本(契约 §2.1 / 勘误 #11)。
+///
+/// **不得复用 `TrustKernel::record_voice_latency_sample`** —— 那个函数会建占位
+/// task + 写 `voice_started` 审计，路由采样每次规划都写会污染哈希链与任务表。
+/// 本函数只做一条 INSERT：不建 task、不写审计。
+///
+/// `route_kind`:"fastroute" | "keyword" | "llm" | "cache"(voice 行由 008/既有路径写)。
+/// `model` 列填 `"route"` 标记非语音样本，`privacy_mode` 固定 0(与语音样本区分)。
+pub fn record_route_sample(
+    conn: &Connection,
+    started_at_ms: i64,
+    latency_ms: i64,
+    route_kind: &str,
+    cache_hit: bool,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO voice_latency_samples
+            (started_at_ms, latency_ms, model, privacy_mode, route_kind, cache_hit)
+         VALUES (?1, ?2, 'route', 0, ?3, ?4)",
+        params![started_at_ms, latency_ms, route_kind, cache_hit as i64],
+    )?;
+    Ok(())
 }
 
 /// 清理早于指定天数的延迟样本(spec §5.2 v2 修订 #15)。
@@ -201,7 +295,9 @@ mod tests {
                 started_at_ms INTEGER NOT NULL,
                 latency_ms INTEGER NOT NULL,
                 model TEXT NOT NULL,
-                privacy_mode INTEGER NOT NULL DEFAULT 0
+                privacy_mode INTEGER NOT NULL DEFAULT 0,
+                route_kind TEXT NOT NULL DEFAULT 'voice',
+                cache_hit INTEGER NOT NULL DEFAULT 0
             );",
         )
         .unwrap();
@@ -389,7 +485,6 @@ mod tests {
     }
 
     // ===== LatencyRecorder tests =====
-
     use crate::kernel::TrustKernel;
     use std::time::{Duration, SystemTime};
 
@@ -454,5 +549,116 @@ mod tests {
             })
             .unwrap();
         assert_eq!(privacy_mode, 1, "privacy_mode=1 for local only");
+    }
+
+    // ===== Task 2: 路由维度采样 / 分组统计（契约 §2.1） =====
+
+    #[test]
+    fn compute_route_stats_groups_by_route_kind() {
+        // 3 个通道各 2 样本，验证分组、样本数、分位数互不串。
+        let conn = open_conn_with_samples(&[]);
+        let rows = [
+            ("fastroute", 1_i64, 1000_i64),
+            ("fastroute", 3, 1002),
+            ("keyword", 10, 2000),
+            ("keyword", 20, 2001),
+            ("llm", 500, 3000),
+            ("llm", 700, 3001),
+        ];
+        for (kind, latency, started) in rows {
+            record_route_sample(&conn, started, latency, kind, kind == "cache").unwrap();
+        }
+
+        let stats = compute_route_stats(&conn, None).unwrap();
+        assert_eq!(stats.len(), 3, "one bucket per route_kind");
+        let by_kind = |k: &str| {
+            stats
+                .iter()
+                .find(|s| s.route_kind == k)
+                .unwrap_or_else(|| panic!("missing bucket {k}"))
+                .clone()
+        };
+
+        let fast = by_kind("fastroute");
+        assert_eq!(fast.sample_count, 2);
+        assert_eq!(fast.p50_ms, 1);
+        assert_eq!(fast.p95_ms, 3);
+        assert_eq!(fast.p99_ms, 3);
+        assert_eq!(fast.max_ms, 3);
+
+        let keyword = by_kind("keyword");
+        assert_eq!(keyword.sample_count, 2);
+        assert_eq!(keyword.p50_ms, 10);
+        assert_eq!(keyword.max_ms, 20);
+
+        let llm = by_kind("llm");
+        assert_eq!(llm.sample_count, 2);
+        assert_eq!(llm.p50_ms, 500);
+        assert_eq!(llm.p95_ms, 700);
+        assert_eq!(llm.max_ms, 700);
+    }
+
+    #[test]
+    fn compute_route_stats_empty_table_returns_empty_vec() {
+        let conn = open_conn_with_samples(&[]);
+        assert!(compute_route_stats(&conn, None).unwrap().is_empty());
+        assert!(compute_route_stats(&conn, Some(123)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn compute_route_stats_respects_since_window() {
+        let conn = open_conn_with_samples(&[]);
+        record_route_sample(&conn, 100, 1, "fastroute", false).unwrap();
+        record_route_sample(&conn, 200, 5, "fastroute", false).unwrap();
+        let stats = compute_route_stats(&conn, Some(150)).unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].sample_count, 1);
+        assert_eq!(stats[0].p50_ms, 5);
+    }
+
+    #[test]
+    fn record_route_sample_persists_cache_hit_as_zero_or_one() {
+        let conn = open_conn_with_samples(&[]);
+        record_route_sample(&conn, 10, 2, "cache", true).unwrap();
+        record_route_sample(&conn, 11, 3, "llm", false).unwrap();
+
+        let (hit_kind, hit): (String, i64) = conn
+            .query_row(
+                "SELECT route_kind, cache_hit FROM voice_latency_samples WHERE started_at_ms = 10",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(hit_kind, "cache");
+        assert_eq!(hit, 1, "cache_hit must be stored as INTEGER 1");
+
+        let (miss_kind, miss): (String, i64) = conn
+            .query_row(
+                "SELECT route_kind, cache_hit FROM voice_latency_samples WHERE started_at_ms = 11",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(miss_kind, "llm");
+        assert_eq!(miss, 0, "cache_hit must be stored as INTEGER 0");
+    }
+
+    #[test]
+    fn record_route_sample_does_not_create_task_or_audit() {
+        // 勘误 #11：路由采样走直接 INSERT，不得建占位 task / 写审计。
+        let kernel = TrustKernel::open_in_memory().unwrap();
+        {
+            let conn = kernel.conn();
+            record_route_sample(&conn, 10, 2, "fastroute", false).unwrap();
+        }
+        let conn = kernel.conn();
+        let tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+            .unwrap();
+        let audits: i64 = conn
+            .query_row("SELECT COUNT(*) FROM audit_logs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tasks, 0, "route sampling must not create tasks");
+        assert_eq!(audits, 0, "route sampling must not append audit events");
     }
 }

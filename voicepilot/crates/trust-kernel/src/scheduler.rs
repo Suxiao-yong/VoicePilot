@@ -858,13 +858,13 @@ mod tests {
             .with_timezone(&chrono::Local);
         let target_min = next_local.hour() * 60 + next_local.minute();
         let expected_min = 3 * 60 + 15;
-        let diff = (target_min as i32 - expected_min as i32).abs();
+        let diff = (target_min as i32 - expected_min).abs();
         assert!(
             diff <= 1,
             "daily next should hit 03:15 local, got {next_local}"
         );
         // 距离不超过 24h。
-        assert!(next - now <= 25 * 3600_000);
+        assert!(next - now <= 25 * 3_600_000);
     }
 
     #[test]

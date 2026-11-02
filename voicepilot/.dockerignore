@@ -1,0 +1,8 @@
+# Docker 构建上下文裁剪（配合 Dockerfile 的 `COPY . .`）。
+# 没有这一层，target/ 会把几 GB 的编译产物塞进上下文。
+target/
+.git/
+**/node_modules/
+*.db
+*.db-wal
+*.db-shm

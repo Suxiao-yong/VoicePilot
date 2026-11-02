@@ -63,3 +63,23 @@ forbid (
     action == Action::"shell_exec",
     resource
 );
+
+// Task 1: 外部 MCP 工具调用 —— 统一 action（工具身份在 resource.path
+// mcp://{server_id}/{tool_name}）。注解映射后的 E/D 决定最终 effect：
+// D3 由上面的 forbid_d3_read 统一硬拒，这里只放行非 D3。
+@id("allow_mcp_tool_call_non_d3")
+permit (
+    principal == User::"voicepilot",
+    action == Action::"mcp_tool_call",
+    resource
+)
+when { resource.data_class != "D3" };
+
+// 冗余但显式：D3 凭据永不进入外部 MCP 工具。
+@id("forbid_mcp_tool_call_d3")
+forbid (
+    principal,
+    action == Action::"mcp_tool_call",
+    resource
+)
+when { resource.data_class == "D3" };

@@ -196,12 +196,11 @@ pub fn dispatch_skill_executor(
     // enabled+trusted server filter was already applied at the snapshot
     // registration gate (registry.load).
     //
-    // Approved deviation (Wave 2 closeout, user decision): the plan's
-    // "manifest/risk → Gateway::decide" steps are NOT enforced on this path —
-    // the pre-existing MCP chain (invoke_mcp_tool, also used by builtin MCP
-    // executors) never had them, and MCP tool calls produce no effect
-    // manifest for a Cedar decision. Recorded in progress.md as a follow-up
-    // design item, not a silent gap.
+    // Task 1 (feat/mcp-gateway-web-service) closed the former Wave 2
+    // deviation: mcp_tool_call_checked now runs the same policy pipeline as
+    // builtin tools — annotation consistency, taint hard-deny, then
+    // `Gateway::decide` (Cedar + E×D + egress) — BEFORE tools/call, and
+    // audits the verdict as `mcp_policy_decision`. See mcp/policy.rs.
     let mut mcp_server_taint: Option<String> = None;
     let outcome = match execution_target {
         ExecutionTarget::Builtin { executor_id } => {
@@ -231,8 +230,14 @@ pub fn dispatch_skill_executor(
             // effect. Builtin MCP executors (research.save_markdown …) keep
             // their existing invoke_mcp_tool path — this arm is the only
             // place the pre-check runs.
-            let data =
-                mcp_tool_call_checked(kernel, &server_id, &tool_name, resolved_input.clone())?;
+            let data = mcp_tool_call_checked(
+                kernel,
+                task_id,
+                step_id,
+                &server_id,
+                &tool_name,
+                resolved_input.clone(),
+            )?;
             DispatchOutcome {
                 task_id: task_id.to_string(),
                 step_id: step_id.to_string(),
@@ -1010,14 +1015,22 @@ fn extension_source_label(source: &ExtensionSource) -> String {
 /// untouched.
 fn mcp_tool_call_checked(
     kernel: &TrustKernel,
+    task_id: &str,
+    step_id: &str,
     server_id: &str,
     tool_name: &str,
     args: serde_json::Value,
 ) -> Result<serde_json::Value> {
     // Shared lookup (same deterministic failures as invoke_mcp_tool).
-    let (command, args_vec, env_json) = {
+    // Task 1: 同一把锁里取 server 记录 —— 策略映射需要 server 身份
+    // (resource.path = mcp://{server_id}/{tool_name})。
+    let (command, args_vec, env_json, server_record) = {
         let conn = kernel.conn();
-        McpServerRepo::new().spawn_config(&conn, server_id)?
+        let (command, args_vec, env_json) = McpServerRepo::new().spawn_config(&conn, server_id)?;
+        let record = McpServerRepo::new()
+            .get(&conn, server_id)?
+            .ok_or_else(|| KernelError::Mcp(format!("MCP server '{server_id}' not found")))?;
+        (command, args_vec, env_json, record)
     };
     // Phase A 密钥收编：spawn 前解析 env 里的 keyring 引用（fail-closed）。
     let env_json = crate::skills::common::resolve_mcp_env(kernel, &env_json)?;
@@ -1037,6 +1050,11 @@ fn mcp_tool_call_checked(
     // for the timeout / baseline error messages.
     let worker_server_id = server_id.to_string();
     let worker_tool_name = tool_name.to_string();
+    // Task 1: 策略判定在 worker 内执行 —— annotations 只有 tools/list 之后才
+    // 可见，而判定必须发生在 tools/call 之前。
+    let policy_kernel = kernel.clone_arc();
+    let policy_task_id = task_id.to_string();
+    let policy_step_id = step_id.to_string();
     std::thread::spawn(move || {
         let outcome = (|| -> Result<serde_json::Value> {
             let mut client = McpClient::spawn_into(&command, &args_vec, &env_json, worker_slot)?;
@@ -1068,6 +1086,16 @@ fn mcp_tool_call_checked(
                 &worker_server_id,
                 &worker_tool_name,
                 &schema_hash,
+            )?;
+            // Task 1: 统一策略网关（annotation 校验 → taint 硬拒 → Cedar/E×D）。
+            // Allow 才继续 tools/call；Confirm/Deny 在网关层 fail-closed。
+            crate::mcp::policy::evaluate_mcp_call(
+                &policy_kernel,
+                &policy_task_id,
+                Some(&policy_step_id),
+                &server_record,
+                tool,
+                &args,
             )?;
             let result = client.invoke_tool(&worker_tool_name, args)?;
             enforce_mcp_output_limit(&result, limits.max_output_bytes).map_err(|e| {

@@ -34,6 +34,10 @@ import type {
   ModelStatus,
   DownloadProgressPayload,
   ImportMcpResult,
+  CompensableAction,
+  UndoInput,
+  UndoResult,
+  ObservabilitySnapshot,
 } from "./types";
 
 // ponytail: preview-safe guard — plain http://localhost:4173 has no Tauri internals,
@@ -59,6 +63,7 @@ async function tauriInvoke<T>(cmd: string, args?: unknown): Promise<T> {
         | boolean
         | string
         | { llm_api_key_present: boolean }
+        | Record<string, unknown>
         | unknown[]
         | null
         | undefined; // default 分支:未注册命令在 preview 下不可用
@@ -78,7 +83,16 @@ async function tauriInvoke<T>(cmd: string, args?: unknown): Promise<T> {
           case "list_user_skills_command":
           case "reload_skills_command":
           case "list_dag_history_command":
+          case "list_compensable_actions_command":
             return []; // -> 列表类型
+          case "get_observability_command":
+            return {
+              window_hours: 24,
+              routes: [],
+              cache: { hits: 0, misses: 0, hit_rate: 0 },
+              dag_tokens: { plans: 0, total_tokens: 0, avg_tokens: 0 },
+              audit_chain: { valid: true, checked: 0, broken_at: null },
+            }; // -> ObservabilitySnapshot
           case "get_dag_plan_command":
           case "get_task_explanation_command":
             return null; // -> 可空详情
@@ -631,4 +645,42 @@ export function onPetEditText(
   handler: (text: string) => void,
 ): Promise<UnlistenFn> {
   return tauriListen<string>("pet-edit-text", (e) => handler(e.payload));
+}
+
+// ===== Task 2：一键撤销（Undo）+ 延迟/缓存可观测面板 =====
+
+/**
+ * 组装 `UndoInput`：撤销操作本身也是 task.compensate Skill 的一次执行，
+ * 需要新的 task/step id（`undo-${timestamp}` / `s-undo-${timestamp}`），
+ * `target_step_id` 指向可补偿动作的原始 step。放模块级与 `newExecuteInput`
+ * 同风格：调用方（React 组件）在事件 handler 里直接用。
+ */
+export function newUndoInput(action: CompensableAction): UndoInput {
+  nonceSeq = (nonceSeq + 1) % 65536;
+  const now = Date.now();
+  const nonce = `${now.toString(36)}${nonceSeq.toString(36)}`;
+  return {
+    task_id: `undo-${now}-${nonce}`,
+    step_id: `s-undo-${now}-${nonce}`,
+    target_step_id: action.step_id,
+  };
+}
+
+/** 列出当前可撤销（status='active'）的补偿动作。 */
+export async function listCompensableActions(): Promise<CompensableAction[]> {
+  return tauriInvoke<CompensableAction[]>("list_compensable_actions_command");
+}
+
+/** 一键撤销：回滚目标步骤的副作用（成功后补偿记录 status="reversed"）。 */
+export async function undoCompensation(input: UndoInput): Promise<UndoResult> {
+  return tauriInvoke<UndoResult>("undo_compensation_command", { input });
+}
+
+/** 拉取可观测快照（默认窗口 24 小时）。 */
+export async function getObservability(
+  windowHours?: number,
+): Promise<ObservabilitySnapshot> {
+  return tauriInvoke<ObservabilitySnapshot>("get_observability_command", {
+    windowHours,
+  });
 }

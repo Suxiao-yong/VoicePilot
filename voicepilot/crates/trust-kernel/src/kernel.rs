@@ -823,6 +823,11 @@ impl TrustKernel {
         self.audit.list_for_task(task_id)
     }
 
+    /// Task 3: 校验全库审计 SHA-256 哈希链完整性（HTTP `/observability` 用）。
+    pub fn verify_audit_chain(&self) -> Result<crate::audit::ChainVerification> {
+        self.audit.verify_chain()
+    }
+
     /// Public entry point for external modules (MCP server, future IPC
     /// layers) to append audit events. V1.1 §6.1 — every MCP tools/call
     /// must leave an audit trail.

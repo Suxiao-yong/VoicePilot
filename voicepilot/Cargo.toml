@@ -58,6 +58,8 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 regex = "1"
 # W7: LLM + 用户自定义 Skill 解析(UIA 依赖在 Plan 4 添加)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde_yaml = "0.9"
 # W9 Plan 1: Stronghold 加密基础(spec §2.1 feature flag + §6.1 密钥管理)
