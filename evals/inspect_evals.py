@@ -35,9 +35,13 @@ TASKS_YAML = EVALS_DIR / "functional" / "100_tasks.yaml"
 
 def load_tasks() -> list[dict[str, Any]]:
     """加载 100_tasks.yaml,返回任务列表。"""
-    with open(TASKS_YAML, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return data["tasks"]
+    try:
+        with open(TASKS_YAML, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return data["tasks"]
+    except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+        # 评测集缺失/损坏时给出可读错误,而不是抛原始 traceback。
+        raise RuntimeError(f"failed to load {TASKS_YAML}: {e}") from e
 
 
 def call_voicepilot_eval(transcript: str, mode: str = "auto") -> dict[str, Any]:
@@ -59,6 +63,11 @@ def call_voicepilot_eval(transcript: str, mode: str = "auto") -> dict[str, Any]:
         env={**os.environ, "VOICEPILOT_DB": str(db_path)},
         capture_output=True,
         text=True,
+        # 必须显式指定 UTF-8：text=True 在 Windows 上走 locale 编码（GBK/cp1252），
+        # voicepilot eval 输出含中文的 JSON，解码会抛 UnicodeDecodeError 让
+        # stdout 变 None，进而 json.loads(None) 报 TypeError。
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
         cwd=str(PROJECT_ROOT),
     )
@@ -90,7 +99,11 @@ def voicepilot_functional_scorer():
     Fail: 否则
     """
     async def score(state: TaskState, target: Target):
-        expected = json.loads(target.text)
+        try:
+            expected = json.loads(target.text)
+        except json.JSONDecodeError as e:
+            # target 是任务集自带的期望值,损坏属于数据集问题,直接判 0 分并说明。
+            return Score(value=0, explanation=f"target not JSON: {e}")
         actual_str = state.output.completion
         try:
             actual = json.loads(actual_str)
